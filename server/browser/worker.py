@@ -264,6 +264,7 @@ def read_loaded_connection(page, day):
         date_ok=official(page.url) and parse_qs(urlsplit(page.url).query).get('do')==[day] and displayed_date_matches(value,day,True)
     if not date_ok:
         raise Blocked('Reisedatum hat sich geändert. Keine Buchung.')
+    found=apply_comfort_control_price(found,comfort_control_details(page,found))
     if found['displayedPriceCents'] is not None:
         price=f"{found['displayedPriceCents']/100:.2f}".replace('.',',')
         price_text=f'angezeigter Preis {price} €'
@@ -295,12 +296,10 @@ def prepare(page, day):
     return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
 
 
-def inspect_comfort(page, day):
-    result=prepare(page,day)
-    if result.get('status')!='connection_found': return result
+def comfort_control_details(page, connection):
     # Inspect the actual rendered controls, not prices from the adjacent class.
     # No click, cart mutation or checkout. Output only public class information.
-    detail=page.evaluate(r"""() => {
+    return page.evaluate(r"""(connection) => {
       const norm=s=>(s||'').replace(/\s+/g,' ').trim();
       const visible=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
       const classRe=/^2\+\s*\|?\s*Comfort(?: Class)?(?:\s|$)/i;
@@ -318,7 +317,7 @@ def inspect_comfort(page, day):
           const departures=t.match(departureRe)||[];
           if(departures.length>1)break;
           if(departures.length===1){
-            if(targetRe.test(t)&&/\b1009\b/.test(t)&&/\b18:49\b/.test(t))row=e;
+            if(targetRe.test(t)&&t.split(/\s+/).includes(connection.trainNumber)&&t.includes(connection.arrival))row=e;
             break;
           }
         }
@@ -350,7 +349,44 @@ def inspect_comfort(page, day):
           pointerEvents:control?getComputedStyle(control).pointerEvents:null,prices,availabilityMarkers:markers});
       }
       return {targetClassLabels:matches.length,controls:matches};
-    }""")
+    }""", {"trainNumber":connection["trainNumber"],"arrival":connection.get("arrival","18:49")})
+
+
+
+def apply_comfort_control_price(connection, detail):
+    """Use a unique enabled Comfort control as a public price source only."""
+    result=dict(connection)
+    controls=detail.get('controls',[])
+    if detail.get('targetClassLabels')!=1 or len(controls)!=1:
+        return result
+    control=controls[0]
+    if not control.get('visible') or control.get('disabled') is not False or control.get('pointerEvents')=='none':
+        return result
+    if result.get('comfortAvailability')=='unavailable':
+        return result
+    if any(re.search(r'(?i)ausgebucht|nicht verfügbar|nicht reservierbar|keine (?:freien )?Plätze',m) for m in control.get('availabilityMarkers',[])):
+        return result
+    prices=set()
+    for raw in control.get('prices',[]):
+        amount=raw.replace('€','').strip().replace(',','.')
+        if re.fullmatch(r'\d+(?:\.\d{2})?',amount):
+            parts=amount.split('.')
+            prices.add(int(parts[0])*100+(int(parts[1]) if len(parts)==2 else 0))
+    if len(prices)!=1:
+        return result
+    cents=prices.pop()
+    if result.get('displayedPriceCents') is not None and result['displayedPriceCents']!=cents:
+        result.update(displayedPriceCents=None,priceStatus='ambiguous')
+        return result
+    result.update(displayedPriceCents=cents,priceStatus='displayed',priceSource='comfort_control',
+                  priceVerifiedForKlimaTicket=False)
+    return result
+
+
+def inspect_comfort(page, day):
+    result=prepare(page,day)
+    if result.get("status")!="connection_found": return result
+    detail=comfort_control_details(page,result["connection"])
     return {'status':'comfort_inspected','connection':result['connection'],'inspection':detail,
             'message':'Comfort-Bedienelemente nur gelesen. Kein Sitzplatz ausgewählt, keine Buchung.'}
 

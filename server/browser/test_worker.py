@@ -1,7 +1,7 @@
 import unittest, os
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -103,6 +103,21 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(control['prices'],[])
   self.assertIn('ausgebucht',control['availabilityMarkers'])
   self.assertEqual(self.page.evaluate('window.clicked'),0)
+ def test_prepare_recovers_price_from_comfort_title(self):
+  self.page.evaluate("""() => {
+   document.body.insertAdjacentHTML('beforeend','<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div>fährt nach Villach</div><div><button title="€ 0,00">2+ | Comfort</button></div><div>1 | First</div><div>€ 10,90</div></article>');
+  }""")
+  result=prepare(self.page,'2026-11-17')
+  self.assertEqual(result['connection']['displayedPriceCents'],0)
+  self.assertEqual(result['connection']['priceSource'],'comfort_control')
+  self.assertFalse(result['connection']['priceVerifiedForKlimaTicket'])
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_control_price_conflict_remains_unknown(self):
+  data={'displayedPriceCents':790,'priceStatus':'displayed','priceVerifiedForKlimaTicket':False}
+  detail={'targetClassLabels':1,'controls':[{'visible':True,'disabled':False,'pointerEvents':'auto','prices':['€ 0,00']}]}
+  result=apply_comfort_control_price(data,detail)
+  self.assertIsNone(result['displayedPriceCents'])
+  self.assertEqual(result['priceStatus'],'ambiguous')
  def test_account_summary_read_only(self):
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
   self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
