@@ -1,0 +1,39 @@
+name: Test server container
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - compose.yaml
+      - 'server/**'
+      - 'src/core/**'
+      - '.github/workflows/server-container.yml'
+permissions:
+  contents: read
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build server container
+        run: docker build -t agentzentrale-test .
+      - name: Check authenticated API
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          docker run -d --name agentzentrale-test -p 127.0.0.1:8787:8787 -e AGENTZENTRALE_ACCESS_TOKEN="$TOKEN" agentzentrale-test
+          trap 'docker logs agentzentrale-test; docker rm -f agentzentrale-test' EXIT
+          for i in $(seq 1 30); do
+            if curl --silent --fail -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/health > /tmp/health.json; then break; fi
+            sleep 1
+          done
+          node -e 'const a=require("/tmp/health.json"); if(a.online!==true||a.githubWriteEnabled!==false||a.aiEnabled!==false) process.exit(1)'
+          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/health)" = 401
+          curl -sf -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/westbahn/browser/status > /tmp/browser.json
+          node -e 'const a=require("/tmp/browser.json");if(a.enabled!==false||a.liveBooking!==false)process.exit(1)'
+          docker exec agentzentrale-test python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.set_content("<title>AgentZentrale</title>"); assert page.title()=="AgentZentrale"; b.close(); p.stop()'
