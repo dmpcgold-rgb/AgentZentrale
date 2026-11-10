@@ -390,9 +390,74 @@ def account_audit(context, expected):
             'message':'Nur lesender Abgleich der offiziellen Webkonten. Fehlende Treffer beweisen keine fehlende Reservierung.'}
 
 
+
+def account_inventory(context, requested_page=None):
+    """Read both storefronts; retain positive evidence even if one fails.
+    Yearless labels and limited pagination must not authorize purchases."""
+    reports=[]
+    merged={}
+    for domain in ('westbahn.at','westbahn.de'):
+        pending=[requested_page] if requested_page is not None else [1,2]
+        seen=set()
+        while pending and len(seen)<10:
+            number=pending.pop(0)
+            if number in seen: continue
+            seen.add(number)
+            page=context.new_page()
+            try:
+                target=f'https://{domain}/ticketshop/dashboard/tickets?page={number}&mode=valid'
+                response=page.goto(target,wait_until='domcontentloaded',timeout=20000)
+                if response is None or response.status>=400:
+                    reports.append({'domain':domain,'page':number,'status':'http_error','http':response.status if response else None})
+                    break
+                result=account_summary(page)
+                final_domain=urlsplit(page.url).hostname
+                final_page=parse_qs(urlsplit(page.url).query).get('page',['1'])[0]
+                if final_domain!=domain or final_page!=str(number):
+                    reports.append({'domain':domain,'page':number,'status':'unexpected_redirect'})
+                    break
+                reports.append({'domain':domain,'page':number,'status':'account_verified',
+                                'comfortCards':result['visibleComfortCards'],
+                                'matchingCards':len(result['matchingVisibleCards'])})
+                for row in result['matchingVisibleCards']:
+                    label=' '.join((row.get('dateLabel') or '').split()).upper()
+                    seat=(row.get('seat') or '').replace(' ','').upper()
+                    # Group equivalent visible date/seat labels, not unique ticket IDs.
+                    key=(label,seat)
+                    if key not in merged:
+                        merged[key]={**row,'sources':[]}
+                    if domain not in merged[key]['sources']:
+                        merged[key]['sources'].append(domain)
+                if requested_page is None:
+                    links=page.evaluate("""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
+                      try {const u=new URL(a.href);const n=u.searchParams.get('page');
+                        return u.origin===location.origin && u.pathname===location.pathname &&
+                          /^\d{1,3}$/.test(n||'') && Number(n)>=1 && Number(n)<=100 &&
+                          u.searchParams.get('mode')==='valid' ? [Number(n)] : [];
+                      }catch{return []}
+                    }))].sort((a,b)=>a-b)""")
+                    pending.extend(n for n in links if n not in seen and n not in pending)
+            except Blocked:
+                reports.append({'domain':domain,'page':number,'status':'account_not_verified'})
+                break
+            except PWTimeout:
+                reports.append({'domain':domain,'page':number,'status':'timeout'})
+                break
+            except Exception:
+                reports.append({'domain':domain,'page':number,'status':'unavailable'})
+                break
+            finally:
+                page.close()
+    rows=list(merged.values())
+    ok=any(r['status']=='account_verified' for r in reports)
+    return {'status':'account_verified' if ok else 'blocked',
+            'matchingVisibleCards':rows,'reports':reports,'inventoryComplete':False,
+            'message':f'{len(rows)} unterschiedliche sichtbare Datum/Sitzplatz-Kombinationen auf beiden WESTbahn-Domains. Bestand nicht vollständig bestätigt; keine Buchung.'}
+
+
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=1); args=parser.parse_args()
-    if not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
     with (root/'.agent.lock').open('a') as lock:
@@ -416,16 +481,16 @@ def main():
                                 return
                         route.continue_()
                     context.route('**/*',guard)
+                if args.mode=='account': return account_inventory(context,args.page)
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
                 if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=ACCOUNT_URL.replace('page=1&',f'page={args.page}&') if args.mode=='account' else (date_url(args.date) if args.mode=='prepare' else URL)
+                target=date_url(args.date) if args.mode=='prepare' else URL
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
                     input(); return {'status':'profile_saved','message':'Browserprofil gespeichert; Anmeldung muss vor einer Buchung geprüft werden.'}
-                if args.mode=='account': return account_summary(page)
                 if args.mode=='probe': return inspect(page)
                 if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
                 if not args.date: raise Blocked('Reisedatum fehlt.')

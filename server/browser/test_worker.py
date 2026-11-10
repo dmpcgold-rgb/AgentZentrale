@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -106,6 +106,32 @@ class BrowserTests(unittest.TestCase):
    self.assertEqual(result['diagnosis'],'reservation_detected')
    self.assertFalse(result['inventoryComplete'])
    self.assertNotIn('SECRET123',str(result))
+  finally: context.close()
+ def test_regular_inventory_merges_both_domains(self):
+  context=self.b.new_context()
+  try:
+   base='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+   card=lambda day,seat: f'<article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>{day}</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz {seat}</div></article>'
+   common=card('FR 13 NOV','191 D')
+   context.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=base+common))
+   context.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=base+common+card('MO 16 NOV','191 D')))
+   result=account_inventory(context,1)
+   self.assertEqual(result['status'],'account_verified')
+   self.assertEqual(len(result['matchingVisibleCards']),2)
+   self.assertEqual(result['matchingVisibleCards'][0]['sources'],['westbahn.at','westbahn.de'])
+   self.assertEqual(result['matchingVisibleCards'][1]['sources'],['westbahn.at'])
+   self.assertFalse(result['inventoryComplete'])
+  finally: context.close()
+ def test_regular_inventory_retains_positive_evidence_on_error(self):
+  context=self.b.new_context()
+  try:
+   card='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div></article>'
+   context.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=card))
+   context.route('https://westbahn.de/**',lambda route: route.fulfill(status=522,body='Timeout'))
+   result=account_inventory(context,1)
+   self.assertEqual(len(result['matchingVisibleCards']),1)
+   self.assertEqual(result['reports'][1]['status'],'http_error')
+   self.assertFalse(result['inventoryComplete'])
   finally: context.close()
  def test_account_wrong_page_blocked(self):
   with self.assertRaises(Blocked): account_summary(self.page)

@@ -14,3 +14,6 @@ Der grafische Login läuft nur bei Bedarf. Auf dem Handy per SSH den lokalen Por
 
 ## Kontoabfrage (nur lesen)
 `docker compose exec -T agentzentrale /opt/agent-venv/bin/python /app/server/browser/worker.py account` prüft die gespeicherte Anmeldung auf der deutschen WESTbahn-Domain und meldet sichtbare passende Comfort-Karten ohne Ticketcodes. Nur die erste sichtbare Seite; kein vollständiger Buchungsbestand. Fehlende Treffer sind kein Nachweis einer fehlenden Reservierung. Buchungsadapter bleibt deaktiviert.
+
+## Domainübergreifender Bestand
+Der reguläre Befehl `docker compose exec -T agentzentrale /opt/agent-venv/bin/python /app/server/browser/worker.py account` prüft jetzt die österreichische und deutsche Domain. Standardmäßig werden Seite 1 und 2 sowie weitere sichtbare numerische Seitenlinks (maximal zehn Seiten je Domain) geprüft. `--page 1` prüft nur diese Seite auf beiden Domains. Gleiche sichtbare Datum/Sitzplatz-Kombinationen werden gruppiert, die Quellen bleiben sichtbar. Jahrlose Datumsangaben und unvollständige Seiten sind kein Nachweis eines vollständigen Bestands. Ein Fehler auf einer Domain verwirft positive Treffer auf der anderen nicht. Kein Checkout, keine Buchung.
