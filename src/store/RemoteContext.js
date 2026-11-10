@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { gatewayRequest, validateServerUrl } from '../api/client';
 
-const KEY_CONFIG = 'agentzentrale:gateway:config:v1';
+const KEY_CONFIG = 'agentzentrale.gateway.config.v1';
 const Context = createContext(null);
 
 export function RemoteProvider({ children }) {
