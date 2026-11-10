@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -94,6 +94,19 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(result['newCardsAfterScroll'],1)
   self.assertEqual(len(result['matchingVisibleCards']),2)
   self.assertFalse(result['inventoryComplete'])
+ def test_account_audit_finds_ticket_on_second_domain(self):
+  context=self.b.new_context()
+  try:
+   base='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+   card='<article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div><div>Ticketcode SECRET123</div></article>'
+   context.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=base))
+   context.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=base+card))
+   result=account_audit(context,'2026-11-16')
+   self.assertTrue(result['found'])
+   self.assertEqual(result['diagnosis'],'reservation_detected')
+   self.assertFalse(result['inventoryComplete'])
+   self.assertNotIn('SECRET123',str(result))
+  finally: context.close()
  def test_account_wrong_page_blocked(self):
   with self.assertRaises(Blocked): account_summary(self.page)
  def test_automatic_results_without_search_button(self):
