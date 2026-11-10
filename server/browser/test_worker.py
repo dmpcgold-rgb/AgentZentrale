@@ -24,6 +24,22 @@ class BrowserTests(unittest.TestCase):
  def tearDown(self): self.page.close()
  def test_search_only(self):
   r=prepare(self.page,'2026-11-16');self.assertEqual(r['status'],'search_submitted');self.assertEqual(self.page.evaluate('window.searched'),1);self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_wiener_neustadt_operator_alias(self):
+  self.page.set_content(HTML.replace('Wiener Neustadt Hbf','Wiener Neustadt'))
+  self.assertEqual(prepare(self.page,'2026-11-16')['status'],'search_submitted')
+  self.assertEqual(self.page.locator('#to').input_value(),'Wiener Neustadt')
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_wrong_destination_rejected(self):
+  self.page.set_content(HTML.replace('Wiener Neustadt Hbf','Wiener Neustadt Nord'))
+  with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
+  self.assertEqual(self.page.evaluate('window.searched'),0)
+ def test_multiple_matching_destinations_rejected(self):
+  self.page.evaluate("""document.querySelector('#to').addEventListener('input',()=>{
+   const extra=document.createElement('button');extra.setAttribute('role','option');
+   extra.textContent='Wiener Neustadt';document.querySelector('#opts2').append(extra);
+  })""")
+  with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
+  self.assertEqual(self.page.evaluate('window.searched'),0)
  def test_cookie_decline_before_search(self):
   self.page.evaluate("""() => {
    document.body.insertAdjacentHTML('beforeend',

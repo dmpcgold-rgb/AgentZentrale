@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Private WESTbahn browser. Read-only search; no checkout or payment actions."""
-import argparse, fcntl, json, os, sys
+import argparse, fcntl, json, os, sys, re
 from pathlib import Path
 from datetime import date
 from urllib.parse import urlsplit
@@ -74,22 +74,44 @@ def dismiss_cookie_dialog(page, wait_ms=3000):
 def field(page, label):
     return unique([page.get_by_label(label,exact=True),page.get_by_placeholder(label,exact=True)],label)
 
+# The operator's timetable labels this stop "Wiener Neustadt"; the
+# station's full name is Wiener Neustadt Hauptbahnhof. No other stops qualify.
+STATION_LABELS = {
+    ORIGIN: ('Wien Meidling',),
+    DESTINATION: ('Wiener Neustadt', 'Wiener Neustadt Hbf',
+                  'Wiener Neustadt Hauptbahnhof', 'Wr. Neustadt Hbf'),
+}
+def normalize_station(value):
+    return ' '.join(value.split()).casefold()
+
 def set_station(page,label,value):
     loc=field(page,label)
-    loc.fill(value)
-    # Only an exact station in an accessible suggestion is accepted.
-    option=page.get_by_role('option',name=value,exact=True)
-    try: option.wait_for(state='visible',timeout=3500)
-    except PWTimeout: raise Blocked(f'Bahnhofsvorschlag für {label} nicht eindeutig bestätigt.')
+    names=STATION_LABELS[value]
+    accepted={normalize_station(n) for n in names}
+    # Search by the common base name, without a suffix that may not exist in
+    # WESTbahn's autocomplete. Accept only exact known aliases, never a prefix.
+    loc.fill(names[0])
+    pattern=re.compile(r'^(?:' + '|'.join(re.escape(n).replace(r'\ ',r'\s+') for n in names) + r')$',re.IGNORECASE)
+    option=page.get_by_role('option',name=pattern)
+    try:
+        option.first.wait_for(state='visible',timeout=7000)
+    except PWTimeout:
+        visible=page.get_by_role('option').all()
+        suggestions=[o.inner_text(timeout=1000).strip()[:100] for o in visible[:12] if o.is_visible()]
+        detail=' Vorschläge: '+', '.join(suggestions) if suggestions else ' Keine sichtbaren Vorschläge.'
+        raise Blocked(f'Bahnhofsvorschlag für {label} nicht eindeutig bestätigt.{detail}')
     if option.count()!=1: raise Blocked(f'Mehrdeutiger Bahnhofsvorschlag: {label}.')
-    option.click()
-    if loc.input_value().strip()!=value: raise Blocked(f'Bahnhof {label} nicht bestätigt.')
+    option.click(timeout=5000)
+    if normalize_station(loc.input_value()) not in accepted:
+        raise Blocked(f'Bahnhof {label} nicht bestätigt.')
 
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
     dismiss_cookie_dialog(page)
     set_station(page,'Von',ORIGIN)
     set_station(page,'Nach',DESTINATION)
+    if normalize_station(field(page,'Von').input_value()) not in {normalize_station(n) for n in STATION_LABELS[ORIGIN]} or normalize_station(field(page,'Nach').input_value()) not in {normalize_station(n) for n in STATION_LABELS[DESTINATION]}:
+        raise Blocked('Bahnhofsauswahl hat sich geändert. Keine Suche.')
     when=field(page,'Hinfahrt')
     if when.get_attribute('type')!='date': raise Blocked('Datumsauswahl ist nicht als eindeutiges Datumsfeld erkennbar.')
     when.fill(day)
