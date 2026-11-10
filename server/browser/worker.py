@@ -16,6 +16,12 @@ def official(url):
     p=urlsplit(url)
     return p.scheme=='https' and (p.hostname=='westbahn.at' or (p.hostname or '').endswith('.westbahn.at')) and not p.username and not p.password
 
+def allowed_navigation(url, subframe=False):
+    if official(url): return True
+    p=urlsplit(url)
+    return (subframe and p.scheme=='https' and not p.username and not p.password
+            and p.hostname in ('consent.cookiebot.com','consentcdn.cookiebot.com','consent.cookiebot.eu','consentcdn.cookiebot.eu'))
+
 def unique(candidates, name):
     for loc in candidates:
         if loc.count()==1 and loc.is_visible(): return loc
@@ -38,12 +44,31 @@ def dismiss_cookie_dialog(page, wait_ms=3000):
     buttons = [loc for loc in candidates if loc.count()==1 and loc.is_visible()]
     if len(buttons)!=1:
         raise Blocked('Cookie-Dialog: keine eindeutige Schaltfläche zum Ablehnen optionaler Cookies.')
+    # First use the real opt-out button. A transparent overlay may remain in
+    # the DOM; test actual form actionability instead of its mere visibility.
     try:
         buttons[0].click(timeout=5000)
-        dialog.wait_for(state='hidden', timeout=5000)
-        underlay.wait_for(state='hidden', timeout=5000)
+        field(page, 'Von').click(trial=True, timeout=5000)
+        return True
     except PWTimeout:
-        raise Blocked('Cookie-Dialog konnte nicht geschlossen werden. Keine Suche ausgeführt.')
+        pass
+    # Cookiebot's documented consent API is a second, explicit opt-out.
+    # Never forge cookies, remove overlays, or accept optional categories.
+    try:
+        if not page.evaluate("typeof window.Cookiebot?.submitCustomConsent === 'function'"):
+            raise Blocked('Cookie-Ablehnung: Klick oder Formular blockiert; Cookiebot-API nicht verfügbar.')
+        page.evaluate("window.Cookiebot.submitCustomConsent(false, false, false)")
+        page.wait_for_function("""() => {
+            const c = window.Cookiebot;
+            return c?.hasResponse === true && c.consent?.necessary === true &&
+                c.consent.preferences === false && c.consent.statistics === false &&
+                c.consent.marketing === false;
+        }""", timeout=8000)
+        # Hide the provider's dialog only after a verified necessary-only response.
+        page.evaluate("if (typeof window.Cookiebot.hide === 'function') window.Cookiebot.hide()")
+        field(page, 'Von').click(trial=True, timeout=5000)
+    except PWTimeout:
+        raise Blocked('Cookie-Ablehnung nicht bestätigt oder Suchformular weiterhin blockiert. Keine Suche ausgeführt.')
     return True
 
 def field(page, label):
@@ -95,8 +120,13 @@ def main():
                 if args.mode!='login':
                     # Restrict automated top-level navigations; no external authentication flow.
                     def guard(route):
-                        if route.request.is_navigation_request() and not official(route.request.url): route.abort()
-                        else: route.continue_()
+                        if route.request.is_navigation_request():
+                            try: subframe=route.request.frame.parent_frame is not None
+                            except Exception: subframe=False
+                            if not allowed_navigation(route.request.url, subframe): 
+                                route.abort()
+                                return
+                        route.continue_()
                     context.route('**/*',guard)
                 page.goto(URL,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':

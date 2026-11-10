@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, Blocked
+from worker import prepare, official, allowed_navigation, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -44,6 +44,23 @@ class BrowserTests(unittest.TestCase):
   self.page.evaluate("""document.body.insertAdjacentHTML('beforeend','<div id="CybotCookiebotDialog"><button id="CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll">Alle erlauben</button></div>')""")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
   self.assertEqual(self.page.evaluate('window.searched'),0);self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_cookie_api_fallback(self):
+  self.page.evaluate("""() => {
+   document.body.insertAdjacentHTML('beforeend',
+    '<div id="CybotCookiebotDialogBodyUnderlay" style="position:fixed;inset:0;z-index:100;background:#ccc"></div>'+
+    '<div id="CybotCookiebotDialog" style="position:fixed;top:10px;left:10px;z-index:101">'+
+    '<button id="CybotCookiebotDialogBodyButtonDecline">Nur notwendige Cookies</button></div>');
+   window.Cookiebot={hasResponse:false, consent:{}, submitCustomConsent(p,s,m){
+    this.hasResponse=true;this.consent={necessary:true,preferences:p,statistics:s,marketing:m};
+   },hide(){document.querySelector('#CybotCookiebotDialog').remove();document.querySelector('#CybotCookiebotDialogBodyUnderlay').remove();}};
+  }""")
+  self.assertEqual(prepare(self.page,'2026-11-16')['status'],'search_submitted')
+  self.assertTrue(self.page.evaluate("Cookiebot.hasResponse && !Cookiebot.consent.marketing && !Cookiebot.consent.statistics && !Cookiebot.consent.preferences"))
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_cookie_navigation_scope(self):
+  self.assertTrue(allowed_navigation('https://consentcdn.cookiebot.com/test',True))
+  self.assertFalse(allowed_navigation('https://consentcdn.cookiebot.com/test',False))
+  self.assertFalse(allowed_navigation('https://evil.example/',True))
  def test_no_search_if_ambiguous(self):
   self.page.evaluate("document.body.insertAdjacentHTML('beforeend','<button>Verbindung suchen</button>')")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
