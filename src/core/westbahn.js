@@ -1,4 +1,5 @@
 export const RULES = Object.freeze({origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',departure:'18:22',class:'2+',ticket:'KlimaTicket Österreich',preferred:['233A','233D','191D','182A'],priceCents:0,timezone:'Europe/Vienna'});
+export const FIRST_UNRESERVED_DATE='2026-11-16';
 export const BOOKING_URL='https://westbahn.at/reservierung/sitzplatz-upgrade/';
 export function viennaClock(at=new Date()) {
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:RULES.timezone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(at).map(x=>[x.type,x.value]));
@@ -8,7 +9,7 @@ const iso=d=>d.toISOString().slice(0,10);
 export function planDates(at=new Date(), months=6) {
  const c=viennaClock(at), start=new Date(`${c.date}T00:00:00Z`), end=new Date(start);
  const day=end.getUTCDate(); end.setUTCDate(1); end.setUTCMonth(end.getUTCMonth()+months); const last=new Date(Date.UTC(end.getUTCFullYear(),end.getUTCMonth()+1,0)).getUTCDate(); end.setUTCDate(Math.min(day,last));
- const out=[]; for(let d=new Date(start); d<=end; d.setUTCDate(d.getUTCDate()+1)) if(d.getUTCDay()>=1&&d.getUTCDay()<=5&&(iso(d)!==c.date||c.time<RULES.departure)) out.push(iso(d)); return out;
+ const out=[]; for(let d=new Date(start); d<=end; d.setUTCDate(d.getUTCDate()+1)) if(iso(d)>=FIRST_UNRESERVED_DATE&&d.getUTCDay()>=1&&d.getUTCDay()<=5&&(iso(d)!==c.date||c.time<RULES.departure)) out.push(iso(d)); return out;
 }
 export function chooseSeat(seats) {
  if(!Array.isArray(seats))return null;
