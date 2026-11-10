@@ -251,8 +251,48 @@ def inspect(page):
     if not official(page.url): raise Blocked('Browser außerhalb der erlaubten WESTbahn-Domain.')
     return {'status':'reachable','message':'Offizielle WESTbahn-Seite im Chromium geöffnet. Keine Anmeldung, Verfügbarkeit oder Buchung bestätigt.', 'originField': any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Von',exact=True),page.get_by_placeholder('Von',exact=True)]),'destinationField':any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Nach',exact=True),page.get_by_placeholder('Nach',exact=True)])}
 
+
+ACCOUNT_URL = 'https://westbahn.de/ticketshop/dashboard/tickets?page=1&mode=valid'
+
+def account_summary(page):
+    # Only the authenticated valid-ticket view is considered. No action on tickets.
+    parsed=urlsplit(page.url)
+    if parsed.scheme!='https' or parsed.hostname!='westbahn.de' or parsed.path.rstrip('/')!='/ticketshop/dashboard/tickets' or parse_qs(parsed.query).get('mode')!=['valid']:
+        raise Blocked('WESTbahn-Konto nicht erreichbar oder Anmeldung abgelaufen.')
+    try:
+        page.get_by_text('Westbahn-Konto',exact=True).first.wait_for(timeout=15000)
+        page.get_by_text('Gültige Tickets',exact=True).first.wait_for(timeout=5000)
+    except PWTimeout:
+        raise Blocked('Angemeldetes WESTbahn-Konto nicht eindeutig bestätigt.')
+    # Find the smallest visible container for each observed Comfort ticket heading.
+    # Return no ticket numbers, ticket codes, customer numbers or credentials.
+    cards=page.get_by_text('Reservierung Comfort Class',exact=True).evaluate_all("""els => {
+      const visible=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
+      return els.filter(visible).map(e=>{
+        for(let n=e;n && n!==document.body;n=n.parentElement){
+          const t=n.innerText||'';
+          if(t.includes('Abfahrt') && t.includes('Ankunft') && t.includes('Sitzplatz') &&
+             (t.match(/Reservierung Comfort Class/g)||[]).length===1) return t;
+        }
+        return '';
+      });
+    }""")
+    rows=[]
+    for card in cards:
+        if not card: continue
+        t=' '.join(card.split())
+        if not re.search(r'\b18:22\b',t) or 'Wien Meidling' not in t or not re.search(r'\bWiener Neustadt\b',t): continue
+        seat=re.search(r'\bSitzplatz\s+(\d{2,4}\s*[A-Z])\b',t)
+        # The account tiles may omit the year. Never infer a complete date or
+        # absence of a reservation from a partial page or a yearless label.
+        label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
+        rows.append({'dateLabel':label.group(0) if label else None,'seat':seat.group(1).replace(' ','') if seat else None})
+    return {'status':'account_verified','visibleComfortCards':len(cards),'matchingVisibleCards':rows,
+            'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {len(cards)} sichtbare Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten auf dieser Seite. Keine vollständige Bestandsprüfung; keine Buchung.'}
+
+
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare']);parser.add_argument('--date'); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account']);parser.add_argument('--date'); args=parser.parse_args()
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
     with (root/'.agent.lock').open('a') as lock:
@@ -271,17 +311,18 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode=='account' and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
                     context.route('**/*',guard)
                 if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=date_url(args.date) if args.mode=='prepare' else URL
+                target=ACCOUNT_URL if args.mode=='account' else (date_url(args.date) if args.mode=='prepare' else URL)
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
                     input(); return {'status':'profile_saved','message':'Browserprofil gespeichert; Anmeldung muss vor einer Buchung geprüft werden.'}
+                if args.mode=='account': return account_summary(page)
                 if args.mode=='probe': return inspect(page)
                 if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
                 if not args.date: raise Blocked('Reisedatum fehlt.')

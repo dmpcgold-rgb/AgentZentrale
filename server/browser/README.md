@@ -11,3 +11,6 @@ Vor Live-Buchungen muss der tatsächliche angemeldete Ticketshop in einem privat
 
 ## Private Anmeldung vom Android-Handy (Docker)
 Der grafische Login läuft nur bei Bedarf. Auf dem Handy per SSH den lokalen Port 6080 zum Server-Port 6080 weiterleiten (`ssh -L 127.0.0.1:6080:127.0.0.1:6080 ...`). Auf dem Server im Projektverzeichnis `docker compose exec agentzentrale bash /app/server/browser/login-private.sh` ausführen. Im Handy-Browser `http://127.0.0.1:6080/vnc.html` öffnen, das einmalige VNC-Passwort aus dem Terminal eingeben, auf WESTbahn anmelden und anschließend im SSH-Terminal Enter drücken. Die Sitzung und ihre Hilfsprozesse werden beendet; das Chromium-Profil verbleibt im privaten Datenvolume. Niemals Port 6080 im Internet freigeben. Der Login ist erst nach einer tatsächlichen Konto-Prüfung verifiziert; diese Funktion bucht nichts.
+
+## Kontoabfrage (nur lesen)
+`docker compose exec -T agentzentrale /opt/agent-venv/bin/python /app/server/browser/worker.py account` prüft die gespeicherte Anmeldung auf der deutschen WESTbahn-Domain und meldet sichtbare passende Comfort-Karten ohne Ticketcodes. Nur die erste sichtbare Seite; kein vollständiger Buchungsbestand. Fehlende Treffer sind kein Nachweis einer fehlenden Reservierung. Buchungsadapter bleibt deaktiviert.

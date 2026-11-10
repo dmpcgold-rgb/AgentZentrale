@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -68,6 +68,17 @@ class BrowserTests(unittest.TestCase):
  def tearDownClass(cls): cls.b.close();cls.p.stop()
  def setUp(self): self.page=self.b.new_page(); self.page.set_content(HTML)
  def tearDown(self): self.page.close()
+ def test_account_summary_read_only(self):
+  html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
+  self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.goto(ACCOUNT_URL)
+  result=account_summary(self.page)
+  self.assertEqual(result['status'],'account_verified')
+  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A'}])
+  self.assertFalse(result['inventoryComplete'])
+  self.assertNotIn('SECRET123',str(result))
+ def test_account_wrong_page_blocked(self):
+  with self.assertRaises(Blocked): account_summary(self.page)
  def test_automatic_results_without_search_button(self):
   self.page.evaluate("(text)=>{const d=document.createElement('pre');d.textContent=text;document.body.append(d);document.getElementById('search').style.display='none'}",RESULTS)
   result=prepare(self.page,'2026-11-16')
