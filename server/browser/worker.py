@@ -257,7 +257,7 @@ ACCOUNT_URL = 'https://westbahn.de/ticketshop/dashboard/tickets?page=1&mode=vali
 def account_summary(page):
     # Only the authenticated valid-ticket view is considered. No action on tickets.
     parsed=urlsplit(page.url)
-    if parsed.scheme!='https' or parsed.hostname!='westbahn.de' or parsed.path.rstrip('/')!='/ticketshop/dashboard/tickets' or parse_qs(parsed.query).get('mode')!=['valid']:
+    if parsed.scheme!='https' or parsed.hostname not in ('westbahn.de','westbahn.at') or parsed.path.rstrip('/')!='/ticketshop/dashboard/tickets' or parse_qs(parsed.query).get('mode')!=['valid']:
         raise Blocked('WESTbahn-Konto nicht erreichbar oder Anmeldung abgelaufen.')
     try:
         page.get_by_text('Westbahn-Konto',exact=True).first.wait_for(timeout=15000)
@@ -333,8 +333,65 @@ def account_summary(page):
             'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {max(max_visible,len(cards))} erkannte Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten; {len(cards)-first_count} neu beim Scrollen. Keine vollständige Bestandsprüfung; keine Buchung.'}
 
 
+
+def account_audit(context, expected):
+    # Compare both official storefronts independently. Never import or buy tickets.
+    day=date.fromisoformat(expected)
+    months=('JAN','FEB','MÄR','APR','MAI','JUN','JUL','AUG','SEP','OKT','NOV','DEZ')
+    weekdays=('MO','DI','MI','DO','FR','SA','SO')
+    month=months[day.month-1]
+    label=re.compile(r'\b'+weekdays[day.weekday()]+r'\s+0?'+str(day.day)+r'\s+'+month+r'\b',re.I)
+    numeric=re.compile(r'(?<!\d)0?'+str(day.day)+r'\.0?'+str(day.month)+r'\.(?:'+str(day.year)+r')?(?!\d)')
+    reports=[]
+    for domain in ('westbahn.de','westbahn.at'):
+        for number in (1,2):
+            page=context.new_page()
+            try:
+                target=f'https://{domain}/ticketshop/dashboard/tickets?page={number}&mode=valid'
+                response=page.goto(target,wait_until='domcontentloaded',timeout=20000)
+                http=response.status if response else None
+                if http is None or http>=400:
+                    reports.append({'domain':domain,'page':number,'status':'http_error','http':http})
+                    break
+                result=account_summary(page)
+                # Detect a date even when the card's title/layout differs from our parser.
+                body=page.locator('body').text_content(timeout=5000) or ''
+                visible=page.locator('body').inner_text(timeout=5000)
+                matches=[row for row in result['matchingVisibleCards'] if label.search(row.get('dateLabel') or '')]
+                report={'domain':domain,'page':number,'status':'account_verified',
+                        'finalDomain':urlsplit(page.url).hostname,'http':http,
+                        'comfortCards':result['visibleComfortCards'],
+                        'expectedMatches':matches,
+                        'dateInVisibleText':bool(label.search(' '.join(visible.split())) or numeric.search(visible)),
+                        'dateInDOM':bool(label.search(' '.join(body.split())) or numeric.search(body)),
+                        'ticketImportControl':page.get_by_text(re.compile(r'Ticket hinzufügen|Ticket zum Westbahn-Konto hinzufügen',re.I)).count()>0}
+                # Only expose numeric pagination destinations, not personal links.
+                report['paginationPages']=page.evaluate("""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
+                  try {const u=new URL(a.href);const n=u.searchParams.get('page');
+                  return u.origin===location.origin && u.pathname===location.pathname && /^\\d{1,3}$/.test(n||'')?[Number(n)]:[];}catch{return []}
+                }))].sort((a,b)=>a-b)""")
+                reports.append(report)
+            except Blocked:
+                reports.append({'domain':domain,'page':number,'status':'account_not_verified'})
+                break
+            except PWTimeout:
+                reports.append({'domain':domain,'page':number,'status':'timeout'})
+                break
+            except Exception:
+                reports.append({'domain':domain,'page':number,'status':'unavailable'})
+                break
+            finally:
+                page.close()
+    found=any(r.get('expectedMatches') for r in reports)
+    marker=any(r.get('dateInVisibleText') or r.get('dateInDOM') for r in reports)
+    return {'status':'account_audit','expectedDate':expected,'found':found,
+            'diagnosis':'reservation_detected' if found else ('date_present_parser_needs_review' if marker else 'not_exposed_in_checked_web_views'),
+            'reports':reports,'inventoryComplete':False,
+            'message':'Nur lesender Abgleich der offiziellen Webkonten. Fehlende Treffer beweisen keine fehlende Reservierung.'}
+
+
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=1); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=1); args=parser.parse_args()
     if not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -354,11 +411,14 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe) and not (args.mode=='account' and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('account','account-audit') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
                     context.route('**/*',guard)
+                if args.mode=='account-audit':
+                    if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
+                    return account_audit(context,args.date)
                 if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
                 target=ACCOUNT_URL.replace('page=1&',f'page={args.page}&') if args.mode=='account' else (date_url(args.date) if args.mode=='prepare' else URL)
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
