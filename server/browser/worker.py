@@ -141,6 +141,96 @@ def confirm_date(page, day):
         detail=' '.join(value.split())[:100] or '(leer)'
         raise Blocked(f'Datum {day} nicht bestätigt. Kalender zeigt: {detail}. Datumsparameter: {"passend" if query_ok else "abweichend"}. Keine Suche.')
     
+SEARCH_NAMES = re.compile(r'^\s*(?:Verbindungen? suchen|Z(?:ug|üge) suchen|Verbindungen? anzeigen|Züge anzeigen)\s*
+    day=date.fromisoformat(day).isoformat()
+    dismiss_cookie_dialog(page)
+    set_station(page,'Von',ORIGIN)
+    set_station(page,'Nach',DESTINATION)
+    if normalize_station(field(page,'Von').input_value()) not in {normalize_station(n) for n in STATION_LABELS[ORIGIN]} or normalize_station(field(page,'Nach').input_value()) not in {normalize_station(n) for n in STATION_LABELS[DESTINATION]}:
+        raise Blocked('Bahnhofsauswahl hat sich geändert. Keine Suche.')
+    confirm_date(page, day)
+    # Only search, never add to cart or confirm purchase. Exact single button required.
+    search=search_control(page)
+    search.click(timeout=5000)
+    return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
+
+def inspect(page):
+    if not official(page.url): raise Blocked('Browser außerhalb der erlaubten WESTbahn-Domain.')
+    return {'status':'reachable','message':'Offizielle WESTbahn-Seite im Chromium geöffnet. Keine Anmeldung, Verfügbarkeit oder Buchung bestätigt.', 'originField': any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Von',exact=True),page.get_by_placeholder('Von',exact=True)]),'destinationField':any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Nach',exact=True),page.get_by_placeholder('Nach',exact=True)])}
+
+def main():
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare']);parser.add_argument('--date'); args=parser.parse_args()
+    root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
+    os.umask(0o077)
+    with (root/'.agent.lock').open('a') as lock:
+        try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError: raise Blocked('Browserprofil ist gerade in Benutzung.')
+        with sync_playwright() as p:
+            kwargs={'headless':args.mode!='login','timeout':20000,'accept_downloads':False}
+            if os.environ.get('WESTBAHN_CHROMIUM_PATH'): kwargs['executable_path']=os.environ['WESTBAHN_CHROMIUM_PATH']
+            context=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
+            try:
+                page=context.pages[0] if context.pages else context.new_page()
+                page.set_default_timeout(5000)
+                if args.mode!='login':
+                    # Restrict automated top-level navigations; no external authentication flow.
+                    def guard(route):
+                        if route.request.is_navigation_request():
+                            try: subframe=route.request.frame.parent_frame is not None
+                            except Exception: subframe=False
+                            if not allowed_navigation(route.request.url, subframe): 
+                                route.abort()
+                                return
+                        route.continue_()
+                    context.route('**/*',guard)
+                if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
+                target=date_url(args.date) if args.mode=='prepare' else URL
+                page.goto(target,wait_until='domcontentloaded',timeout=25000)
+                if args.mode=='login':
+                    print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
+                    input(); return {'status':'profile_saved','message':'Browserprofil gespeichert; Anmeldung muss vor einer Buchung geprüft werden.'}
+                if args.mode=='probe': return inspect(page)
+                if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
+                if not args.date: raise Blocked('Reisedatum fehlt.')
+                return prepare(page,args.date)
+            finally: context.close()
+
+if __name__=='__main__':
+    try: print(json.dumps(main(),ensure_ascii=False))
+    except Blocked as e: print(json.dumps({'status':'blocked','message':str(e)},ensure_ascii=False))
+    except PWTimeout: print(json.dumps({'status':'blocked','message':'Zeitlimit beim WESTbahn-Suchformular. Bitte Suchfelder und Cookie-Dialog prüfen. Keine Buchung vorgenommen.'},ensure_ascii=False))
+    except Exception: print(json.dumps({'status':'blocked','message':'Browser nicht verfügbar, Seite nicht erreichbar oder Ablauf nicht eindeutig. Keine Buchung vorgenommen.'},ensure_ascii=False))
+, re.IGNORECASE)
+
+def search_control(page):
+    # Match only explicit connection-search actions, never checkout or payment.
+    # The ticket shop may render its search as a button, submit input or link.
+    candidates=page.get_by_role('button', name=SEARCH_NAMES).or_(page.get_by_role('link', name=SEARCH_NAMES))
+    # Some custom controls expose the caption visually but not as an accessible name.
+    candidates=candidates.or_(page.locator('button, a, [role="button"], [role="link"]').filter(has_text=SEARCH_NAMES))
+    # A generic "Suchen" is only safe inside the same actual form as all
+    # three trip fields, not the site's navigation or global search.
+    form=field(page,'Von').locator('xpath=ancestor::form[1]')
+    if form.count()==1 and form.get_by_label('Nach',exact=True).or_(form.get_by_placeholder('Nach',exact=True)).count()==1 and form.get_by_label('Hinfahrt',exact=True).or_(form.get_by_placeholder('Hinfahrt',exact=True)).count()==1:
+        candidates=candidates.or_(form.get_by_role('button',name='Suchen',exact=True))
+    try:
+        candidates.filter(visible=True).first.wait_for(state='visible',timeout=5000)
+    except PWTimeout:
+        pass
+    visible=candidates.filter(visible=True)
+    if visible.count()!=1:
+        # Report actual public control captions, without credentials, page HTML or cookies.
+        labels=page.locator('button, a, [role="button"], [role="link"], input[type="submit"]').evaluate_all("""els => els.filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden').map(e => (e.getAttribute('aria-label') || e.innerText || e.value || e.getAttribute('title') || '').trim().replace(/\\s+/g,' ')).filter(t => t && /such|find|verbind|zug|reserv|weiter|anzeigen/i.test(t)).slice(0,20)""")
+        detail=' | '.join(dict.fromkeys(labels))[:500] or 'keine passenden sichtbaren Bedienelemente'
+        raise Blocked(f'Suchbutton nicht eindeutig ({visible.count()} Treffer). Gefunden: {detail}. Keine Suche.')
+    control=visible.first
+    # Links may open a search route but never navigate to a foreign domain.
+    href=control.evaluate("(e) => e.tagName === 'A' ? e.href : ''")
+    if href and not official(href):
+        raise Blocked('Suchlink verweist nicht auf WESTbahn. Keine Suche.')
+    if not control.is_enabled(): raise Blocked('Suchbutton ist deaktiviert. Keine Suche.')
+    return control
+
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
     dismiss_cookie_dialog(page)

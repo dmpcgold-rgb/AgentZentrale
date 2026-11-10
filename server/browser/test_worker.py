@@ -77,6 +77,24 @@ class BrowserTests(unittest.TestCase):
   self.assertTrue(allowed_navigation('https://consentcdn.cookiebot.com/test',True))
   self.assertFalse(allowed_navigation('https://consentcdn.cookiebot.com/test',False))
   self.assertFalse(allowed_navigation('https://evil.example/',True))
+ def test_search_link(self):
+  self.page.set_content(HTML.replace('<button id="search">Verbindung suchen</button>','<a id="search" href="#search">Verbindung suchen</a>'))
+  # Use an official origin to verify the link destination.
+  day='2026-11-16'
+  html=HTML.replace('<button id="search">Verbindung suchen</button>','<a id="search" href="#search">Verbindung suchen</a>')
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.goto(date_url(day))
+  self.assertEqual(prepare(self.page,day)['status'],'search_submitted')
+  self.assertEqual(self.page.evaluate('window.searched'),1)
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_hidden_duplicate_search_ignored(self):
+  self.page.evaluate("document.body.insertAdjacentHTML('beforeend','<button hidden>Verbindung suchen</button>')")
+  self.assertEqual(prepare(self.page,'2026-11-16')['status'],'search_submitted')
+  self.assertEqual(self.page.evaluate('window.searched'),1)
+ def test_alternate_search_caption(self):
+  self.page.locator('#search').evaluate("e=>e.textContent='Verbindungen suchen'")
+  self.assertEqual(prepare(self.page,'2026-11-16')['status'],'search_submitted')
+  self.assertEqual(self.page.evaluate('window.bought'),0)
  def test_no_search_if_ambiguous(self):
   self.page.evaluate("document.body.insertAdjacentHTML('beforeend','<button>Verbindung suchen</button>')")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
