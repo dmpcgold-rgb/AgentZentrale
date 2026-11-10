@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "AgentZentrale",
+    "slug": "agentzentrale",
+    "scheme": "agentzentrale",
+    "version": "1.4.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "at.agentzentrale.mobile",
+      "versionCode": 4,
+      "permissions": []
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "mode": "local-agents-plus-server"
+    }
+  }
+}
