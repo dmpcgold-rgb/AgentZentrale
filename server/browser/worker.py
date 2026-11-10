@@ -176,7 +176,7 @@ def search_control(page):
 
 # The reservation page populates connection results when the trip fields change.
 # Parse the visible departure blocks, not a global occurrence of "18:22".
-DEPARTURE_MARKER = re.compile(r'(?im)^[ \t]*Abfahrtszeit,?[ \t]*$')
+DEPARTURE_MARKER = re.compile(r'(?im)^[ \t]*Abfahrtszeit[,:]?[ \t]*(?=\n|(?:[01]\d|2[0-3]):[0-5]\d)')
 TIME_LINE = r'(?:[01]\d|2[0-3]):[0-5]\d'
 
 def parse_connection(text):
@@ -185,32 +185,54 @@ def parse_connection(text):
     matches = []
     for block in blocks:
         departure = re.match(r'^\s*(' + TIME_LINE + r')\b', block)
-        if not departure or departure.group(1) != '18:22':
-            continue
-        matches.append(block)
+        if departure and departure.group(1) == '18:22':
+            matches.append(block)
     if len(matches) != 1:
         raise Blocked(f'Abfahrt 18:22 nicht eindeutig ({len(matches)} Treffer). Keine Buchung.')
     block = matches[0]
-    arrivals = re.findall(r'(?im)^Ankunftszeit,?\s*(' + TIME_LINE + r')\s*$', block)
-    trains = re.findall(r'(?im)^(?:WB\s*)?(\d{3,5})\s*\n\s*fährt nach[ \t]+([^\n]+)$', block)
-    comfort = re.findall(r'(?im)^2\+\s*\|\s*Comfort(?: Class)?\s*\n\s*€\s*(\d+(?:[.,]\d{2}))\s*$', block)
+    arrivals = re.findall(r'(?im)^Ankunftszeit[,:]?\s*(' + TIME_LINE + r')[ \t]*$', block)
+    trains = re.findall(r'(?im)^(?:(?:WB|WESTbahn|Zug)\s*[: ]?\s*)?(\d{3,5})[ \t]*(?:\n[ \t]*|[ \t]+)fährt nach[ \t]+([^\n]+)$', block)
+    # Only a price immediately attached to the 2+ class counts. Accept
+    # currency before or after the amount and a whole-euro display.
+    # A search price never establishes the final KlimaTicket checkout price.
+    comfort = re.findall(r'(?im)^2\+[ \t]*(?:\|[ \t]*)?Comfort(?: Class)?[ \t]*(?:\n[ \t]*|[ \t]+)(€[ \t]*\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?[ \t]*€|kostenlos)[ \t]*$', block)
     if len(arrivals) != 1 or len(trains) != 1 or len(comfort) != 1:
-        raise Blocked('Zugnummer, Ankunft oder Comfort-Preis nicht eindeutig auslesbar. Keine Buchung.')
+        # Narrow diagnostic: counts and public connection labels only.
+        # Never include arbitrary body text, account details or ticket codes.
+        hints=[]
+        for line in block.splitlines():
+            if re.fullmatch(r'(?i)(?:WB[ \t]*)?\d{3,5}|(?:Ankunftszeit[,:]?[ \t]*)?'+TIME_LINE+r'|2\+[ \t]*(?:\|[ \t]*)?Comfort(?: Class)?|(?:€[ \t]*\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?[ \t]*€|kostenlos)',line):
+                hints.append(line)
+        raise Blocked(f'Verbindung 18:22 unvollständig: Ankunft {len(arrivals)}, Zugnummer {len(trains)}, Comfort-Preis {len(comfort)}. Erkannte Zeilen: {" | ".join(hints[:16]) or "keine"}. Keine Buchung.')
     train, direction = trains[0]
-    cents = int(comfort[0].replace(',', '').replace('.', ''))
+    amount=comfort[0].replace('€','').strip().lower()
+    if amount=='kostenlos':
+        cents=0
+    else:
+        parts=amount.replace(',','.').split('.')
+        cents=int(parts[0])*100+(int(parts[1]) if len(parts)==2 else 0)
     return {'departure':'18:22','arrival':arrivals[0],'trainNumber':train,
             'direction':direction.strip(),'class':'2+','displayedPriceCents':cents,
             'currency':'EUR','priceVerifiedForKlimaTicket':False}
 
 def read_loaded_connection(page, day):
     try:
-        page.wait_for_function(r"""() => /Abfahrtszeit,?\s*\n\s*18:22\b/i.test(document.body.innerText)""",timeout=8000)
+        page.wait_for_function(r"""() => /Abfahrtszeit[,:]?\s*18:22\b/i.test(document.body.innerText)""",timeout=8000)
     except PWTimeout:
         pass
     text=page.locator('body').inner_text(timeout=5000)
     if not DEPARTURE_MARKER.search(text):
         return None
-    found=parse_connection(text)
+    # A rendered departure can arrive before its price/train details.
+    # Retry incomplete results briefly, without clicking or booking anything.
+    for attempt in range(5):
+        try:
+            found=parse_connection(text)
+            break
+        except Blocked:
+            if attempt==4: raise
+            page.wait_for_timeout(700)
+            text=page.locator('body').inner_text(timeout=5000)
     # Recheck trip inputs after the asynchronous result load.
     for label, station in [('Von',ORIGIN),('Nach',DESTINATION)]:
         if normalize_station(field(page,label).input_value()) not in {normalize_station(n) for n in STATION_LABELS[station]}:

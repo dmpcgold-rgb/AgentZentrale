@@ -51,6 +51,18 @@ class ResultParsingTests(unittest.TestCase):
   self.assertEqual(result['arrival'],'18:49')
   self.assertEqual(result['displayedPriceCents'],790)
   self.assertFalse(result['priceVerifiedForKlimaTicket'])
+ def test_alternate_public_price_formats(self):
+  for price,cents in [('0 €',0),('0,00 €',0),('€ 7,90',790),('kostenlos',0),('7.90 €',790)]:
+   result=parse_connection(RESULTS.replace('€ 7,90',price))
+   self.assertEqual(result['displayedPriceCents'],cents)
+   self.assertFalse(result['priceVerifiedForKlimaTicket'])
+ def test_inline_departure_and_train_label(self):
+  result=parse_connection(RESULTS.replace('Abfahrtszeit,\n','Abfahrtszeit: ').replace('1009\nfährt nach','WB 1009 fährt nach').replace('Ankunftszeit,\n','Ankunftszeit: '))
+  self.assertEqual(result['trainNumber'],'1009')
+  self.assertEqual(result['arrival'],'18:49')
+ def test_price_missing_does_not_use_other_classes(self):
+  with self.assertRaisesRegex(Blocked,'Comfort-Preis 0'):
+   parse_connection(RESULTS.replace('2+ | Comfort\n€ 7,90','2+ | Comfort\nnicht verfügbar'))
  def test_duplicate_departures_blocked(self):
   with self.assertRaises(Blocked): parse_connection(RESULTS+'\n'+RESULTS)
  def test_missing_comfort_blocked(self):
