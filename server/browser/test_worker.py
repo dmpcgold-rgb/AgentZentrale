@@ -61,8 +61,20 @@ class ResultParsingTests(unittest.TestCase):
   self.assertEqual(result['trainNumber'],'1009')
   self.assertEqual(result['arrival'],'18:49')
  def test_price_missing_does_not_use_other_classes(self):
-  with self.assertRaisesRegex(Blocked,'Comfort-Preis 0'):
-   parse_connection(RESULTS.replace('2+ | Comfort\n€ 7,90','2+ | Comfort\nnicht verfügbar'))
+  result=parse_connection(RESULTS.replace('2+ | Comfort\n€ 7,90','2+ | Comfort\nnicht verfügbar'))
+  self.assertEqual(result['trainNumber'],'1009')
+  self.assertIsNone(result['displayedPriceCents'])
+  self.assertEqual(result['priceStatus'],'unavailable')
+  self.assertFalse(result['priceVerifiedForKlimaTicket'])
+ def test_missing_price_does_not_use_first_class(self):
+  result=parse_connection(RESULTS.replace('2+ | Comfort\n€ 7,90','2+ | Comfort'))
+  self.assertIsNone(result['displayedPriceCents'])
+  self.assertEqual(result['priceStatus'],'not_displayed')
+  self.assertEqual(result['comfortAvailability'],'unverified')
+ def test_missing_price_still_returns_connection(self):
+  result=parse_connection(RESULTS.replace('2+ | Comfort\n€ 7,90','2+ | Comfort\n—'))
+  self.assertEqual(result['arrival'],'18:49')
+  self.assertIsNone(result['displayedPriceCents'])
  def test_duplicate_departures_blocked(self):
   with self.assertRaises(Blocked): parse_connection(RESULTS+'\n'+RESULTS)
  def test_missing_comfort_blocked(self):

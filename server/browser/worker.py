@@ -196,7 +196,8 @@ def parse_connection(text):
     # currency before or after the amount and a whole-euro display.
     # A search price never establishes the final KlimaTicket checkout price.
     comfort = re.findall(r'(?im)^2\+[ \t]*(?:\|[ \t]*)?Comfort(?: Class)?[ \t]*(?:\n[ \t]*|[ \t]+)(€[ \t]*\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?[ \t]*€|kostenlos)[ \t]*$', block)
-    if len(arrivals) != 1 or len(trains) != 1 or len(comfort) != 1:
+    class_labels=re.findall(r'(?im)^2\+[ \t]*(?:\|[ \t]*)?Comfort(?: Class)?(?=[ \t]*$|[ \t]+(?:€|\d|kostenlos))',block)
+    if len(arrivals) != 1 or len(trains) != 1 or len(class_labels) != 1:
         # Narrow diagnostic: counts and public connection labels only.
         # Never include arbitrary body text, account details or ticket codes.
         hints=[]
@@ -205,15 +206,30 @@ def parse_connection(text):
                 hints.append(line)
         raise Blocked(f'Verbindung 18:22 unvollständig: Ankunft {len(arrivals)}, Zugnummer {len(trains)}, Comfort-Preis {len(comfort)}. Erkannte Zeilen: {" | ".join(hints[:16]) or "keine"}. Keine Buchung.')
     train, direction = trains[0]
-    amount=comfort[0].replace('€','').strip().lower()
-    if amount=='kostenlos':
-        cents=0
-    else:
-        parts=amount.replace(',','.').split('.')
-        cents=int(parts[0])*100+(int(parts[1]) if len(parts)==2 else 0)
+    cents=None
+    price_status='not_displayed' if not comfort else 'ambiguous'
+    if len(comfort)==1:
+        amount=comfort[0].replace('€','').strip().lower()
+        if amount=='kostenlos':
+            cents=0
+        else:
+            parts=amount.replace(',','.').split('.')
+            cents=int(parts[0])*100+(int(parts[1]) if len(parts)==2 else 0)
+        price_status='displayed'
+    # Do not confuse a missing price with a free or available seat. Inspect
+    # only the 2+ section, ending before the next class heading.
+    section=re.split(r'(?im)^2\+[ \t]*(?:\|[ \t]*)?Comfort(?: Class)?',block,maxsplit=1)[1]
+    section=re.split(r'(?im)^[ \t]*(?:1[ \t]*\|[ \t]*First|2[ \t]*\|[ \t]*Standard|Abfahrtszeit)\b',section,maxsplit=1)[0]
+    unavailable=bool(re.search(r'(?i)\b(?:ausgebucht|nicht verfügbar|keine (?:freien )?Plätze|nicht reservierbar)\b',section))
+    if unavailable:
+        cents=None
+        price_status='unavailable'
     return {'departure':'18:22','arrival':arrivals[0],'trainNumber':train,
             'direction':direction.strip(),'class':'2+','displayedPriceCents':cents,
-            'currency':'EUR','priceVerifiedForKlimaTicket':False}
+            'currency':'EUR','priceStatus':price_status,
+            'comfortAvailability':'unavailable' if unavailable else 'unverified',
+            'priceVerifiedForKlimaTicket':False}
+
 
 def read_loaded_connection(page, day):
     try:
@@ -228,7 +244,10 @@ def read_loaded_connection(page, day):
     for attempt in range(5):
         try:
             found=parse_connection(text)
-            break
+            if found['priceStatus']=='displayed' or found['priceStatus']=='unavailable' or attempt==4:
+                break
+            page.wait_for_timeout(700)
+            text=page.locator('body').inner_text(timeout=5000)
         except Blocked:
             if attempt==4: raise
             page.wait_for_timeout(700)
@@ -245,9 +264,15 @@ def read_loaded_connection(page, day):
         date_ok=official(page.url) and parse_qs(urlsplit(page.url).query).get('do')==[day] and displayed_date_matches(value,day,True)
     if not date_ok:
         raise Blocked('Reisedatum hat sich geändert. Keine Buchung.')
-    price=f"{found['displayedPriceCents']/100:.2f}".replace('.',',')
+    if found['displayedPriceCents'] is not None:
+        price=f"{found['displayedPriceCents']/100:.2f}".replace('.',',')
+        price_text=f'angezeigter Preis {price} €'
+    elif found['priceStatus']=='unavailable':
+        price_text='Comfort laut Anzeige nicht verfügbar'
+    else:
+        price_text='Comfort-Preis nicht eindeutig angezeigt'
     return {'status':'connection_found','connection':{'date':day,'origin':ORIGIN,'destination':DESTINATION,**found},
-            'message':f"Verbindung gefunden: {day} · {ORIGIN} → {DESTINATION} · WB {found['trainNumber']} · 18:22–{found['arrival']} · Comfort 2+ · angezeigter Preis {price} €. KlimaTicket-Preis, Sitzplatz und Buchung nicht bestätigt."}
+            'message':f"Verbindung gefunden: {day} · {ORIGIN} → {DESTINATION} · WB {found['trainNumber']} · 18:22–{found['arrival']} · Comfort 2+ · {price_text}. KlimaTicket-Preis, Sitzplatzverfügbarkeit und Buchung nicht bestätigt."}
 
 
 def prepare(page, day):
