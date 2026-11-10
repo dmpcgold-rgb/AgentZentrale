@@ -7,7 +7,7 @@ HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Hinfahrt<input type="date" id="day"></label>
 <button id="search">Verbindung suchen</button><button id="buy">Kaufen</button>
 <script>
-for(const [id,opts,name] of [['from','opts1','Wien Westbahnhof'],['to','opts2','St. Pölten Hbf']]) {
+for(const [id,opts,name] of [['from','opts1','Wien Meidling'],['to','opts2','Wiener Neustadt Hbf']]) {
  const field=document.getElementById(id);field.addEventListener('input',()=>{const opt=document.createElement('button');opt.setAttribute('role','option');opt.textContent=name;opt.onclick=()=>{field.value=name;opt.remove();};document.getElementById(opts).replaceChildren(opt);});
 }
 window.searched=0;window.bought=0;document.getElementById('search').onclick=()=>window.searched++;document.getElementById('buy').onclick=()=>window.bought++;

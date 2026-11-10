@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
-ORIGIN = 'Wien Westbahnhof'
-DESTINATION = 'St. Pölten Hbf'
+ORIGIN = 'Wien Meidling'
+DESTINATION = 'Wiener Neustadt Hbf'
 
 class Blocked(Exception): pass
 
@@ -46,7 +46,7 @@ def prepare(page, day):
     # Only search, never add to cart or confirm purchase. Exact single button required.
     search=unique([page.get_by_role('button',name='Verbindung suchen',exact=True)],'Verbindung suchen')
     search.click()
-    return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
+    return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
 
 def inspect(page):
     if not official(page.url): raise Blocked('Browser außerhalb der erlaubten WESTbahn-Domain.')

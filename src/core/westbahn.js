@@ -1,4 +1,4 @@
-export const RULES = Object.freeze({origin:'Wien Westbahnhof',destination:'St. Pölten Hbf',departure:'17:30',class:'2+',ticket:'KlimaTicket Österreich',preferred:['101A','101D','102A','102D'],priceCents:0,timezone:'Europe/Vienna'});
+export const RULES = Object.freeze({origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',departure:'18:22',class:'2+',ticket:'KlimaTicket Österreich',preferred:['233A','233D','191D','182A'],priceCents:0,timezone:'Europe/Vienna'});
 export const BOOKING_URL='https://westbahn.at/reservierung/sitzplatz-upgrade/';
 export function viennaClock(at=new Date()) {
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:RULES.timezone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(at).map(x=>[x.type,x.value]));
@@ -13,7 +13,7 @@ export function planDates(at=new Date(), months=6) {
 export function chooseSeat(seats) {
  if(!Array.isArray(seats))return null;
  const valid=seats.filter(s=>s&&s.available===true&&s.class===RULES.class&&s.groupSize===2&&['opposite-table','offset'].includes(s.layout)&&typeof s.id==='string'&&/^\d{3}[A-Z]$/.test(s.id));
- const rank=s=>{const p=RULES.preferred.indexOf(s.id);return p>=0?p:s.id.startsWith('103')?4:s.layout==='opposite-table'?5:6;};
+ const rank=s=>{const p=RULES.preferred.indexOf(s.id);return p>=0?p:s.id.startsWith('193')?4:s.layout==='opposite-table'?5:6;};
  return [...valid].sort((a,b)=>rank(a)-rank(b)||a.id.localeCompare(b.id))[0]||null;
 }
 export function validateQuote(q,date,seat){return !!q&&q.date===date&&q.origin===RULES.origin&&q.destination===RULES.destination&&q.departure===RULES.departure&&q.class===RULES.class&&q.ticket===RULES.ticket&&q.currency==='EUR'&&q.totalCents===0&&q.seat===seat&&typeof q.quoteId==='string'&&q.quoteId.length>0;}

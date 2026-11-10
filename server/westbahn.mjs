@@ -32,7 +32,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
      const quote=await adapter.quote({date,seat:seat.id,connectionId:found.connectionId,...RULES});
      if(!validateQuote(quote,date,seat.id)){record(date,'blocked','Preis oder Buchungsdaten nicht exakt bestätigt; keine Buchung.');continue;}
      // Persist before side effect. The provider must honor this stable idempotency key.
-     const key=`agentzentrale-westbahn-${date}-1730`;
+     const key=`agentzentrale-westbahn-${date}-${RULES.departure.replace(':','')}`;
      record(date,'booking','Checkout gestartet',{seat:seat.id,key});
      let receipt;try{receipt=await adapter.book({quoteId:quote.quoteId,idempotencyKey:key,maxTotalCents:0});}catch{record(date,'uncertain','Checkout-Ausgang unklar. Nicht automatisch erneut versuchen.',{seat:seat.id,key});continue;}
      if(!confirmedReceipt(receipt,date,seat.id)){record(date,'uncertain','Keine eindeutige Buchungsbestätigung. Manuell prüfen.',{seat:seat.id,key});continue;}

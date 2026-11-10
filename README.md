@@ -118,7 +118,7 @@ Die Tests benötigen für die Backend-API **keinen Internetzugriff** und simulie
 
 ## V1.3 – WESTbahn-Agent
 
-Im Dashboard „WESTbahn-Agent öffnen“: Wochenplan, Sitzplatzregeln, Buchungsstatus und Link zur offiziellen WESTbahn. Die App plant Montag–Freitag um 17:30 bis sechs Kalendermonate im Voraus; tatsächliche Fahrten und Sitzplätze müssen der Anbieter bestätigen. Kein Feiertags-/Urlaubsfilter in V1.3. Die App öffnet die offizielle Reservierungsseite auch ohne Server.
+Im Dashboard „WESTbahn-Agent öffnen“: Wochenplan, Sitzplatzregeln, Buchungsstatus und Link zur offiziellen WESTbahn. Die App plant Montag–Freitag um 18:22 von Wien Meidling nach Wiener Neustadt Hbf bis sechs Kalendermonate im Voraus; tatsächliche Fahrten und Sitzplätze müssen der Anbieter bestätigen. Kein Feiertags-/Urlaubsfilter in V1.3. Die App öffnet die offizielle Reservierungsseite auch ohne Server.
 
 **Live-Buchungen sind noch NICHT möglich:** Es wurde keine öffentliche, dokumentierte und verifizierte Buchungs-API gefunden; kein echter WESTbahn-Adapter und keine Anmeldedaten sind enthalten. Es wurden keine Reservierungen vorgenommen. Ein Anbieteradapter muss vom Betreiber über eine zulässige, tatsächlich getestete Schnittstelle eingerichtet werden. Ohne Adapter bleiben Automatik und Checkout gesperrt. Keine Zahlungen > 0 € werden unterstützt. Die Buchungsregeln sind serverseitig fest vorgegeben.
 
