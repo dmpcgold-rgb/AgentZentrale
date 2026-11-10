@@ -1,0 +1,22 @@
+services:
+  agentzentrale:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - server/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8787"
+      WESTBAHN_PYTHON: /opt/agent-venv/bin/python
+      WESTBAHN_BROWSER_PROFILE: /app/server/data/westbahn-browser
+      WESTBAHN_LEDGER: /app/server/data/westbahn.json
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - agent-data:/app/server/data
+    shm_size: "1gb"
+    init: true
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  agent-data:
