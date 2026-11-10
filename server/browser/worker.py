@@ -294,6 +294,67 @@ def prepare(page, day):
     if found is not None: return found
     return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
 
+
+def inspect_comfort(page, day):
+    result=prepare(page,day)
+    if result.get('status')!='connection_found': return result
+    # Inspect the actual rendered controls, not prices from the adjacent class.
+    # No click, cart mutation or checkout. Output only public class information.
+    detail=page.evaluate(r"""() => {
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const visible=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
+      const classRe=/^2\+\s*\|?\s*Comfort(?: Class)?(?:\s|$)/i;
+      const departureRe=/Abfahrtszeit[,:]?\s*(?:[01]\d|2[0-3]):[0-5]\d/g;
+      const targetRe=/Abfahrtszeit[,:]?\s*18:22\b/;
+      const labels=[...document.querySelectorAll('body *')].filter(e=>{
+        if(!visible(e)||!classRe.test(norm(e.innerText)))return false;
+        return ![...e.children].some(c=>visible(c)&&classRe.test(norm(c.innerText)));
+      });
+      const matches=[];
+      for(const label of labels){
+        let row=null;
+        for(let e=label.parentElement;e && e!==document.body;e=e.parentElement){
+          const t=e.innerText||'';
+          const departures=t.match(departureRe)||[];
+          if(departures.length>1)break;
+          if(departures.length===1){
+            if(targetRe.test(t)&&/\b1009\b/.test(t)&&/\b18:49\b/.test(t))row=e;
+            break;
+          }
+        }
+        if(!row)continue;
+        let control=label.closest('button,a[href],input,[role="button"],[role="link"],[tabindex]');
+        if(control&&!row.contains(control))control=null;
+        if(!control){
+          for(let e=label;e&&e!==row;e=e.parentElement){
+            const options=[...e.querySelectorAll('button,a[href],input,[role="button"],[role="link"]')].filter(visible);
+            if(options.length===1){control=options[0];break;}
+            if(options.length>1)break;
+          }
+        }
+        let section=control||label;
+        // A surrounding class cell often includes price/availability in siblings.
+        for(let e=label.parentElement;e&&e!==row;e=e.parentElement){
+          const t=norm(e.innerText);
+          if(/(?:^|\s)(?:1\s*\|\s*First|2\s*\|\s*Standard|Abfahrtszeit)\b/i.test(t))break;
+          if(classRe.test(t))section=e;
+        }
+        const values=[section.innerText,section.getAttribute('aria-label'),section.getAttribute('title'),
+          control?.getAttribute('aria-label'),control?.getAttribute('title'),
+          ...[...section.querySelectorAll('[title],[aria-label]')].slice(0,24).flatMap(e=>[e.getAttribute('title'),e.getAttribute('aria-label')])];
+        const prices=[...new Set(values.flatMap(s=>(s||'').match(/(?:€\s*\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?\s*€)/g)||[]).map(norm))];
+        const markers=[...new Set(values.flatMap(s=>(s||'').match(/ausgebucht|nicht verfügbar|nicht reservierbar|keine (?:freien )?Plätze|wenige Plätze|einige Plätze|viele Plätze|kostenlos|reservierbar/gi)||[]).map(norm))];
+        const disabled=!!(control&&(control.matches(':disabled,[aria-disabled="true"]')||control.closest('[aria-disabled="true"],[inert]')));
+        matches.push({controlTag:control?.tagName.toLowerCase()||null,controlRole:control?.getAttribute('role')||null,
+          disabled:control?disabled:null,visible:control?visible(control):null,
+          pointerEvents:control?getComputedStyle(control).pointerEvents:null,prices,availabilityMarkers:markers});
+      }
+      return {targetClassLabels:matches.length,controls:matches};
+    }""")
+    return {'status':'comfort_inspected','connection':result['connection'],'inspection':detail,
+            'message':'Comfort-Bedienelemente nur gelesen. Kein Sitzplatz ausgewählt, keine Buchung.'}
+
+
 def inspect(page):
     if not official(page.url): raise Blocked('Browser außerhalb der erlaubten WESTbahn-Domain.')
     return {'status':'reachable','message':'Offizielle WESTbahn-Seite im Chromium geöffnet. Keine Anmeldung, Verfügbarkeit oder Buchung bestätigt.', 'originField': any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Von',exact=True),page.get_by_placeholder('Von',exact=True)]),'destinationField':any(x.count()==1 and x.is_visible() for x in [page.get_by_label('Nach',exact=True),page.get_by_placeholder('Nach',exact=True)])}
@@ -503,7 +564,7 @@ def account_inventory(context, requested_page=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -532,8 +593,8 @@ def main():
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
-                if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=date_url(args.date) if args.mode=='prepare' else URL
+                if args.mode in ('prepare','comfort-inspect') and not args.date: raise Blocked('Reisedatum fehlt.')
+                target=date_url(args.date) if args.mode in ('prepare','comfort-inspect') else URL
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
@@ -541,6 +602,7 @@ def main():
                 if args.mode=='probe': return inspect(page)
                 if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
                 if not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode=='comfort-inspect': return inspect_comfort(page,args.date)
                 return prepare(page,args.date)
             finally: context.close()
 

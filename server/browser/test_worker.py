@@ -1,6 +1,7 @@
 import unittest, os
+from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -92,6 +93,16 @@ class BrowserTests(unittest.TestCase):
  def tearDownClass(cls): cls.b.close();cls.p.stop()
  def setUp(self): self.page=self.b.new_page(); self.page.set_content(HTML)
  def tearDown(self): self.page.close()
+ def test_comfort_inspection_is_scoped_and_read_only(self):
+  self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
+  with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):
+   result=inspect_comfort(self.page,'2026-11-17')
+  self.assertEqual(result['inspection']['targetClassLabels'],1)
+  control=result['inspection']['controls'][0]
+  self.assertTrue(control['disabled'])
+  self.assertEqual(control['prices'],[])
+  self.assertIn('ausgebucht',control['availabilityMarkers'])
+  self.assertEqual(self.page.evaluate('window.clicked'),0)
  def test_account_summary_read_only(self):
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
   self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
