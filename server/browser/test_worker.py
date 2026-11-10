@@ -175,7 +175,7 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(self.page.evaluate('window.bought'),0)
  def test_custom_date_picker_mismatch_rejected(self):
   day='2026-11-17'
-  html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Di, 17.11.2026"')
+  html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Mi, 18.11.2026"')
   self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
   self.page.goto(date_url(day))
   with self.assertRaises(Blocked): prepare(self.page,day)
