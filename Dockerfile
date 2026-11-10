@@ -14,7 +14,7 @@ WORKDIR /app
 # Debian provides Chromium for both amd64 and arm64. Avoid the browser-download
 # and dependency-install subprocesses of Playwright on the Oracle ARM VM.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium fonts-liberation libatomic1 \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium fonts-liberation libatomic1 xvfb x11vnc novnc websockify xauth \
     && rm -rf /var/lib/apt/lists/*
 RUN /usr/bin/python3 -m venv /opt/agent-venv
 COPY server/browser/requirements.txt /tmp/requirements.txt

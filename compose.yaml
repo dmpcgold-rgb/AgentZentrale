@@ -12,6 +12,8 @@ services:
       WESTBAHN_LEDGER: /app/server/data/westbahn.json
     ports:
       - "127.0.0.1:8787:8787"
+      # Temporary private desktop; accessible on the host only via SSH tunnel.
+      - "127.0.0.1:6080:6080"
     volumes:
       - agent-data:/app/server/data
     shm_size: "1gb"
