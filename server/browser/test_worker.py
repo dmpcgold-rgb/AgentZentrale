@@ -1,7 +1,7 @@
 import unittest, os
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -118,6 +118,18 @@ class BrowserTests(unittest.TestCase):
   result=apply_comfort_control_price(data,detail)
   self.assertIsNone(result['displayedPriceCents'])
   self.assertEqual(result['priceStatus'],'ambiguous')
+ def test_offline_seat_preview_does_not_send_click_request(self):
+  context=self.b.new_context(service_workers='block')
+  try:
+   q=context.new_page()
+   q.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button title="€ 0,00" onclick="fetch(\'https://westbahn.at/checkout\',{method:\'POST\'}).catch(()=>{});document.body.insertAdjacentHTML(\'beforeend\',\'<button>233 A</button>\')">2+ | Comfort</button></div></article>')
+   conn={'trainNumber':'1009','arrival':'18:49','displayedPriceCents':0,'priceSource':'comfort_control'}
+   with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}):
+    result=offline_seat_preview(q,'2026-11-17')
+   self.assertEqual(result['status'],'seat_preview_offline')
+   self.assertEqual(result['preferredControls'],[{'seat':'233A','disabled':False}])
+   self.assertFalse(result['liveAvailabilityVerified'])
+  finally: context.close()
  def test_account_summary_read_only(self):
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
   self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))

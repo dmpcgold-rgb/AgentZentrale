@@ -17,3 +17,6 @@ Der grafische Login läuft nur bei Bedarf. Auf dem Handy per SSH den lokalen Por
 
 ## Domainübergreifender Bestand
 Der reguläre Befehl `docker compose exec -T agentzentrale /opt/agent-venv/bin/python /app/server/browser/worker.py account` prüft jetzt die österreichische und deutsche Domain. Standardmäßig werden Seite 1 und 2 sowie weitere sichtbare numerische Seitenlinks (maximal zehn Seiten je Domain) geprüft. `--page 1` prüft nur diese Seite auf beiden Domains. Gleiche sichtbare Datum/Sitzplatz-Kombinationen werden gruppiert, die Quellen bleiben sichtbar. Jahrlose Datumsangaben und unvollständige Seiten sind kein Nachweis eines vollständigen Bestands. Ein Fehler auf einer Domain verwirft positive Treffer auf der anderen nicht. Kein Checkout, keine Buchung.
+
+## Isolierte Sitzplatzvorschau
+`worker.py seat-preview --date 2026-11-17` kopiert den Login-Zustand in einen flüchtigen Browserkontext. Nach der regulären Suche und Prüfung des 0-EUR-Comfort-Buttons werden sämtliche Netzwerkverbindungen des Vorschaukontexts gesperrt, bevor der einzige Comfort-Klick erfolgt. Service Worker und WebSockets sind deaktiviert. Die Vorschau kann nur bereits lokal geladene Platzinformationen anzeigen; ein leeres Ergebnis oder blockierte Anfrage bedeutet nicht, dass der Zug ausgebucht ist. Keine Live-Verfügbarkeit, kein Checkout, keine Buchung.
