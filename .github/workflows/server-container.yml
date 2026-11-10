@@ -36,4 +36,4 @@ jobs:
           test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/health)" = 401
           curl -sf -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8787/westbahn/browser/status > /tmp/browser.json
           node -e 'const a=require("/tmp/browser.json");if(a.enabled!==false||a.liveBooking!==false)process.exit(1)'
-          docker exec agentzentrale-test python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.set_content("<title>AgentZentrale</title>"); assert page.title()=="AgentZentrale"; b.close(); p.stop()'
+          docker exec agentzentrale-test /opt/agent-venv/bin/python -c 'import os; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path=os.environ["WESTBAHN_CHROMIUM_PATH"]); page=b.new_page(); page.set_content("<title>AgentZentrale</title>"); assert page.title()=="AgentZentrale"; b.close(); p.stop()'
