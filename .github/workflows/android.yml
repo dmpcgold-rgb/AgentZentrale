@@ -41,6 +41,12 @@ jobs:
           ls "$ANDROID_HOME/build-tools"
       - name: Install JavaScript dependencies
         run: npm install --no-audit --no-fund
+      - name: Install Expo-compatible Babel preset
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx expo install babel-preset-expo -- --save-dev
+          node -e 'console.log("Babel preset:", require.resolve("babel-preset-expo"))'
       - name: Normalize incomplete Expo Android publication metadata
         shell: bash
         run: |
@@ -85,6 +91,8 @@ jobs:
           NODE
       - name: Run app and server tests
         run: npm test
+      - name: Verify Android JavaScript bundle
+        run: npx expo export --platform android --output-dir /tmp/agentzentrale-export
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
       - name: Build standalone test APK
