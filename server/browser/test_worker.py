@@ -70,7 +70,7 @@ class BrowserTests(unittest.TestCase):
  def tearDown(self): self.page.close()
  def test_account_summary_read_only(self):
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
-  self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
   self.page.goto(ACCOUNT_URL)
   result=account_summary(self.page)
   self.assertEqual(result['status'],'account_verified')
@@ -149,7 +149,7 @@ class BrowserTests(unittest.TestCase):
   # Use an official origin to verify the link destination.
   day='2026-11-17'
   html=HTML.replace('<button id="search">Verbindung suchen</button>','<a id="search" href="#search">Verbindung suchen</a>')
-  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
   self.page.goto(date_url(day))
   self.assertEqual(prepare(self.page,day)['status'],'search_submitted')
   self.assertEqual(self.page.evaluate('window.searched'),1)
@@ -169,14 +169,14 @@ class BrowserTests(unittest.TestCase):
  def test_custom_date_picker_from_url(self):
   day='2026-11-17'
   html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Di, 17.11.2026"')
-  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
   self.page.goto(date_url(day))
   self.assertEqual(prepare(self.page,day)['status'],'search_submitted')
   self.assertEqual(self.page.evaluate('window.bought'),0)
  def test_custom_date_picker_mismatch_rejected(self):
   day='2026-11-17'
   html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Mi, 18.11.2026"')
-  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
   self.page.goto(date_url(day))
   with self.assertRaises(Blocked): prepare(self.page,day)
   self.assertEqual(self.page.evaluate('window.searched'),0)
