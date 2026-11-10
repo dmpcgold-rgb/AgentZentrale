@@ -24,6 +24,26 @@ class BrowserTests(unittest.TestCase):
  def tearDown(self): self.page.close()
  def test_search_only(self):
   r=prepare(self.page,'2026-11-16');self.assertEqual(r['status'],'search_submitted');self.assertEqual(self.page.evaluate('window.searched'),1);self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_cookie_decline_before_search(self):
+  self.page.evaluate("""() => {
+   document.body.insertAdjacentHTML('beforeend',
+    '<div id="CybotCookiebotDialogBodyUnderlay" style="position:fixed;inset:0;z-index:100;background:#ccc"></div>'+
+    '<div id="CybotCookiebotDialog" style="position:fixed;top:10px;left:10px;z-index:101">'+
+    '<button id="CybotCookiebotDialogBodyButtonDecline">Nur notwendige Cookies</button>'+
+    '<button id="CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll">Alle erlauben</button></div>');
+   window.declined=0;window.accepted=0;
+   document.querySelector('#CybotCookiebotDialogBodyButtonDecline').onclick=()=>{
+    window.declined++;document.querySelector('#CybotCookiebotDialog').remove();document.querySelector('#CybotCookiebotDialogBodyUnderlay').remove();
+   };
+   document.querySelector('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll').onclick=()=>window.accepted++;
+  }""")
+  r=prepare(self.page,'2026-11-16');self.assertEqual(r['status'],'search_submitted')
+  self.assertEqual(self.page.evaluate('window.declined'),1);self.assertEqual(self.page.evaluate('window.accepted'),0)
+  self.assertEqual(self.page.evaluate('window.searched'),1);self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_unknown_cookie_dialog_fails_closed(self):
+  self.page.evaluate("""document.body.insertAdjacentHTML('beforeend','<div id="CybotCookiebotDialog"><button id="CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll">Alle erlauben</button></div>')""")
+  with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
+  self.assertEqual(self.page.evaluate('window.searched'),0);self.assertEqual(self.page.evaluate('window.bought'),0)
  def test_no_search_if_ambiguous(self):
   self.page.evaluate("document.body.insertAdjacentHTML('beforeend','<button>Verbindung suchen</button>')")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')

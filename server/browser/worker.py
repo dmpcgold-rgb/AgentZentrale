@@ -21,6 +21,31 @@ def unique(candidates, name):
         if loc.count()==1 and loc.is_visible(): return loc
     raise Blocked(f'Feld nicht eindeutig: {name}. Bitte Ticketshop im Browser prüfen.')
 
+def dismiss_cookie_dialog(page, wait_ms=3000):
+    # Use the provider's explicit opt-out, not DOM manipulation or accept-all.
+    dialog = page.locator('#CybotCookiebotDialog')
+    underlay = page.locator('#CybotCookiebotDialogBodyUnderlay')
+    try:
+        dialog.wait_for(state='visible', timeout=wait_ms)
+    except PWTimeout:
+        if not underlay.is_visible(): return False
+        raise Blocked('Cookie-Overlay sichtbar, aber Dialog nicht eindeutig erreichbar.')
+    if dialog.count()!=1: raise Blocked('Cookie-Dialog nicht eindeutig.')
+    candidates = [
+        dialog.locator('#CybotCookiebotDialogBodyButtonDecline'),
+        dialog.locator('#CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll'),
+    ]
+    buttons = [loc for loc in candidates if loc.count()==1 and loc.is_visible()]
+    if len(buttons)!=1:
+        raise Blocked('Cookie-Dialog: keine eindeutige Schaltfläche zum Ablehnen optionaler Cookies.')
+    try:
+        buttons[0].click(timeout=5000)
+        dialog.wait_for(state='hidden', timeout=5000)
+        underlay.wait_for(state='hidden', timeout=5000)
+    except PWTimeout:
+        raise Blocked('Cookie-Dialog konnte nicht geschlossen werden. Keine Suche ausgeführt.')
+    return True
+
 def field(page, label):
     return unique([page.get_by_label(label,exact=True),page.get_by_placeholder(label,exact=True)],label)
 
@@ -37,6 +62,7 @@ def set_station(page,label,value):
 
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
+    dismiss_cookie_dialog(page)
     set_station(page,'Von',ORIGIN)
     set_station(page,'Nach',DESTINATION)
     when=field(page,'Hinfahrt')
@@ -45,7 +71,7 @@ def prepare(page, day):
     if when.input_value()!=day: raise Blocked('Datum nicht bestätigt.')
     # Only search, never add to cart or confirm purchase. Exact single button required.
     search=unique([page.get_by_role('button',name='Verbindung suchen',exact=True)],'Verbindung suchen')
-    search.click()
+    search.click(timeout=5000)
     return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
 
 def inspect(page):
@@ -85,4 +111,5 @@ def main():
 if __name__=='__main__':
     try: print(json.dumps(main(),ensure_ascii=False))
     except Blocked as e: print(json.dumps({'status':'blocked','message':str(e)},ensure_ascii=False))
+    except PWTimeout: print(json.dumps({'status':'blocked','message':'Zeitlimit beim WESTbahn-Suchformular. Bitte Suchfelder und Cookie-Dialog prüfen. Keine Buchung vorgenommen.'},ensure_ascii=False))
     except Exception: print(json.dumps({'status':'blocked','message':'Browser nicht verfügbar, Seite nicht erreichbar oder Ablauf nicht eindeutig. Keine Buchung vorgenommen.'},ensure_ascii=False))
