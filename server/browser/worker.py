@@ -141,7 +141,7 @@ def confirm_date(page, day):
         detail=' '.join(value.split())[:100] or '(leer)'
         raise Blocked(f'Datum {day} nicht bestätigt. Kalender zeigt: {detail}. Datumsparameter: {"passend" if query_ok else "abweichend"}. Keine Suche.')
     
-SEARCH_NAMES = re.compile(r'^\s*(?:Verbindungen? suchen|Z(?:ug|üge) suchen|Verbindungen? anzeigen|Züge anzeigen)\s*$', re.IGNORECASE)
+SEARCH_NAMES = re.compile(r'^\s*(?:Verbindung(?:en)? suchen|Z(?:ug|üge) suchen|Verbindung(?:en)? anzeigen|Züge anzeigen)\s*$', re.IGNORECASE)
 
 def search_control(page):
     # Match only explicit connection-search actions, never checkout or payment.
