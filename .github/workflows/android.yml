@@ -41,6 +41,48 @@ jobs:
           ls "$ANDROID_HOME/build-tools"
       - name: Install JavaScript dependencies
         run: npm install --no-audit --no-fund
+      - name: Normalize incomplete Expo Android publication metadata
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          let fixed = 0;
+          function visit(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.')) continue;
+              const folder = path.join(dir, entry.name);
+              const file = path.join(folder, 'expo-module.config.json');
+              if (fs.existsSync(file)) {
+                const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+                let changed = false;
+                function fix(value) {
+                  if (!value || typeof value !== 'object') return;
+                  if (value.publication && !value.publication.version) {
+                    // SDK 57 Gradle requires a version even for source-built projects.
+                    // Drop incomplete prebuilt metadata, keeping native source autolinking.
+                    delete value.publication;
+                    delete value.shouldUsePublicationScriptPath;
+                    changed = true;
+                  }
+                  for (const child of Object.values(value)) fix(child);
+                }
+                fix(config.android);
+                if (changed) {
+                  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+                  console.log('Using Android source for:', folder);
+                  fixed++;
+                }
+              }
+              // Only traverse package scopes and nested dependencies.
+              if (entry.name.startsWith('@')) visit(folder);
+              const nested = path.join(folder, 'node_modules');
+              if (fs.existsSync(nested)) visit(nested);
+            }
+          }
+          visit('node_modules');
+          console.log('Incomplete module publications removed:', fixed);
+          NODE
       - name: Run app and server tests
         run: npm test
       - name: Generate native Android project
