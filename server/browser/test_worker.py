@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -81,6 +81,26 @@ class BrowserTests(unittest.TestCase):
   self.page.evaluate("document.body.insertAdjacentHTML('beforeend','<button>Verbindung suchen</button>')")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')
   self.assertEqual(self.page.evaluate('window.searched'),0);self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_custom_date_picker_from_url(self):
+  day='2026-11-16'
+  html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Mo, 16.11.2026"')
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.goto(date_url(day))
+  self.assertEqual(prepare(self.page,day)['status'],'search_submitted')
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_custom_date_picker_mismatch_rejected(self):
+  day='2026-11-16'
+  html=HTML.replace('type="date" id="day"','type="text" id="day" readonly value="Di, 17.11.2026"')
+  self.page.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html',body=html))
+  self.page.goto(date_url(day))
+  with self.assertRaises(Blocked): prepare(self.page,day)
+  self.assertEqual(self.page.evaluate('window.searched'),0)
+ def test_date_display_formats(self):
+  for value in ('2026-11-16','Mo, 16.11.2026','Montag, 16. November 2026','Mo. 16.11.','16. Nov.'):
+   self.assertTrue(displayed_date_matches(value,'2026-11-16',True),value)
+  self.assertFalse(displayed_date_matches('16.11.','2026-11-16',False))
+  self.assertFalse(displayed_date_matches('16.11.2025','2026-11-16',True))
+  self.assertFalse(displayed_date_matches('17.11.','2026-11-16',True))
  def test_wrong_date_type(self):
   self.page.locator('#day').evaluate("e=>e.type='text'")
   with self.assertRaises(Blocked): prepare(self.page,'2026-11-16')

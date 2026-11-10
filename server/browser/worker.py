@@ -3,7 +3,7 @@
 import argparse, fcntl, json, os, sys, re
 from pathlib import Path
 from datetime import date
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
@@ -105,6 +105,42 @@ def set_station(page,label,value):
     if normalize_station(loc.input_value()) not in accepted:
         raise Blocked(f'Bahnhof {label} nicht bestätigt.')
 
+def date_url(day):
+    # The public reservation form uses "do" for outbound date and "tv=a"
+    # for one-way journeys. Still verify the rendered field before search.
+    return URL + '?' + urlencode({'tv':'a','do':date.fromisoformat(day).isoformat()})
+
+def displayed_date_matches(value, day, query_verified=False):
+    expected=date.fromisoformat(day)
+    value=' '.join(value.split()).strip().casefold()
+    if value==day: return True
+    # German weekday labels, numeric dates, or German month names.
+    value=re.sub(r'^(?:mo(?:ntag)?|di(?:enstag)?|mi(?:ttwoch)?|do(?:nnerstag)?|fr(?:eitag)?|sa(?:mstag)?|so(?:nntag)?)\.?\s*,?\s+', '', value)
+    match=re.fullmatch(r'(\d{1,2})[./]\s*(\d{1,2})(?:[./]\s*(\d{4}))?\.?',value)
+    if match:
+        d,m,y=match.groups()
+        return int(d)==expected.day and int(m)==expected.month and (int(y)==expected.year if y else query_verified)
+    months={'jan':1,'januar':1,'jän':1,'jänner':1,'feb':2,'februar':2,'mär':3,'märz':3,'mrz':3,'apr':4,'april':4,'mai':5,'jun':6,'juni':6,'jul':7,'juli':7,'aug':8,'august':8,'sep':9,'sept':9,'september':9,'okt':10,'oktober':10,'nov':11,'november':11,'dez':12,'dezember':12}
+    match=re.fullmatch(r'(\d{1,2})\.?\s+([a-zä]+)\.?(?:\s+(\d{4}))?',value)
+    if match:
+        d,m,y=match.groups()
+        return int(d)==expected.day and months.get(m)==expected.month and (int(y)==expected.year if y else query_verified)
+    return False
+
+def confirm_date(page, day):
+    when=field(page,'Hinfahrt')
+    if when.get_attribute('type')=='date':
+        when.fill(day)
+        if when.input_value()!=day: raise Blocked('Datum nicht bestätigt.')
+        return
+    # Custom date picker: never inject a value into the DOM or bypass events.
+    # Its date was requested through the official public form URL.
+    query_ok=official(page.url) and parse_qs(urlsplit(page.url).query).get('do')==[day]
+    value=when.evaluate("(el) => typeof el.value === 'string' ? el.value : (el.textContent || '')").strip()
+    if not query_ok or not displayed_date_matches(value,day,query_verified=query_ok):
+        detail=' '.join(value.split())[:100] or '(leer)'
+        raise Blocked(f'Datum {day} nicht bestätigt. Kalender zeigt: {detail}. Datumsparameter: {"passend" if query_ok else "abweichend"}. Keine Suche.')
+    
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
     dismiss_cookie_dialog(page)
@@ -112,10 +148,7 @@ def prepare(page, day):
     set_station(page,'Nach',DESTINATION)
     if normalize_station(field(page,'Von').input_value()) not in {normalize_station(n) for n in STATION_LABELS[ORIGIN]} or normalize_station(field(page,'Nach').input_value()) not in {normalize_station(n) for n in STATION_LABELS[DESTINATION]}:
         raise Blocked('Bahnhofsauswahl hat sich geändert. Keine Suche.')
-    when=field(page,'Hinfahrt')
-    if when.get_attribute('type')!='date': raise Blocked('Datumsauswahl ist nicht als eindeutiges Datumsfeld erkennbar.')
-    when.fill(day)
-    if when.input_value()!=day: raise Blocked('Datum nicht bestätigt.')
+    confirm_date(page, day)
     # Only search, never add to cart or confirm purchase. Exact single button required.
     search=unique([page.get_by_role('button',name='Verbindung suchen',exact=True)],'Verbindung suchen')
     search.click(timeout=5000)
@@ -150,7 +183,9 @@ def main():
                                 return
                         route.continue_()
                     context.route('**/*',guard)
-                page.goto(URL,wait_until='domcontentloaded',timeout=25000)
+                if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
+                target=date_url(args.date) if args.mode=='prepare' else URL
+                page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
                     input(); return {'status':'profile_saved','message':'Browserprofil gespeichert; Anmeldung muss vor einer Buchung geprüft werden.'}
