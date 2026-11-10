@@ -77,6 +77,23 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A'}])
   self.assertFalse(result['inventoryComplete'])
   self.assertNotIn('SECRET123',str(result))
+ def test_account_collects_lazy_loaded_cards(self):
+  html="""<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+  <div id="panel" style="height:120px;overflow-y:auto">
+   <article style="height:250px"><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>FR 13 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div></article>
+  </div><script>
+  const panel=document.getElementById('panel');
+  panel.addEventListener('scroll',()=>{
+   if(document.getElementById('later'))return;
+   panel.insertAdjacentHTML('beforeend','<article id="later"><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div></article>');
+  });
+  </script>"""
+  self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto(ACCOUNT_URL)
+  result=account_summary(self.page)
+  self.assertEqual(result['newCardsAfterScroll'],1)
+  self.assertEqual(len(result['matchingVisibleCards']),2)
+  self.assertFalse(result['inventoryComplete'])
  def test_account_wrong_page_blocked(self):
   with self.assertRaises(Blocked): account_summary(self.page)
  def test_automatic_results_without_search_button(self):

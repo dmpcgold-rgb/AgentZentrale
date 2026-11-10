@@ -271,7 +271,8 @@ def account_summary(page):
         headings.first.wait_for(state='visible',timeout=6000)
     except PWTimeout:
         pass  # Empty or still loading: absence is never confirmed.
-    cards=headings.evaluate_all("""els => {
+    def visible_cards():
+        return headings.evaluate_all("""els => {
       const visible=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
       return els.filter(visible).map(e=>{
         for(let n=e;n && n!==document.body;n=n.parentElement){
@@ -282,8 +283,44 @@ def account_summary(page):
         return '';
       });
     }""")
+    # Collect virtualized/lazy-loaded tiles without clicking or modifying tickets.
+    # Deduplicate full card text in memory only; never emit codes or identifiers.
+    cards={}
+    max_visible=0
+    def collect():
+        nonlocal max_visible
+        snapshot=visible_cards()
+        max_visible=max(max_visible,len(snapshot))
+        for card in snapshot:
+            if card: cards.setdefault(' '.join(card.split()),card)
+    collect()
+    first_count=len(cards)
+    still=0
+    scroll_passes=0
+    for _ in range(16):
+        moved=page.evaluate("""() => {
+          const root=document.scrollingElement;
+          const panels=[...document.querySelectorAll('main,section,div,ul,article')].filter(e=>{
+            if(e===root || e.clientHeight<40 || e.scrollHeight<=e.clientHeight+2) return false;
+            return /auto|scroll/.test(getComputedStyle(e).overflowY) &&
+              (e.textContent||'').includes('Reservierung Comfort Class');
+          });
+          let moved=false;
+          for(const e of [...new Set([root,...panels].filter(Boolean))]){
+            const before=e.scrollTop;
+            e.scrollTop=Math.min(e.scrollHeight,e.scrollTop+Math.max(80,Math.floor(e.clientHeight*.8)));
+            if(e.scrollTop!==before) moved=true;
+          }
+          return moved;
+        }""")
+        page.wait_for_timeout(400)
+        before=len(cards)
+        collect()
+        scroll_passes+=1
+        still=still+1 if not moved and before==len(cards) else 0
+        if still>=3: break
     rows=[]
-    for card in cards:
+    for card in cards.values():
         if not card: continue
         t=' '.join(card.split())
         if not re.search(r'\b18:22\b',t) or 'Wien Meidling' not in t or not re.search(r'\bWiener Neustadt\b',t): continue
@@ -292,8 +329,8 @@ def account_summary(page):
         # absence of a reservation from a partial page or a yearless label.
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
         rows.append({'dateLabel':label.group(0) if label else None,'seat':seat.group(1).replace(' ','') if seat else None})
-    return {'status':'account_verified','page':parse_qs(parsed.query).get('page',['1'])[0],'visibleComfortCards':len(cards),'matchingVisibleCards':rows,
-            'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {len(cards)} sichtbare Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten auf dieser Seite. Keine vollständige Bestandsprüfung; keine Buchung.'}
+    return {'status':'account_verified','page':parse_qs(parsed.query).get('page',['1'])[0],'visibleComfortCards':max(max_visible,len(cards)),'matchingVisibleCards':rows,'scrollPasses':scroll_passes,'newCardsAfterScroll':len(cards)-first_count,
+            'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {max(max_visible,len(cards))} erkannte Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten; {len(cards)-first_count} neu beim Scrollen. Keine vollständige Bestandsprüfung; keine Buchung.'}
 
 
 def main():
