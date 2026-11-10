@@ -1,5 +1,5 @@
 export const RULES = Object.freeze({origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',departure:'18:22',class:'2+',ticket:'KlimaTicket Österreich',preferred:['233A','233D','191D','182A'],priceCents:0,timezone:'Europe/Vienna'});
-export const FIRST_UNRESERVED_DATE='2026-11-16';
+export const FIRST_UNRESERVED_DATE='2026-11-17';
 export const BOOKING_URL='https://westbahn.at/reservierung/sitzplatz-upgrade/';
 export function viennaClock(at=new Date()) {
  const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:RULES.timezone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(at).map(x=>[x.type,x.value]));

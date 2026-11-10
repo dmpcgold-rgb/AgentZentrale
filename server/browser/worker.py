@@ -230,7 +230,7 @@ def read_loaded_connection(page, day):
 
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
-    if day < '2026-11-16': raise Blocked('Reisedatum vor dem ersten unreservierten Tag. Keine Suche.')
+    if day < '2026-11-17': raise Blocked('Reisedatum vor dem ersten unreservierten Tag. Keine Suche.')
     dismiss_cookie_dialog(page)
     set_station(page,'Von',ORIGIN)
     set_station(page,'Nach',DESTINATION)
@@ -266,7 +266,12 @@ def account_summary(page):
         raise Blocked('Angemeldetes WESTbahn-Konto nicht eindeutig bestätigt.')
     # Find the smallest visible container for each observed Comfort ticket heading.
     # Return no ticket numbers, ticket codes, customer numbers or credentials.
-    cards=page.get_by_text('Reservierung Comfort Class',exact=True).evaluate_all("""els => {
+    headings=page.get_by_text('Reservierung Comfort Class',exact=True)
+    try:
+        headings.first.wait_for(state='visible',timeout=6000)
+    except PWTimeout:
+        pass  # Empty or still loading: absence is never confirmed.
+    cards=headings.evaluate_all("""els => {
       const visible=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
       return els.filter(visible).map(e=>{
         for(let n=e;n && n!==document.body;n=n.parentElement){
@@ -287,12 +292,13 @@ def account_summary(page):
         # absence of a reservation from a partial page or a yearless label.
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
         rows.append({'dateLabel':label.group(0) if label else None,'seat':seat.group(1).replace(' ','') if seat else None})
-    return {'status':'account_verified','visibleComfortCards':len(cards),'matchingVisibleCards':rows,
+    return {'status':'account_verified','page':parse_qs(parsed.query).get('page',['1'])[0],'visibleComfortCards':len(cards),'matchingVisibleCards':rows,
             'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {len(cards)} sichtbare Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten auf dieser Seite. Keine vollständige Bestandsprüfung; keine Buchung.'}
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account']);parser.add_argument('--date'); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=1); args=parser.parse_args()
+    if not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
     with (root/'.agent.lock').open('a') as lock:
@@ -317,7 +323,7 @@ def main():
                         route.continue_()
                     context.route('**/*',guard)
                 if args.mode=='prepare' and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=ACCOUNT_URL if args.mode=='account' else (date_url(args.date) if args.mode=='prepare' else URL)
+                target=ACCOUNT_URL.replace('page=1&',f'page={args.page}&') if args.mode=='account' else (date_url(args.date) if args.mode=='prepare' else URL)
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
