@@ -30,6 +30,6 @@ for i in $(seq 1 30); do
   if [[ "$i" == 30 ]]; then echo "Gateway-Test fehlgeschlagen. docker compose logs agentzentrale prüfen."; exit 1; fi
   sleep 2
 done
-docker compose exec -T agentzentrale python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.set_content("<title>AgentZentrale</title>"); assert page.title()=="AgentZentrale"; b.close(); p.stop()'
+docker compose exec -T agentzentrale /opt/agent-venv/bin/python -c 'import os; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path=os.environ["WESTBAHN_CHROMIUM_PATH"]); page=b.new_page(); page.set_content("<title>AgentZentrale</title>"); assert page.title()=="AgentZentrale"; b.close(); p.stop()'
 echo "Chromium-Test erfolgreich. API bleibt nur auf dem lokalen Host erreichbar."
 echo "Keine echte WESTbahn-Buchung ausgeführt. HTTPS und private Login-Einrichtung fehlen."
