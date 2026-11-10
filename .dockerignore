@@ -1,0 +1,16 @@
+node_modules
+.git
+.expo
+android
+ios
+dist
+*.apk
+*.aab
+**/.env
+**/.env.*
+!server/.env.example
+server/data
+**/__pycache__
+**/*.pyc
+*.jks
+*.keystore
