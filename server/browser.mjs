@@ -22,7 +22,7 @@ export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}
    const timer=setTimeout(()=>{child.kill('SIGKILL');finish(new Error('Browser-Zeitlimit erreicht. Keine Buchung.'));},65_000);
    child.stdout.on('data',b=>{out+=b;if(out.length>8192){child.kill('SIGKILL');finish(new Error('Browserantwort zu groß.'));}});
    child.on('error',()=>finish(new Error('Playwright-Browser konnte nicht gestartet werden.')));
-   child.on('close',()=>{try{const result=JSON.parse(out);if(!['reachable','blocked','search_submitted'].includes(result.status))throw new Error();finish(null,result);}catch{finish(new Error('Browser lieferte kein eindeutiges Ergebnis.'));}});
+   child.on('close',()=>{try{const result=JSON.parse(out);if(!['reachable','blocked','search_submitted','connection_found'].includes(result.status))throw new Error();finish(null,result);}catch{finish(new Error('Browser lieferte kein eindeutiges Ergebnis.'));}});
   });}finally{busy=false;}
  }
  return {status,run};

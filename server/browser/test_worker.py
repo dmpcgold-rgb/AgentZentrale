@@ -1,6 +1,6 @@
 import unittest, os
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -12,6 +12,52 @@ for(const [id,opts,name] of [['from','opts1','Wien Meidling'],['to','opts2','Wie
 }
 window.searched=0;window.bought=0;document.getElementById('search').onclick=()=>window.searched++;document.getElementById('buy').onclick=()=>window.bought++;
 </script>'''
+
+RESULTS = """Abfahrtszeit,
+16:22
+-
+Ankunftszeit,
+16:49
+Fahrtzeit,
+27 Minuten
+1007
+fährt nach Villach
+2 | Standard
+€ 1,90
+2+ | Comfort
+€ 7,90
+1 | First
+€ 10,90
+Abfahrtszeit,
+18:22
+-
+Ankunftszeit,
+18:49
+Fahrtzeit,
+27 Minuten
+27m
+1009
+fährt nach Villach
+2 | Standard
+€ 1,90
+2+ | Comfort
+€ 7,90
+1 | First
+€ 10,90"""
+class ResultParsingTests(unittest.TestCase):
+ def test_exact_departure_and_price(self):
+  result=parse_connection(RESULTS)
+  self.assertEqual(result['trainNumber'],'1009')
+  self.assertEqual(result['arrival'],'18:49')
+  self.assertEqual(result['displayedPriceCents'],790)
+  self.assertFalse(result['priceVerifiedForKlimaTicket'])
+ def test_duplicate_departures_blocked(self):
+  with self.assertRaises(Blocked): parse_connection(RESULTS+'\n'+RESULTS)
+ def test_missing_comfort_blocked(self):
+  with self.assertRaises(Blocked): parse_connection(RESULTS.replace('2+ | Comfort','Other class'))
+ def test_wrong_departure_blocked(self):
+  with self.assertRaises(Blocked): parse_connection(RESULTS.replace('18:22','18:23'))
+
 class BrowserTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
@@ -22,6 +68,16 @@ class BrowserTests(unittest.TestCase):
  def tearDownClass(cls): cls.b.close();cls.p.stop()
  def setUp(self): self.page=self.b.new_page(); self.page.set_content(HTML)
  def tearDown(self): self.page.close()
+ def test_automatic_results_without_search_button(self):
+  self.page.evaluate("(text)=>{const d=document.createElement('pre');d.textContent=text;document.body.append(d);document.getElementById('search').style.display='none'}",RESULTS)
+  result=prepare(self.page,'2026-11-16')
+  self.assertEqual(result['status'],'connection_found')
+  self.assertEqual(result['connection']['trainNumber'],'1009')
+  self.assertEqual(self.page.evaluate('window.searched'),0)
+  self.assertEqual(self.page.evaluate('window.bought'),0)
+ def test_already_reserved_date_blocked(self):
+  with self.assertRaises(Blocked): prepare(self.page,'2026-11-13')
+  self.assertEqual(self.page.evaluate('window.searched'),0)
  def test_search_only(self):
   r=prepare(self.page,'2026-11-16');self.assertEqual(r['status'],'search_submitted');self.assertEqual(self.page.evaluate('window.searched'),1);self.assertEqual(self.page.evaluate('window.bought'),0)
  def test_wiener_neustadt_operator_alias(self):

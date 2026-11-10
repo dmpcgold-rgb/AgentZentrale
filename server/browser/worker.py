@@ -173,17 +173,78 @@ def search_control(page):
     return control
 
 
+
+# The reservation page populates connection results when the trip fields change.
+# Parse the visible departure blocks, not a global occurrence of "18:22".
+DEPARTURE_MARKER = re.compile(r'(?im)^[ \t]*Abfahrtszeit,?[ \t]*$')
+TIME_LINE = r'(?:[01]\d|2[0-3]):[0-5]\d'
+
+def parse_connection(text):
+    lines = '\n'.join(' '.join(line.split()) for line in text.splitlines())
+    blocks = DEPARTURE_MARKER.split(lines)[1:]
+    matches = []
+    for block in blocks:
+        departure = re.match(r'^\s*(' + TIME_LINE + r')\b', block)
+        if not departure or departure.group(1) != '18:22':
+            continue
+        matches.append(block)
+    if len(matches) != 1:
+        raise Blocked(f'Abfahrt 18:22 nicht eindeutig ({len(matches)} Treffer). Keine Buchung.')
+    block = matches[0]
+    arrivals = re.findall(r'(?im)^Ankunftszeit,?\s*(' + TIME_LINE + r')\s*$', block)
+    trains = re.findall(r'(?im)^(?:WB\s*)?(\d{3,5})\s*\n\s*fährt nach[ \t]+([^\n]+)$', block)
+    comfort = re.findall(r'(?im)^2\+\s*\|\s*Comfort(?: Class)?\s*\n\s*€\s*(\d+(?:[.,]\d{2}))\s*$', block)
+    if len(arrivals) != 1 or len(trains) != 1 or len(comfort) != 1:
+        raise Blocked('Zugnummer, Ankunft oder Comfort-Preis nicht eindeutig auslesbar. Keine Buchung.')
+    train, direction = trains[0]
+    cents = int(comfort[0].replace(',', '').replace('.', ''))
+    return {'departure':'18:22','arrival':arrivals[0],'trainNumber':train,
+            'direction':direction.strip(),'class':'2+','displayedPriceCents':cents,
+            'currency':'EUR','priceVerifiedForKlimaTicket':False}
+
+def read_loaded_connection(page, day):
+    try:
+        page.wait_for_function(r"""() => /Abfahrtszeit,?\s*\n\s*18:22\b/i.test(document.body.innerText)""",timeout=8000)
+    except PWTimeout:
+        pass
+    text=page.locator('body').inner_text(timeout=5000)
+    if not DEPARTURE_MARKER.search(text):
+        return None
+    found=parse_connection(text)
+    # Recheck trip inputs after the asynchronous result load.
+    for label, station in [('Von',ORIGIN),('Nach',DESTINATION)]:
+        if normalize_station(field(page,label).input_value()) not in {normalize_station(n) for n in STATION_LABELS[station]}:
+            raise Blocked('Bahnhofsauswahl hat sich geändert. Keine Buchung.')
+    when=field(page,'Hinfahrt')
+    if when.get_attribute('type')=='date':
+        date_ok=when.input_value()==day
+    else:
+        value=when.evaluate("(el) => typeof el.value === 'string' ? el.value : (el.textContent || '')")
+        date_ok=official(page.url) and parse_qs(urlsplit(page.url).query).get('do')==[day] and displayed_date_matches(value,day,True)
+    if not date_ok:
+        raise Blocked('Reisedatum hat sich geändert. Keine Buchung.')
+    price=f"{found['displayedPriceCents']/100:.2f}".replace('.',',')
+    return {'status':'connection_found','connection':{'date':day,'origin':ORIGIN,'destination':DESTINATION,**found},
+            'message':f"Verbindung gefunden: {day} · {ORIGIN} → {DESTINATION} · WB {found['trainNumber']} · 18:22–{found['arrival']} · Comfort 2+ · angezeigter Preis {price} €. KlimaTicket-Preis, Sitzplatz und Buchung nicht bestätigt."}
+
+
 def prepare(page, day):
     day=date.fromisoformat(day).isoformat()
+    if day < '2026-11-16': raise Blocked('Reisedatum vor dem ersten unreservierten Tag. Keine Suche.')
     dismiss_cookie_dialog(page)
     set_station(page,'Von',ORIGIN)
     set_station(page,'Nach',DESTINATION)
     if normalize_station(field(page,'Von').input_value()) not in {normalize_station(n) for n in STATION_LABELS[ORIGIN]} or normalize_station(field(page,'Nach').input_value()) not in {normalize_station(n) for n in STATION_LABELS[DESTINATION]}:
         raise Blocked('Bahnhofsauswahl hat sich geändert. Keine Suche.')
     confirm_date(page, day)
-    # Only search, never add to cart or confirm purchase. Exact single button required.
+    # WESTbahn may load results automatically; do not click a search button if results exist.
+    found=read_loaded_connection(page,day)
+    if found is not None: return found
+    # Legacy explicit-search forms remain supported; never click checkout.
     search=search_control(page)
     search.click(timeout=5000)
+    found=read_loaded_connection(page,day)
+    if found is not None: return found
     return {'status':'search_submitted','message':'Suchanfrage ausgelöst; Abfahrt 18:22, Verfügbarkeit, Klasse, Sitzplatz und Preis sind noch nicht verifiziert. Keine Buchung.'}
 
 def inspect(page):
