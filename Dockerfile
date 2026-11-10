@@ -14,13 +14,13 @@ WORKDIR /app
 # Debian provides Chromium for both amd64 and arm64. Avoid the browser-download
 # and dependency-install subprocesses of Playwright on the Oracle ARM VM.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium fonts-liberation \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates chromium fonts-liberation libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 RUN /usr/bin/python3 -m venv /opt/agent-venv
 COPY server/browser/requirements.txt /tmp/requirements.txt
 RUN /opt/agent-venv/bin/python -m pip install --no-cache-dir -r /tmp/requirements.txt
 RUN /usr/bin/chromium --version \
-    && /opt/agent-venv/bin/python -c 'from playwright.sync_api import sync_playwright'
+    && /opt/agent-venv/bin/python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.stop()'
 COPY --chown=node:node server /app/server
 COPY --chown=node:node src/core /app/src/core
 COPY --chown=node:node package.json /app/package.json
