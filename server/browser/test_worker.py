@@ -198,7 +198,7 @@ class BrowserTests(unittest.TestCase):
   with self.assertRaises(Blocked): prepare(self.page,day)
   self.assertEqual(self.page.evaluate('window.searched'),0)
  def test_date_display_formats(self):
-  for value in ('2026-11-17','Mo, 16.11.2026','Dienstag, 17. November 2026','Di. 17.11.','17. Nov.'):
+  for value in ('2026-11-17','Di, 17.11.2026','Dienstag, 17. November 2026','Di. 17.11.','17. Nov.'):
    self.assertTrue(displayed_date_matches(value,'2026-11-17',True),value)
   self.assertFalse(displayed_date_matches('17.11.','2026-11-17',False))
   self.assertFalse(displayed_date_matches('17.11.2025','2026-11-17',True))
