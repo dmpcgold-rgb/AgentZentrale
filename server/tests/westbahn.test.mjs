@@ -161,6 +161,16 @@ test('verified observation upgrades a matching user-report but never overwrites 
  assert.throws(()=>a.recordVerifiedExisting(day,'unknown'));
 });
 
+test('manual user report cannot replace an independently verified seat',()=>{
+ const ledger=createWestbahn({now});
+ ledger.recordVerifiedExisting(day,'191D');
+ assert.doesNotThrow(()=>ledger.recordUserReported(day,'191D'));
+ assert.throws(()=>ledger.recordUserReported(day,'233A'),/verifiziertes Ticket/);
+ const saved=ledger.status().rows.find(x=>x.date===day);
+ assert.equal(saved.seat,'191D');
+ assert.equal(saved.status,'existing_verified');
+});
+
 test('existing verified records never weaken checkout uncertainty or confirmed ledger',async()=>{
  const p=provider({fail:true}),a=createWestbahn({now,adapter:p});
  await a.run();
