@@ -135,6 +135,18 @@ export default function WestbahnScreen({navigation}){
   {seatPreview?<View style={{gap:4}}>
     <Body>{seatPreview.status==='offline_seat_map_observed'?'Isolierter Sitzplan untersucht':seatPreview.status==='existing_ledger_entry'?'Für diesen Tag besteht bereits ein Buchungsvermerk':'Sitzplan nicht eindeutig lesbar'}</Body>
     {(seatPreview.preferredSeats||[]).map(s=><Muted key={s.seat}>{s.seat}: {s.observation==='visible_in_offline_copy'?'Im Offline-Sitzplan sichtbar (nicht live geprüft)':s.observation==='disabled_in_offline_copy'?'Offline als deaktiviert dargestellt':'Nicht eindeutig erkennbar'}</Muted>)}
+    {seatPreview.reason?<Muted>Prüfgrund: {({
+      connection_not_verified:'Verbindung im isolierten Browser nicht bestätigt',
+      zero_price_not_reconfirmed:'Comfort-Anzeigepreis im isolierten Browser nicht erneut eindeutig 0 €',
+      comfort_control_ambiguous:'Comfort-Schaltfläche nicht eindeutig',
+      comfort_click_target_ambiguous:'Comfort-Klickziel nicht eindeutig',
+      offline_click_timeout:'Offline-Sitzplan hat nicht rechtzeitig reagiert',
+      seatmap_not_rendered_offline:'Sitzplan wurde ohne Netzwerk nicht angezeigt',
+      preferred_controls_not_detected:'Sitzplan sichtbar, Wunschplätze nicht eindeutig erkannt',
+      offline_view_only:'Nur lokale Darstellung erkannt, keine Live-Prüfung',
+      browser_unverified:'Browserprüfung ohne eindeutigen Nachweis'
+    })[seatPreview.reason]||'Prüfung ohne eindeutigen Nachweis'}</Muted>:null}
+    {Number.isInteger(seatPreview.blockedRequestCount)?<Muted>Während der Offline-Prüfung blockierte Netzwerkanfragen: {seatPreview.blockedRequestCount}</Muted>:null}
     <Muted>Keine Live-Verfügbarkeit, keine Sitzplatzauswahl und kein KlimaTicket-Endpreis bestätigt. Keine Buchung.</Muted>
   </View>:null}
  </View>
