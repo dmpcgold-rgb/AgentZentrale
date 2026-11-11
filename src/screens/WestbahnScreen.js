@@ -17,6 +17,10 @@ export default function WestbahnScreen({navigation}){
         method:'POST',body:{},timeoutMs:235000
      });
      setWeekAudit(result);
+     if(result.ledgerProtectedDates?.length){
+       const latest=await remote.request('/westbahn/status');
+       setData(latest);
+     }
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  async function auditExistingTicket(){
@@ -44,7 +48,7 @@ export default function WestbahnScreen({navigation}){
  </View>
  {weekAudit?<View style={{marginTop:10,gap:4}}>
    <Body>Bestandsprüfung: {weekAudit.status==='inventory_batch_read'?'Sichtbare Karten gelesen':'Konto nicht vollständig lesbar'}</Body>
-   {(weekAudit.days||[]).map(x=><Muted key={x.date}>{x.date} · {x.status==='detail_verified'?'Ticketdetails vollständig geprüft':x.status==='visible_year_verified'?'Bestehende Karte mit Jahresangabe':x.status==='possible_existing'?'Möglicherweise reserviert':'Nicht sicher geklärt'}{x.seats?.length?' · '+x.seats.join(', '):''}</Muted>)}
+   {(weekAudit.days||[]).map(x=><Muted key={x.date}>{x.date} · {x.status==='detail_verified'?'Ticketdetails vollständig geprüft':x.status==='visible_year_verified'?'Bestehende Karte mit Jahresangabe':x.status==='possible_existing'?'Möglicherweise reserviert':'Nicht sicher geklärt'}{x.seats?.length?' · '+x.seats.join(', '):''}{weekAudit.ledgerProtectedDates?.includes(x.date)?' · Doppelbuchungsschutz aktiv':weekAudit.ledgerReviewDates?.includes(x.date)?' · Protokoll-Konflikt, manuell prüfen':''}</Muted>)}
    <Muted>Kontobestand nicht vollständig bestätigt. Auch bei fehlender Karte kein automatischer Kauf.</Muted>
  </View>:null}
  <Muted style={{marginTop:12}}>Vorhandenes Ticket im WESTbahn-Konto prüfen – ohne Buchung</Muted>
