@@ -9,6 +9,7 @@ from datetime import date
 from urllib.parse import urljoin, urlsplit, parse_qsl
 from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 from confirmation_evidence import reference_indicators
+from detail_route_diagnostics import route_signature
 
 ROUTE=re.compile(
     r'^/ticketshop/dashboard/(?:tickets?|reservations?)/(?:'
@@ -175,6 +176,7 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
     suspicious=0
     rejection_reasons={}
     control_kinds={}
+    route_templates={}
     for host in ('westbahn.at','westbahn.de'):
         for number in range(1,min(max_pages,5)+1):
             page=context.new_page()
@@ -224,6 +226,9 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
                             tag=anchor.get('tag','a')
                             kind='anchor' if tag=='a' else 'button' if tag=='button' else 'custom_control'
                             control_kinds[kind]=control_kinds.get(kind,0)+1
+                            fingerprint=route_signature(page.url,href,tag)
+                            template=(kind,reason,fingerprint['route'],fingerprint['query'])
+                            route_templates[template]=route_templates.get(template,0)+1
                 reports.append('account_read')
             except Exception:
                 reports.append('account_unavailable')
@@ -242,6 +247,9 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
                 'matchingCards':matched,'safeDetailLinks':all_link_count,
                 'otherDetailControls':suspicious,
                 'rejectionReasons':rejection_reasons,'controlKinds':control_kinds,
+                'candidatePathPatterns':[
+                    {'kind':key[0],'reason':key[1],'route':key[2],'query':key[3],'count':n}
+                    for key,n in sorted(route_templates.items())[:12]],
                 'accountPagesRead':reports,
                 'message':'Passende Karte vorhanden; kein eindeutig lesbarer Detail-Link. Kein Klick auf andere Bedienelemente.'}
     # Use a fresh page and one GET. No click, download, form submission or checkout.
