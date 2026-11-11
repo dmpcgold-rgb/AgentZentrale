@@ -51,6 +51,21 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
     detail_checks=detail_checks if isinstance(detail_checks,dict) else {}
     successful=sum(1 for r in page_reports
                    if isinstance(r,dict) and r.get('status')=='account_verified')
+    attempted=sum(1 for r in page_reports if isinstance(r,dict))
+    failures=attempted-successful
+    # Provider pagination does not expose an authoritative count of all
+    # reservations. Even a successful scan of both domains is INCOMPLETE.
+    coverage={
+        'pagesAttempted':attempted,
+        'pagesVerified':successful,
+        'pagesFailed':failures,
+        'domainsRead':len({r.get('domain') for r in page_reports
+                           if isinstance(r,dict) and
+                           r.get('status')=='account_verified' and
+                           r.get('domain') in ('westbahn.at','westbahn.de')}),
+        'complete':False,
+        'reason':'page_error_or_login' if failures else 'pagination_not_authoritative'
+    }
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)
@@ -78,6 +93,7 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'status':'inventory_batch_read' if successful else 'account_unavailable',
         'days':output,
         'accountPageReads':successful,
+        'coverage':coverage,
         'inventoryComplete':False,
         'safeToBook':False,
         'bookingAuthorized':False,
