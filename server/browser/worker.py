@@ -633,7 +633,7 @@ def account_audit(context, expected):
 
 
 
-def account_inventory(context, requested_page=None):
+def account_inventory(context, requested_page=None, max_pages=10):
     """Read both storefronts; retain positive evidence even if one fails.
     Yearless labels and limited pagination must not authorize purchases."""
     reports=[]
@@ -641,7 +641,7 @@ def account_inventory(context, requested_page=None):
     for domain in ('westbahn.at','westbahn.de'):
         pending=[requested_page] if requested_page is not None else [1,2]
         seen=set()
-        while pending and len(seen)<10:
+        while pending and len(seen)<max_pages:
             number=pending.pop(0)
             if number in seen: continue
             seen.add(number)
@@ -1713,7 +1713,7 @@ def main():
                         return {'status':'account_not_verified','days':[],
                                 'inventoryComplete':False,'safeToBook':False,
                                 'bookingAuthorized':False}
-                    inventory=account_inventory(context)
+                    inventory=account_inventory(context,max_pages=5)
                     return summarize_inventory_batch(
                         inventory.get('matchingVisibleCards'),batch_days,
                         inventory.get('reports'))
