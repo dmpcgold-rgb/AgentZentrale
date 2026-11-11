@@ -24,17 +24,22 @@ test('authenticated ticket-audit route only invokes read-only browser mode',asyn
  const calls=[];
  const expected={status:'existing_ticket_verified',date,seat,
   inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
-  confirmationVerified:false};
+  confirmationVerified:false,
+  checks:{detailRead:true,yearVerified:true,seatMatched:true,
+          tripMatched:true,referenceVisible:true,dateExplicit:true}};
+ const protectedRows=[];
  const browser={status:()=>({enabled:true,liveBooking:false}),
    async run(...args){calls.push(args);return expected;}};
- const westbahn={run(){throw Error('must not book')}};
+ const westbahn={run(){throw Error('must not book')},
+    recordVerifiedExisting(...args){protectedRows.push(args);}};
  const handler=createAgentHandler({
    env:{AGENTZENTRALE_ACCESS_TOKEN:token},browser,westbahn
  });
  const result=await request(handler);
  assert.equal(result.status,200);
- assert.deepEqual(result.body,expected);
+ assert.deepEqual(result.body,{...expected,ledgerProtected:true});
  assert.deepEqual(calls,[['ticket-detail-check',date,seat]]);
+ assert.deepEqual(protectedRows,[[date,seat]]);
 });
 
 test('audit endpoint requires auth and complete date/seat values',async()=>{
@@ -48,6 +53,19 @@ test('audit endpoint requires auth and complete date/seat values',async()=>{
  const incomplete=await request(handler,{body:{date}});
  assert.equal(incomplete.status,400);
  assert.deepEqual(calls,[]);
+});
+
+test('unverified provider evidence must never change the booking ledger',async()=>{
+ const recorded=[];
+ const browser={async run(){return {status:'review_required',date,seat,
+  inventoryComplete:false,safeToBook:false,bookingAuthorized:false};}};
+ const westbahn={recordVerifiedExisting(...args){recorded.push(args);},
+  run(){throw Error('should not book')}};
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},browser,westbahn});
+ const res=await request(handler);
+ assert.equal(res.status,200);
+ assert.equal(res.body.ledgerProtected,false);
+ assert.deepEqual(recorded,[]);
 });
 
 test('read-only browser errors never initiate a booking or claim success',async()=>{
