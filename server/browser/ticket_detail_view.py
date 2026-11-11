@@ -95,8 +95,17 @@ def rejection_reason(base, candidate):
             return 'untrusted_destination'
         if target.fragment:
             return 'fragment_destination'
-        if OPAQUE_TICKET_ROUTE.fullmatch(target.path):
-            return 'accepted' if safe_detail_url(base,href,caption) else 'non_readonly_ticket_route'
+        opaque=OPAQUE_TICKET_ROUTE.fullmatch(target.path)
+        if opaque:
+            # These are fixed diagnostic categories. Never expose a caption,
+            # URL or either ticket identifier.
+            if target.query:
+                return 'ticket_view_query_not_allowed'
+            if caption.strip().casefold() not in EXACT_VIEW_LABELS:
+                return 'ticket_view_caption_not_allowlisted'
+            if any(DANGEROUS_SEGMENT.search(part) for part in opaque.groups()):
+                return 'ticket_view_token_safety_filter'
+            return 'accepted' if safe_detail_url(base,href,caption) else 'ticket_view_other_policy_block'
         if not ROUTE.fullmatch(target.path):
             return 'unrecognized_detail_path'
         last=target.path.rstrip('/').rsplit('/',1)[-1]
