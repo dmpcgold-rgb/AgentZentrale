@@ -10,7 +10,10 @@ REFERENCE_PATTERNS = {
     'bookingReference': re.compile(
         r'\b(?:Buchungsnummer|Bestellnummer|Reservierungsnummer|Auftragsnummer)\s*:?\s*'
         r'([A-Z0-9][A-Z0-9-]{5,39})\b', re.I),
-    'ticketCode': re.compile(\n        r'\\b(?:Ticketcode|Ticket-Code)\\s*:?\\s*'\n        r'([A-Z0-9][A-Z0-9-]{3,39})\\b', re.I),\n    'ticketReference': re.compile(
+    'ticketCode': re.compile(
+        r'\b(?:Ticketcode|Ticket-Code)\s*:?\s*'
+        r'([A-Z0-9][A-Z0-9-]{3,39})\b', re.I),
+    'ticketReference': re.compile(
         r'\b(?:Ticketnummer|Ticket[- ]?ID)\s*:?\s*'
         r'([A-Z0-9][A-Z0-9-]{5,39})\b', re.I),
 }
