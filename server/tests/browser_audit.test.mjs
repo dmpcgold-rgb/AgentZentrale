@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {createBrowser,sanitizeTicketAudit,sanitizeBatchInventory} from '../browser.mjs';
+import {createBrowser,sanitizeTicketAudit,sanitizeBatchInventory,sanitizeOfflineSeatPreview} from '../browser.mjs';
 
 const DATE='2026-11-17',SEAT='191D';
 const now=()=>new Date('2026-11-11T07:00:00Z');
@@ -252,4 +252,71 @@ test('inventory worker receives only five validated planned days, no checkout',a
  await assert.rejects(browser.run('inventory-batch',null,null,['2026-11-14']));
  await assert.rejects(browser.run('inventory-batch',null,null,[...dates,...dates]));
  assert.equal(calls.length,1);
+});
+
+test('offline cloned seat map only reports observed controls, never live availability',()=>{
+ const date='2026-11-18';
+ const raw={
+  status:'seat_preview_offline',
+  connection:{date,trainNumber:'1009',displayedPriceCents:0},
+  zeroPriceObserved:true,bookingAuthorized:false,liveAvailabilityVerified:false,
+  inspection:{seatMapLabel:true,seatControls:[]},
+  blockedRequestCount:1,blockedRequests:[{path:'/private/SECRET'}],
+  preferredControls:[{seat:'233A',disabled:false,privatePassenger:'SECRET'},
+                     {seat:'233D',disabled:true}]
+ };
+ const x=sanitizeOfflineSeatPreview(raw,date);
+ assert.equal(x.status,'offline_seat_map_observed');
+ assert.deepEqual(x.preferredSeats,[
+   {seat:'233A',observation:'visible_in_offline_copy'},
+   {seat:'233D',observation:'disabled_in_offline_copy'},
+   {seat:'191D',observation:'unknown'},
+   {seat:'182A',observation:'unknown'}
+ ]);
+ assert.equal(x.liveAvailabilityVerified,false);
+ assert.equal(x.bookingAuthorized,false);
+ assert.equal(x.canPurchase,false);
+ assert.equal(JSON.stringify(x).includes('SECRET'),false);
+});
+
+test('fake live availability or ambiguous offline seat controls fail closed',()=>{
+ const date='2026-11-18';
+ const good={
+  status:'seat_preview_offline',connection:{date},
+  zeroPriceObserved:true,bookingAuthorized:false,
+  liveAvailabilityVerified:false,inspection:{seatMapLabel:true},
+  blockedRequestCount:0,
+  preferredControls:[{seat:'233A',disabled:false}]
+ };
+ for(const changes of [
+   {liveAvailabilityVerified:true},
+   {bookingAuthorized:true},
+   {zeroPriceObserved:false},
+   {blockedRequestCount:101},
+   {inspection:{seatMapLabel:false}},
+   {connection:{date:'2026-11-19'}},
+   {preferredControls:[{seat:'999A',disabled:false}]},
+   {preferredControls:[{seat:'233A',disabled:false},{seat:'233A',disabled:true}]},
+   {preferredControls:[{seat:'233D',disabled:'false'}]}
+ ]){
+   const res=sanitizeOfflineSeatPreview({...good,...changes},date);
+   assert.equal(res.status,'review_required');
+   assert.equal(res.canPurchase,false);
+   assert.equal(res.liveAvailabilityVerified,false);
+ }
+});
+
+test('seat-preview mode routes only to isolated worker and keeps fail-closed results',async()=>{
+ const date='2026-11-18',calls=[];
+ const browser=createBrowser({env:{WESTBAHN_BROWSER_ENABLED:'true',
+    WESTBAHN_PYTHON:'/opt/python'},now,execute:runner({
+     status:'seat_preview_offline',connection:{date},
+     zeroPriceObserved:true,bookingAuthorized:false,liveAvailabilityVerified:false,
+     inspection:{seatMapLabel:true},blockedRequestCount:0,
+     preferredControls:[{seat:'233A',disabled:false}]
+   },calls)});
+ const result=await browser.run('seat-preview',date);
+ assert.equal(result.status,'offline_seat_map_observed');
+ assert.deepEqual(calls[0].args.slice(-3),['seat-preview','--date',date]);
+ assert.equal(result.canPurchase,false);
 });
