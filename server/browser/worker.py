@@ -1328,74 +1328,98 @@ def confirm_review_selection(page,day):
 
 
 def find_seat_change_control(page, diagnostic=False):
-    """Choose only a unique seat-editor control in the reservation section.
+    """Locate only one editor entry within the seat-reservation section.
 
-    Preferred: the 'Ändern' label in the compact section heading row.
-    Fallback: the selected seat-number link (e.g. 208A) inside the same
-    section. WESTbahn may omit 'Ändern' from the DOM altogether.
+    The live UI may set ARIA labels on the visible "Ändern" text, use a
+    framework click handler on a span, or expose the selected seat code as a
+    clickable element. Never click a page-wide, unscoped control.
     """
     script=r"""(audit) => {
       const norm=s=>(s||'').normalize('NFKC').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g,'').replace(/\s+/g,' ').trim();
       const visible=e=>!!e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';
-      const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent||e.getAttribute('title')||'');
-      const isDisabled=e=>e.matches(':disabled,[aria-disabled="true"]')||!!e.closest('[inert],[aria-disabled="true"]')||getComputedStyle(e).pointerEvents==='none';
-      const leaf=value=>[...document.querySelectorAll('body *')].filter(e=>visible(e)&&label(e).toLocaleLowerCase('de')===value.toLocaleLowerCase('de')&&![...e.children].some(c=>visible(c)&&label(c).toLocaleLowerCase('de')===value.toLocaleLowerCase('de')));
+      const raw=e=>norm(e.innerText||e.textContent||'');
+      const names=e=>[raw(e),e.getAttribute('aria-label'),e.getAttribute('title'),e.getAttribute('data-tooltip')].map(norm).filter(Boolean);
+      const disabled=e=>e.matches(':disabled,[aria-disabled="true"]')||!!e.closest('[inert],[aria-disabled="true"]')||getComputedStyle(e).pointerEvents==='none';
+      const editor=/^(?:(?:sitzplatz(?:reservierung)?|platz)\s+)?(?:ändern|bearbeiten|edit)(?:\s+(?:sitzplatz|platz))?$/i;
+      const seat=/^(?:Sitzplatz\s*:?\s*)?(\d{2,4})\s*([A-D])$/i;
+      const controls='a,button,[role="button"],[role="link"],[tabindex]';
+      const all=[...document.querySelectorAll('body *')].filter(visible);
+      const isSmall=e=>raw(e).length<100;
+      const leaf=(value)=>all.filter(e=>raw(e)===value&&!Array.from(e.children).some(c=>visible(c)&&raw(c)===value));
       const headings=leaf('Sitzplatzreservierung');
-      const changes=leaf('Ändern');
-      const matches=[];
-      for(const h of headings){
-        for(const change of changes){
-          let row=h,level=0;
-          while(row&&row!==document.body&&!row.contains(change)&&level<8){row=row.parentElement;level++;}
-          if(!row||row===document.body||!row.contains(change))continue;
-          const content=norm(row.innerText||row.textContent||'');
-          const hr=h.getBoundingClientRect(),cr=change.getBoundingClientRect(),rr=row.getBoundingClientRect();
-          if(content.length>280||rr.height>190||Math.abs((hr.top+hr.bottom-cr.top-cr.bottom)/2)>85)continue;
-          if(cr.left<hr.left-20||/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))continue;
-          let target=change;
-          for(let e=change;e&&e!==row.parentElement;e=e.parentElement){
-            if(e.matches('button,a,[role="button"],[role="link"],[tabindex]')||getComputedStyle(e).cursor==='pointer'||e.hasAttribute('onclick')){target=e;break;}
+      const editLabels=all.filter(e=>isSmall(e)&&names(e).some(n=>editor.test(n)));
+      const changedText=all.filter(e=>isSmall(e)&&editor.test(raw(e)));
+      const candidates=[];
+      const seatCandidates=[];
+      const sectionFacts={seatCodes:0,editorAria:0,interactiveElements:0,seatColumnLabels:0};
+      const clickOwner=(el,stop)=> {
+        for(let e=el;e&&e!==stop.parentElement;e=e.parentElement){
+          if(e.matches(controls)||e.hasAttribute('onclick')||getComputedStyle(e).cursor==='pointer'){
+            if(!disabled(e))return e;
+            return null;
           }
-          if(isDisabled(target))continue;
-          if(target.contains(h))target=change;
-          matches.push(target);
         }
-      }
-      const uniqueChange=[...new Set(matches)];
-      // Never bypass an ambiguous 'Ändern' control by using a seat link.
-      let seatLinkCandidates=[];
-      let seatCodeCount=0;
-      if(uniqueChange.length===0&&changes.length===0&&headings.length===1){
+        return null;
+      };
+      const commonRow=(h,e,maxLength,maxHeight,verticalDistance,maxDepth)=>{
+        let row=h,depth=0;
+        while(row&&row!==document.body&&!row.contains(e)&&depth<maxDepth){row=row.parentElement;depth++;}
+        if(!row||row===document.body||!row.contains(e))return null;
+        if(raw(row).length>maxLength||row.getBoundingClientRect().height>maxHeight)return null;
+        const hr=h.getBoundingClientRect(),er=e.getBoundingClientRect();
+        if(Math.abs((hr.top+hr.bottom-er.top-er.bottom)/2)>verticalDistance||er.left<hr.left-25)return null;
+        if(/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(raw(row)))return null;
+        return row;
+      };
+      if(headings.length===1){
         const h=headings[0];
-        for(let row=h.parentElement,depth=0;row&&row!==document.body&&depth<7;row=row.parentElement,depth++){
-          const content=norm(row.innerText||row.textContent||'');
-          if(content.length>650||/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))break;
-          if(!/\bWagen\b/i.test(content)||!/\bPlatz\b/i.test(content))continue;
-          // A selected seat number is shown as a blue, underlined clickable
-          // control under "Wagen / Platz". Only a uniquely matching seat code
-          // in this compact reservation section may open its modal.
-          const all=[...row.querySelectorAll('a,button,[role="button"],[role="link"],[tabindex]')].filter(e=>visible(e)&&!isDisabled(e));
-          const seats=all.filter(e=>{
-            const value=label(e);
-            if(!/^(?:Sitzplatz\s*:?\s*)?\d{2,4}\s*[A-D]$/i.test(value))return false;
-            const href=e.getAttribute('href');
-            if(href&&href!=='#'){
-              let u;
-              try{u=new URL(href,document.baseURI);}catch{return false;}
-              if(u.origin!==location.origin||!u.pathname.startsWith('/reservierung/sitzplatz-upgrade/'))return false;
+        for(const c of editLabels){
+          if(c===h||c.contains(h))continue;
+          const row=commonRow(h,c,380,200,100,9);
+          if(!row)continue;
+          const target=clickOwner(c,row);
+          if(target&&!target.contains(h))candidates.push(target);
+        }
+        // Only if there are no matching editor labels in this section:
+        // prefer the uniquely clickable selected seat number in Wagen/Platz.
+        if(new Set(candidates).size===0){
+          for(let section=h.parentElement,depth=0;section&&section!==document.body&&depth<9;section=section.parentElement,depth++){
+            const t=raw(section);
+            if(t.length>1650||/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(t))break;
+            const seatCols=/\bWagen\b/i.test(t)&&/\bPlatz\b/i.test(t);
+            if(!seatCols)continue;
+            sectionFacts.seatColumnLabels++;
+            const descendants=[...section.querySelectorAll('*')].filter(e=>visible(e)&&raw(e).length<=75);
+            sectionFacts.interactiveElements+=descendants.filter(e=>e.matches(controls)||getComputedStyle(e).cursor==='pointer').length;
+            const leafSeats=descendants.filter(e=>names(e).some(n=>seat.test(n))&&!Array.from(e.children).some(c=>visible(c)&&names(c).some(n=>seat.test(n)))));
+            sectionFacts.seatCodes+=leafSeats.length;
+            sectionFacts.editorAria+=descendants.filter(e=>names(e).some(n=>editor.test(n))).length;
+            for(const e of leafSeats){
+              const target=clickOwner(e,section);
+              if(!target||target.contains(h)||raw(target).length>120)continue;
+              const href=target.getAttribute('href');
+              if(href&&href!=='#'){
+                let u;
+                try{u=new URL(href,document.baseURI);}catch{continue;}
+                if(u.origin!==location.origin||!u.pathname.startsWith('/reservierung/sitzplatz-upgrade/'))continue;
+              }
+              seatCandidates.push(target);
             }
-            return true;
-          });
-          seatCodeCount+=seats.length;
-          if(seats.length>0){seatLinkCandidates=seats;break;}
+            // First bounded Wagen/Platz section prevents crossing into other cards.
+            break;
+          }
         }
       }
-      const uniqueSeat=[...new Set(seatLinkCandidates)];
-      const selected=uniqueChange.length===1?uniqueChange[0]:(uniqueChange.length===0&&changes.length===0&&uniqueSeat.length===1?uniqueSeat[0]:null);
+      const editUnique=[...new Set(candidates)];
+      const seatUnique=[...new Set(seatCandidates)];
+      const selected=editUnique.length===1?editUnique[0]:(editUnique.length===0&&seatUnique.length===1?seatUnique[0]:null);
       if(audit)return {
-        seatHeadingCount:headings.length,changeLabelCount:changes.length,
-        matchedControls:uniqueChange.length,seatLinkCandidates:uniqueSeat.length,seatCodeCount,
-        selectedMode:selected?(selected===uniqueChange[0]?'change':'seat_link'):null,
+        seatHeadingCount:headings.length,changeLabelCount:changedText.length,
+        editorLabelCandidates:editLabels.length,matchedControls:editUnique.length,
+        seatLinkCandidates:seatUnique.length,seatCodeCount:sectionFacts.seatCodes,
+        seatColumnLabels:sectionFacts.seatColumnLabels,editorAria:sectionFacts.editorAria,
+        interactiveElements:sectionFacts.interactiveElements,
+        selectedMode:selected?(editUnique.includes(selected)?'change':'seat_link'):null,
         reason:selected?'unique_editor_control':'editor_not_unique_or_not_in_section'
       };
       return selected;

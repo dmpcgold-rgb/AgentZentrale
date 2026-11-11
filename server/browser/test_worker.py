@@ -367,6 +367,30 @@ class BrowserTests(unittest.TestCase):
  def test_seat_editor_does_not_use_external_or_unrelated_seat_link(self):
   self.page.set_content("""<section><b>Sitzplatzreservierung</b><p>Wagen Platz</p><a href="https://other.example/">208A</a></section><aside><a>191D</a></aside>""")
   self.assertIsNone(find_seat_change_control(self.page))
+ def test_edit_control_prefers_visible_text_over_aria_label(self):
+  self.page.set_content("""<section><header><b>Sitzplatzreservierung</b><button aria-label="Sitzplatz ändern" onclick="window.edited=true"><span>Ändern</span></button></header><p>Wagen 9 Platz <a href="#">208A</a></p></section>""")
+  report=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(report['selectedMode'],'change',report)
+  find_seat_change_control(self.page).click()
+  self.assertTrue(self.page.evaluate('Boolean(window.edited)'))
+ def test_edit_control_accepts_accessible_edit_label_without_visible_text(self):
+  self.page.set_content("""<section><header><b>Sitzplatzreservierung</b><button aria-label="Platz bearbeiten" onclick="window.edited=true"><svg width="16" height="16"></svg></button></header><div>Wagen Platz</div><span>9</span></section>""")
+  report=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(report['selectedMode'],'change',report)
+  find_seat_change_control(self.page).click()
+  self.assertTrue(self.page.evaluate('Boolean(window.edited)'))
+ def test_edit_control_accepts_selected_seat_span_with_pointer_cursor(self):
+  self.page.set_content("""<section><strong>Sitzplatzreservierung</strong><div>Wagen Platz</div><div>9 <span style="cursor:pointer" onclick="window.edited=true">208A</span></div></section>""")
+  report=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(report['selectedMode'],'seat_link',report)
+  find_seat_change_control(self.page).click()
+  self.assertTrue(self.page.evaluate('Boolean(window.edited)'))
+ def test_edit_control_reports_noninteractive_seat_without_clicking(self):
+  self.page.set_content("""<section><b>Sitzplatzreservierung</b><div>Wagen Platz</div><div>9 <span>208A</span></div></section>""")
+  report=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(report['seatLinkCandidates'],0,report)
+  self.assertGreaterEqual(report['seatCodeCount'],1,report)
+  self.assertIsNone(find_seat_change_control(self.page))
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):
