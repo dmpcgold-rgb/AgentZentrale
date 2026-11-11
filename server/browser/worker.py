@@ -751,20 +751,34 @@ def run_seat_preview(p, root, kwargs, day, network_diagnostic=False):
 
 
 
-def price_audit_view(context, day):
-    """Only read price and authenticated account markers; never print account data."""
+def price_audit_view(context, day, root=None):
+    """Compare public Comfort prices only AFTER verifying this exact browser session.
+
+    The normal persistent profile may use the already configured, rate-limited
+    WESTbahn login. Disposable copies only check their own session and never
+    receive credentials or initiate login. This remains a read-only diagnostic.
+    """
     def guard(route):
         if route.request.is_navigation_request():
             try: subframe=route.request.frame.parent_frame is not None
             except Exception: subframe=False
-            if not allowed_navigation(route.request.url,subframe):
+            if not allowed_navigation(route.request.url,subframe) and not trusted_login_url(route.request.url):
                 route.abort()
                 return
         route.continue_()
     context.route('**/*',guard)
     q=context.pages[0] if context.pages else context.new_page()
     q.set_default_timeout(5000)
-    report={'accountVerified':False,'priceSamplesCents':[]}
+    report={'accountVerified':False,'accountVerifiedBeforeSearch':False,
+            'priceSamplesCents':[],'status':'account_unverified_before_search'}
+    try:
+        session=(ensure_austrian_session(q,root) if root is not None
+                 else verify_austrian_session(q))
+        if session.get('status')!='account_verified':
+            return report
+        report['accountVerifiedBeforeSearch']=True
+    except Exception:
+        return report
     try:
         q.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
         result=prepare(q,day)
@@ -772,29 +786,24 @@ def price_audit_view(context, day):
             conn=result['connection']
             for i in range(4):
                 detail=comfort_control_details(q,conn)
-                fresh={**conn,'displayedPriceCents':None,'priceSource':None,'priceStatus':'not_displayed'}
+                fresh={**conn,'displayedPriceCents':None,'priceSource':None,
+                       'priceStatus':'not_displayed'}
                 observed=apply_comfort_control_price(fresh,detail)
                 report['priceSamplesCents'].append(observed['displayedPriceCents'])
                 if i<3: q.wait_for_timeout(2000)
             report['connection']={k:conn[k] for k in ('date','trainNumber','departure','arrival','class')}
             report['status']='price_observed'
         else: report['status']=result.get('status','unknown')
-    except Blocked as e:
+    except Blocked:
         report['status']='blocked'
-        report['message']=str(e)
     except PWTimeout:
         report['status']='timeout'
     except Exception:
         report['status']='unavailable'
-    # Check the Austrian account independently, after reading the price.
-    # Do not serialize ticket cards, cookies, customer number or storage values.
+    # Independently re-check the same session after search; never expose
+    # provider pages, identifiers, credentials, cookies or ticket cards.
     try:
-        response=q.goto('https://westbahn.at/ticketshop/dashboard/tickets?page=1&mode=valid',wait_until='domcontentloaded',timeout=20000)
-        u=urlsplit(q.url)
-        if response and response.status<400 and u.scheme=='https' and u.hostname=='westbahn.at' and u.path.rstrip('/')=='/ticketshop/dashboard/tickets' and parse_qs(u.query).get('mode')==['valid']:
-            q.get_by_text('Westbahn-Konto',exact=True).first.wait_for(timeout=10000)
-            q.get_by_text('Gültige Tickets',exact=True).first.wait_for(timeout=5000)
-            report['accountVerified']=True
+        report['accountVerified']=(verify_austrian_session(q).get('status')=='account_verified')
     except Exception:
         pass
     return report
@@ -803,15 +812,19 @@ def classify_price_audit(normal, clone, restricted):
     def stable_zero(r):
         samples=r.get('priceSamplesCents',[])
         return bool(samples) and samples[-1]==0
-    if stable_zero(normal) and stable_zero(clone) and not stable_zero(restricted):
-        return 'restricted_context_price_differs'
-    if stable_zero(normal) and not stable_zero(clone):
-        return 'profile_copy_price_differs'
+    if normal.get('accountVerifiedBeforeSearch') is not True:
+        return 'normal_session_unverified'
     if not stable_zero(normal):
         return 'normal_browser_zero_not_confirmed'
-    if stable_zero(restricted):
-        return 'isolated_zero_observed'
-    return 'inconclusive'
+    if clone.get('accountVerifiedBeforeSearch') is not True:
+        return 'cloned_session_unverified'
+    if not stable_zero(clone):
+        return 'profile_copy_price_differs'
+    if restricted.get('accountVerifiedBeforeSearch') is not True:
+        return 'restricted_session_unverified'
+    if not stable_zero(restricted):
+        return 'restricted_context_price_differs'
+    return 'isolated_zero_observed'
 
 def run_price_audit(p, root, kwargs, day):
     day=date.fromisoformat(day).isoformat()
@@ -819,7 +832,7 @@ def run_price_audit(p, root, kwargs, day):
     # All three runs are read-only searches, with no class or seat clicks.
     # Run with identical profile state copied after closing the original browser.
     normal=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
-    try: normal_report=price_audit_view(normal,day)
+    try: normal_report=price_audit_view(normal,day,root=root)
     finally: normal.close()
     reports=[]
     for restricted in (False,True):
