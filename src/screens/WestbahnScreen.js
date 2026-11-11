@@ -18,6 +18,10 @@ export default function WestbahnScreen({navigation}){
        timeoutMs:185000
      });
      setAuditResult(result);
+     if(result.ledgerProtected===true) {
+       const latest=await remote.request('/westbahn/status');
+       setData(latest);
+     }
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  function authorize(mode){Alert.alert('Nur kostenlose Reservierungen','Nur 0,00 € Gesamtpreis, exakte Verbindung und passende Einzelplätze. Keine kostenpflichtigen Buchungen.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>request(mode==='run'?'/westbahn/run':'/westbahn/settings',mode==='run'?{confirm:'NUR-0-EURO'}:{enabled:true,confirm:'NUR-0-EURO'})}]);}
