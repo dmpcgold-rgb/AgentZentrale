@@ -25,7 +25,7 @@ COPY --chown=node:node server /app/server
 # Fail the Docker build if any Python browser module contains a syntax error.
 # The previous image must never be replaced with code that cannot import.
 RUN /opt/agent-venv/bin/python -m compileall -q /app/server/browser
-RUN cd /app/server/browser && /opt/agent-venv/bin/python -m unittest -q test_booking_reference_match.py test_inventory_batch.py
+RUN cd /app/server/browser && /opt/agent-venv/bin/python -m unittest -q test_booking_reference_match.py test_inventory_batch.py test_price_audit_login.py
 COPY --chown=node:node src/core /app/src/core
 COPY --chown=node:node package.json /app/package.json
 # Do not deploy checkout changes until the standalone ledger and receipt tests pass.
