@@ -230,3 +230,53 @@ test('read-only review reports unavailable account without claiming completed sc
  assert.equal(review.status().lastSuccessWeek,null);
  assert.equal(review.status().attemptsThisWeek,1);
 });
+
+
+test('retry timestamp and attempt count survive a server restart',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'wb-retry-reboot-'));
+ try{
+  let clock=new Date('2026-11-16T06:00:00Z');
+  const now=()=>clock,file=join(dir,'review.json'),ledger=createWestbahn({now});
+  let calls=0;
+  const browser={async run(mode,travelDate,seat,days){
+   calls++;
+   if(calls===1)throw Error('offline');
+   return {status:'inventory_batch_read',accountPageReads:4,
+    inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+    days:days.map(x=>item(x))};
+  }};
+  const first=createWeeklyReview({now,file,westbahn:ledger,browser});
+  await assert.rejects(first.tick(),/Keine Buchung/);
+  clock=new Date('2026-11-16T06:15:00Z');
+  const rebooted=createWeeklyReview({now,file,westbahn:ledger,browser});
+  assert.equal(rebooted.status().attemptsThisWeek,1);
+  assert.equal(await rebooted.tick(),false);
+  clock=new Date('2026-11-16T06:31:00Z');
+  assert.equal(await rebooted.tick(),true);
+  assert.equal(rebooted.status().attemptsThisWeek,2);
+  assert.equal(rebooted.status().lastSuccessWeek,'2026-11-16');
+  assert.equal(calls,2);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('the scheduled review saves only sanitized coverage, never private provider data',async()=>{
+ const now=()=>new Date('2026-11-16T06:00:00Z');
+ const days=planDates(now()).slice(0,5);
+ const browser={async run(){return {
+   status:'inventory_batch_read',accountPageReads:3,
+   coverage:{pagesAttempted:4,pagesVerified:3,pagesFailed:1,
+    domainsRead:2,complete:false,reason:'page_error_or_login',
+    customerReference:'SECRET-NEVER-PERSIST'},
+   inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+   secret:'SHOULD_NOT_PERSIST',days:days.map(x=>item(x))
+ };}};
+ const review=createWeeklyReview({browser,now,westbahn:createWestbahn({now})});
+ const output=await review.run();
+ assert.equal(output.coverage.pagesFailed,1);
+ assert.equal(review.status().lastRun.coverage.pagesVerified,3);
+ const serialized=JSON.stringify(review.status());
+ assert.equal(serialized.includes('SECRET-NEVER-PERSIST'),false);
+ assert.equal(serialized.includes('SHOULD_NOT_PERSIST'),false);
+ assert.equal(output.inventoryComplete,false);
+ assert.equal(output.bookingAuthorized,false);
+});
