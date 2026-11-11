@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
+import { planDates } from '../src/core/westbahn.js';
 import { ApiError, compareToken, requireName, requirePath, requireText, enforceWritableFile, isAllowedOwner, apiPath, responseText, verifyProposalObject, generateBranch } from './lib.mjs';
 
 const minute = 60_000;
@@ -111,6 +112,16 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       }
       // Only reads an existing WESTbahn ticket. It never starts checkout,
       // writes booking state or claims that a missing card proves availability.
+      if (is('POST', '/westbahn/browser/audit-week')) {
+        // All dates are derived on the server, never from user-supplied URL
+        // fragments. Positive visible cards may request review, but a missing
+        // card never means it is safe to purchase.
+        const days=planDates(new Date(now())).slice(0,5);
+        if (!days.length) throw new ApiError(409,'Keine geplanten Pendeltage für die Prüfung.');
+        try {
+          return write(res,200,await browser.run('inventory-batch',null,null,days));
+        } catch(e){throw new ApiError(409,e.message);}
+      }
       if (is('POST', '/westbahn/browser/audit-ticket')) {
         const body = await readJson(req);
         if (typeof body?.date !== 'string' || typeof body?.seat !== 'string')
