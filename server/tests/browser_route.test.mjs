@@ -331,3 +331,46 @@ test('public preview browser error never implies checkout readiness',async()=>{
  assert.equal(res.body.canPurchase,false);
  assert.equal(JSON.stringify(res.body).includes('provider unavailable'),false);
 });
+
+test('isolated seat map API only invokes preview mode and never claims bookability',async()=>{
+ const seen=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),
+  westbahn:{status:()=>({rows:[]}),run(){throw Error('no checkout')}},
+  browser:{async run(...args){seen.push(args);return {
+    date:'2026-11-18',status:'offline_seat_map_observed',
+    preferredSeats:[{seat:'233A',observation:'visible_in_offline_copy'}],
+    liveAvailabilityVerified:false,seatSelectionConfirmed:false,
+    bookingAuthorized:false,canPurchase:false
+  };}}
+ });
+ const res=await request(handler,{path:'/westbahn/browser/seat-preview',body:{date:'2026-11-18'}});
+ assert.equal(res.status,200);
+ assert.deepEqual(seen,[['seat-preview','2026-11-18']]);
+ assert.equal(res.body.canPurchase,false);
+ assert.equal(res.body.liveAvailabilityVerified,false);
+});
+
+test('known booked day cannot be opened in isolated preview',async()=>{
+ const seen=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),
+  westbahn:{status:()=>({rows:[{date:'2026-11-17',status:'existing_verified',seat:'191D'}]})},
+  browser:{async run(...args){seen.push(args);return {};}}
+ });
+ const res=await request(handler,{path:'/westbahn/browser/seat-preview',body:{date:'2026-11-17'}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.status,'existing_ledger_entry');
+ assert.deepEqual(seen,[]);
+});
+test('seat-preview rejects dates outside plan without launching Chromium',async()=>{
+ const seen=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),
+  westbahn:{status:()=>({rows:[]})},
+  browser:{async run(...args){seen.push(args);return {};}}
+ });
+ const res=await request(handler,{path:'/westbahn/browser/seat-preview',body:{date:'2026-11-15'}});
+ assert.equal(res.status,400);
+ assert.deepEqual(seen,[]);
+});
