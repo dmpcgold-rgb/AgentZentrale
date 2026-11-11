@@ -51,7 +51,7 @@ def summarize_inventory_batch(rows, days, reports):
             'safeToBook':False
         })
     return {
-        'status':'inventory_batch_read',
+        'status':'inventory_batch_read' if successful else 'account_unavailable',
         'days':output,
         'accountPageReads':successful,
         'inventoryComplete':False,
