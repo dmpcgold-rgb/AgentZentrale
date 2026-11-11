@@ -180,6 +180,8 @@ class TicketDetailBrowserTests(unittest.TestCase):
             result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
             self.assertEqual(result['detailStatus'],'detail_read',result)
             self.assertTrue(result['yearVerified'])
+            self.assertTrue(any(method=='GET' and '/tickets/details' in url for method,url in visited),
+                            'Mock detail handler was bypassed')
             self.assertFalse(result['confirmationVerified'])
             self.assertFalse(result['bookingAuthorized'])
             self.assertNotIn('SECRET',str(result))
@@ -240,6 +242,8 @@ class TicketDetailBrowserTests(unittest.TestCase):
             result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
             self.assertEqual(result['detailStatus'],'detail_read',result)
             self.assertTrue(result['yearVerified'])
+            self.assertTrue(any(method=='GET' and fake in url for method,url in touched),
+                            'Mock ticket route handler was bypassed')
             self.assertFalse(result['confirmationVerified'])
             self.assertFalse(result['bookingAuthorized'])
             self.assertNotIn('CONFIDENTIAL',str(result))
