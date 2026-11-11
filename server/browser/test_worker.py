@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,24 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_authenticated_prepare_stops_on_unverified_login(self):
+  from unittest.mock import Mock
+  page=Mock()
+  with patch('worker.verify_austrian_session',return_value={'status':'login_required'}), patch('worker.prepare') as search:
+   result=authenticated_prepare(page,'2026-11-17')
+  self.assertEqual(result['status'],'login_required')
+  search.assert_not_called()
+  page.goto.assert_not_called()
+ def test_authenticated_prepare_uses_same_page_and_never_authorizes_booking(self):
+  from unittest.mock import Mock
+  page=Mock()
+  page.url='https://westbahn.at/reservierung/sitzplatz-upgrade/'
+  with patch('worker.verify_austrian_session',return_value={'status':'account_verified'}) as verify, patch('worker.prepare',return_value={'status':'connection_found','connection':{'displayedPriceCents':0}}) as search:
+   result=authenticated_prepare(page,'2026-11-17')
+  verify.assert_called_once_with(page)
+  search.assert_called_once_with(page,'2026-11-17')
+  self.assertTrue(result['accountVerifiedBeforeSearch'])
+  self.assertFalse(result['bookingAuthorized'])
  def test_request_summary_redacts_secrets(self):
   from types import SimpleNamespace
   request=SimpleNamespace(url='https://westbahn.at/api/seats/PRIVATE123?token=SECRET',method='GET',resource_type='fetch')

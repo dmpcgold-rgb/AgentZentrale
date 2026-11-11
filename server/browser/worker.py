@@ -813,6 +813,60 @@ def run_price_audit(p, root, kwargs, day):
             'message':'Nur Preis- und Anmeldeprüfung. Keine Comfort-Auswahl, Sitzplatzauswahl oder Buchung.'}
 
 
+
+AUSTRIAN_ACCOUNT_URL='https://westbahn.at/ticketshop/dashboard/tickets?page=1&mode=valid'
+
+def verify_austrian_session(page):
+    """Verify the actual authenticated account in the current browser session."""
+    try:
+        response=page.goto(AUSTRIAN_ACCOUNT_URL,wait_until='domcontentloaded',timeout=25000)
+        u=urlsplit(page.url)
+        if response is None or response.status>=400:
+            return {'status':'account_unverified','message':'WESTbahn-Konto momentan nicht erreichbar. Keine Buchung.'}
+        if u.scheme!='https' or u.hostname!='westbahn.at' or u.path.rstrip('/')!='/ticketshop/dashboard/tickets':
+            return {'status':'login_required','message':'Österreichisches WESTbahn-Konto nicht geöffnet. Bitte im privaten Browser anmelden. Keine Buchung.'}
+        page.get_by_text('Westbahn-Konto',exact=True).first.wait_for(state='visible',timeout=15000)
+        page.get_by_text('Gültige Tickets',exact=True).first.wait_for(state='visible',timeout=5000)
+        u=urlsplit(page.url)
+        if u.scheme=='https' and u.hostname=='westbahn.at' and u.path.rstrip('/')=='/ticketshop/dashboard/tickets' and parse_qs(u.query).get('mode')==['valid']:
+            return {'status':'account_verified','message':'Österreichisches WESTbahn-Konto in dieser Browsersitzung bestätigt.'}
+    except Exception:
+        pass
+    return {'status':'account_unverified','message':'Anmeldung auf westbahn.at nicht eindeutig bestätigt. Keine Buchung.'}
+
+def authenticated_prepare(page, day, inspect_only=False):
+    day=date.fromisoformat(day).isoformat()
+    if day<'2026-11-17': raise Blocked('Reisedatum vor dem ersten unreservierten Tag.')
+    session=verify_austrian_session(page)
+    if session['status']!='account_verified': return session
+    page.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
+    if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
+    result=inspect_comfort(page,day) if inspect_only else prepare(page,day)
+    result['accountVerifiedBeforeSearch']=True
+    result['bookingAuthorized']=False
+    return result
+
+def manual_seat_review(page, day):
+    # Login and search stay in the SAME visible browser, never a cloned profile.
+    # A failed session check keeps the private desktop open for manual login.
+    while True:
+        result=authenticated_prepare(page,day)
+        print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
+        if result.get('status') in ('login_required','account_unverified'):
+            print('Bitte im privaten Browser auf westbahn.at anmelden bzw. das Konto öffnen. Danach hier Enter drücken; q beendet.',file=sys.stderr,flush=True)
+            if input().strip().lower()=='q':
+                return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
+            continue
+        if result.get('connection',{}).get('displayedPriceCents')!=0:
+            print('Comfort nicht eindeutig 0 EUR. Nicht fortfahren. Im Browser Anmeldung/KlimaTicket prüfen; danach Enter für erneute Suche oder q zum Beenden.',file=sys.stderr,flush=True)
+            if input().strip().lower()=='q':
+                return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
+            continue
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Sitzplan manuell ansehen; nicht kaufen. Nach Prüfung hier Enter drücken.',file=sys.stderr,flush=True)
+        input()
+        return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
+
+
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
@@ -834,7 +888,7 @@ def main():
             try:
                 page=context.pages[0] if context.pages else context.new_page()
                 page.set_default_timeout(5000)
-                if args.mode!='login':
+                if args.mode not in ('login','seat-review'):
                     # Restrict automated top-level navigations; no external authentication flow.
                     def guard(route):
                         if route.request.is_navigation_request():
@@ -850,22 +904,22 @@ def main():
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
                 if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=date_url(args.date) if args.mode in ('prepare','comfort-inspect','seat-review') else URL
+                if args.mode=='seat-review': return manual_seat_review(page,args.date)
+                if args.mode in ('prepare','comfort-inspect'):
+                    return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect')
+                target=URL
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
-                    input(); return {'status':'profile_saved','message':'Browserprofil gespeichert; Anmeldung muss vor einer Buchung geprüft werden.'}
+                    input()
+                    session=verify_austrian_session(page)
+                    if session['status']!='account_verified':
+                        return {'status':'profile_saved_unverified','message':'Profil gespeichert; österreichisches Konto nicht bestätigt. Keine Buchung.'}
+                    return {'status':'profile_saved','accountVerified':True,'message':'Browserprofil gespeichert; österreichisches Konto aktuell bestätigt.'}
                 if args.mode=='probe': return inspect(page)
                 if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
                 if not args.date: raise Blocked('Reisedatum fehlt.')
-                if args.mode=='seat-review':
-                    result=prepare(page,args.date)
-                    print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
-                    print('Manuelle Browseransicht: Agent führt keine Comfort-, Sitzplatz- oder Kaufklicks aus. Bei Preis ungleich 0 EUR nicht fortfahren. Warenkorb und Sitzplan nur ansehen; nicht kaufen. Nach Prüfung hier Enter drücken.',file=sys.stderr,flush=True)
-                    input()
-                    return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
-                if args.mode=='comfort-inspect': return inspect_comfort(page,args.date)
-                return prepare(page,args.date)
+                raise Blocked('Unbekannter Browsermodus.')
             finally: context.close()
 
 if __name__=='__main__':
