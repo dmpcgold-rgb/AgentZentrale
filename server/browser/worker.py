@@ -6,6 +6,7 @@ from datetime import date
 from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from checkout_guard import audit_cart
+from booking_evidence import assess_existing_ticket
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
 ORIGIN = 'Wien Meidling'
@@ -1611,7 +1612,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -1642,7 +1643,7 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account','booking-check') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit','booking-check') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
@@ -1655,6 +1656,14 @@ def main():
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
+                if args.mode=='booking-check':
+                    if not args.date: raise Blocked('Reisedatum für Bestandsprüfung fehlt.')
+                    session=ensure_austrian_session(page,root)
+                    if session['status']!='account_verified':
+                        return {'status':'account_not_verified','safeToBook':False,'message':'Konto nicht bestätigt; keine Buchung.'}
+                    inventory=account_inventory(context)
+                    evidence=assess_existing_ticket(inventory.get('matchingVisibleCards'),args.date,args.seat)
+                    return {'status':'booking_check','date':args.date,'inventoryComplete':False,**evidence}
                 if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
