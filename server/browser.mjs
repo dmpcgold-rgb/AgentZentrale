@@ -5,8 +5,8 @@ import {fileURLToPath} from 'node:url';
 import {planDates} from '../src/core/westbahn.js';
 
 const script=resolve(dirname(fileURLToPath(import.meta.url)),'browser/worker.py');
-const ALLOWED=new Set(['probe','prepare','booking-check','ticket-detail-check']);
-const CHECK=new Set(['booking-check','ticket-detail-check']);
+const ALLOWED=new Set(['probe','prepare','booking-check','ticket-detail-check','inventory-batch']);
+const CHECK=new Set(['booking-check','ticket-detail-check','inventory-batch']);
 const SEAT=/^[0-9]{3}[A-D]$/;
 
 // Only safe, fixed-shape evidence goes back to the AgentZentrale API.
@@ -49,17 +49,51 @@ export function sanitizeTicketAudit(raw,mode,date,seat=null){
  throw new Error('Unsupported read-only audit.');
 }
 
+export function sanitizeBatchInventory(raw,requestedDates){
+ const base={status:'review_required',inventoryComplete:false,safeToBook:false,
+             bookingAuthorized:false,accountPageReads:0,days:requestedDates.map(date=>({
+                date,status:'review_required',seats:[],dateVerified:false,
+                potentialDuplicate:false,safeToBook:false
+             }))};
+ if(raw?.status!=='inventory_batch_read'||raw.inventoryComplete!==false||
+    raw.safeToBook!==false||raw.bookingAuthorized!==false||
+    !Number.isInteger(raw.accountPageReads)||raw.accountPageReads<1||
+    !Array.isArray(raw.days)||raw.days.length!==requestedDates.length)return base;
+ const days=[];
+ for(let i=0;i<requestedDates.length;i++){
+  const item=raw.days[i];
+  if(!item||item.date!==requestedDates[i]||
+     !['visible_year_verified','possible_existing','review_required'].includes(item.status)||
+     item.safeToBook!==false||typeof item.dateVerified!=='boolean'||
+     typeof item.potentialDuplicate!=='boolean'||!Array.isArray(item.seats)||
+     item.seats.length>12||item.seats.some(s=>typeof s!=='string'||!SEAT.test(s)))return base;
+  if((item.status==='visible_year_verified'&&(!item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
+     (item.status==='possible_existing'&&(item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
+     (item.status==='review_required'&&(item.dateVerified||item.potentialDuplicate||item.seats.length)))return base;
+  days.push({date:item.date,status:item.status,seats:[...new Set(item.seats)].sort(),
+             dateVerified:item.dateVerified,potentialDuplicate:item.potentialDuplicate,
+             safeToBook:false});
+ }
+ return {status:'inventory_batch_read',inventoryComplete:false,safeToBook:false,
+         bookingAuthorized:false,accountPageReads:Math.min(20,raw.accountPageReads),days};
+}
+
 export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}={}){
  let busy=false;
  const enabled=env.WESTBAHN_BROWSER_ENABLED==='true';
  const profile=resolve(env.WESTBAHN_BROWSER_PROFILE||'./data/westbahn-browser');
  const status=()=>({enabled,busy,profilePresent:existsSync(resolve(profile,'chromium')),
                      liveBooking:false,mode:'read-only-ticket-audit'});
- async function run(mode,date,seat){
+ async function run(mode,date,seat,dates){
   if(!enabled)throw new Error('Browser auf dem Server noch nicht aktiviert.');
   if(busy)throw new Error('Browser ist bereits in Benutzung.');
   if(!ALLOWED.has(mode))throw new Error('Nicht erlaubter Browserbefehl.');
-  if(mode!=='probe'&&(!/^\d{4}-\d{2}-\d{2}$/.test(date||'')||
+  if(mode==='inventory-batch'){
+    const plan=planDates(now());
+    if(!Array.isArray(dates)||dates.length<1||dates.length>5||
+       new Set(dates).size!==dates.length||dates.some(d=>typeof d!=='string'||!plan.includes(d)))
+      throw new Error('Unzulässige Reisetage im Sammelcheck.');
+  } else if(mode!=='probe'&&(!/^\d{4}-\d{2}-\d{2}$/.test(date||'')||
        !planDates(now()).includes(date)))throw new Error('Reisedatum nicht im erlaubten Pendelplan.');
   if(mode==='ticket-detail-check' && (typeof seat!=='string'||!SEAT.test(seat)))
     throw new Error('Sitzplatz ungültig.');
@@ -69,7 +103,8 @@ export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}
   try{return await new Promise((done,fail)=>{
    let out='',settled=false;
    const args=[script,mode,
-    ...(mode==='probe'?[]:['--date',date]),
+    ...(mode==='probe'||mode==='inventory-batch'?[]:['--date',date]),
+    ...(mode==='inventory-batch'?['--dates',dates.join(',')]:[]),
     ...((CHECK.has(mode)&&seat)?['--seat',seat]:[])];
    let child;
    try {child=execute(env.WESTBAHN_PYTHON||'python3',args,{
@@ -81,7 +116,7 @@ export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}
    const timer=setTimeout(()=>{
       child.kill('SIGKILL');
       finish(new Error('Browser-Zeitlimit erreicht. Keine Buchung.'));
-   },CHECK.has(mode)?160_000:65_000);
+   },mode==='inventory-batch'?220_000:CHECK.has(mode)?160_000:65_000);
    child.stdout.on('data',chunk=>{
     out+=chunk.toString('utf8');
     if(out.length>16_384){
@@ -94,6 +129,10 @@ export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}
     if(code!==0){finish(new Error('Browserprüfung fehlgeschlagen. Keine Buchung.'));return;}
     let raw;try{raw=JSON.parse(out);}catch{
       finish(new Error('Browser lieferte keine gültige Antwort.'));return;
+    }
+    if(mode==='inventory-batch'){
+      finish(null,sanitizeBatchInventory(raw,dates));
+      return;
     }
     if(CHECK.has(mode)){
       try{finish(null,sanitizeTicketAudit(raw,mode,date,seat));}
