@@ -10,6 +10,22 @@ MONTHS=('JAN','FEB','MÄR','APR','MAI','JUN','JUL','AUG','SEP','OKT','NOV','DEZ'
 WEEKDAYS=('MO','DI','MI','DO','FR','SA','SO')
 
 
+def extract_explicit_trip_date(card_text):
+    """Return ISO date only for one explicit travel-date field on this card."""
+    if not isinstance(card_text,str):
+        return None
+    dates=set()
+    for match in re.finditer(
+        r'\b(?:Fahrtdatum|Reisedatum|Abfahrt(?:sdatum)?)\s*:?\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\b',
+        card_text,re.I
+    ):
+        try:
+            dates.add(date(int(match.group(3)),int(match.group(2)),int(match.group(1))).isoformat())
+        except ValueError:
+            continue
+    return next(iter(dates)) if len(dates)==1 else None
+
+
 def assess_existing_ticket(rows, requested_day, expected_seat=None):
     """Match visible weekday/month/day and optionally a seat; no ticket IDs logged."""
     try:
