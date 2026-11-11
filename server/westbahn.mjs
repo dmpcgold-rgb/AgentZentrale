@@ -2,6 +2,18 @@ import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {RULES,planDates,viennaClock,chooseSeat,validateQuote,confirmedReceipt} from '../src/core/westbahn.js';
+// A newly booked ticket is only confirmed after a separate read from the
+// authenticated provider account, matching the submitted order's reference.
+// An adapter claiming success without this readback must never enable retries.
+export function verifiedAccountReadback(snapshot, date, seat, bookingId){
+ return snapshot?.status==='confirmed' &&
+        snapshot.accountVerified===true &&
+        snapshot.receiptSource==='provider_account' &&
+        snapshot.inventoryComplete===true &&
+        confirmedReceipt(snapshot.receipt,date,seat) &&
+        typeof bookingId==='string' && bookingId.trim().length>0 &&
+        snapshot.receipt.bookingId===bookingId;
+}
 const empty=()=>({enabled:false,rows:{},lastSchedule:null,lastRun:null});
 export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
  let state=empty(), running=false;
@@ -35,9 +47,20 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
     try{
      const before=await adapter.existing({date,...RULES});
      if(before?.status==='confirmed'){
-      const receipt=before.receipt; if(confirmedReceipt(receipt,date,receipt?.seat)&&chooseSeat([before.seat])?.id===receipt.seat)record(date,'confirmed','Bereits beim Anbieter reserviert.',{seat:receipt.seat,bookingId:receipt.bookingId});else record(date,'blocked','Vorhandene Buchung ist nicht eindeutig passend; keine Doppelbuchung.');continue;
+      const receipt=before.receipt;
+      if(verifiedAccountReadback(before,date,receipt?.seat,receipt?.bookingId)&&
+          chooseSeat([before.seat])?.id===receipt.seat)
+        record(date,'confirmed','Bereits beim Anbieter reserviert.',{seat:receipt.seat,bookingId:receipt.bookingId});
+      else
+        record(date,'blocked','Vorhandene Buchung ist nicht eindeutig passend; keine Doppelbuchung.');
+      continue;
      }
-     if(before?.status!=='none'){record(date,'blocked','Vorhandene Reservierung nicht sicher prüfbar.');continue;}
+     // The provider must prove that all relevant existing bookings were
+     // checked, otherwise a "none" response cannot authorize a checkout.
+     if(before?.status!=='none'||before.accountVerified!==true||before.inventoryComplete!==true){
+       record(date,'blocked','Buchungsbestand nicht vollständig und authentifiziert geprüft; keine Buchung.');
+       continue;
+     }
      const found=await adapter.search({date,...RULES});
      if(!found||found.status!=='available'){record(date,'unavailable','Verbindung nicht verfügbar oder nicht bestätigt.');continue;}
      if(found.date!==date||found.origin!==RULES.origin||found.destination!==RULES.destination||found.departure!==RULES.departure||found.class!==RULES.class||typeof found.connectionId!=='string'||!found.connectionId){record(date,'blocked','Abweichende Verbindung oder Klasse.');continue;}
@@ -48,8 +71,21 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
      const key=`agentzentrale-westbahn-${date}-${RULES.departure.replace(':','')}`;
      record(date,'booking','Checkout gestartet',{seat:seat.id,key});
      let receipt;try{receipt=await adapter.book({quoteId:quote.quoteId,idempotencyKey:key,maxTotalCents:0});}catch{record(date,'uncertain','Checkout-Ausgang unklar. Nicht automatisch erneut versuchen.',{seat:seat.id,key});continue;}
-     if(!confirmedReceipt(receipt,date,seat.id)){record(date,'uncertain','Keine eindeutige Buchungsbestätigung. Manuell prüfen.',{seat:seat.id,key});continue;}
-     record(date,'confirmed','Reservierung vom Anbieter bestätigt.',{seat:receipt.seat,bookingId:receipt.bookingId});
+     if(!confirmedReceipt(receipt,date,seat.id)){
+       record(date,'uncertain','Keine eindeutige Buchungsbestätigung. Manuell prüfen.',{seat:seat.id,key});
+       continue;
+     }
+     // Read the provider account AFTER checkout. A successful HTTP response,
+     // a zero-euro cart or a success banner alone is insufficient evidence.
+     // A failure here is an UNCERTAIN purchase, never a retryable absence.
+     let readback;
+     try {readback=await adapter.existing({date,...RULES});}
+     catch {record(date,'uncertain','Bestellung gesendet, Kontonachweis nicht erreichbar. Nicht erneut buchen.',{seat:seat.id,key});continue;}
+     if(!verifiedAccountReadback(readback,date,seat.id,receipt.bookingId)){
+       record(date,'uncertain','Bestellung gesendet, aber kein identischer bestätigter Kontobeleg. Nicht erneut buchen.',{seat:seat.id,key});
+       continue;
+     }
+     record(date,'confirmed','Bestellung und identischer Anbieter-Kontobeleg bestätigt.',{seat:receipt.seat,bookingId:receipt.bookingId});
     }catch{if(state.rows[date]?.status==='booking')record(date,'uncertain','Unklarer Buchungsausgang. Nicht erneut versuchen.');else record(date,'blocked','Anbieterfehler; keine Buchung vorgenommen.');}
    }
    state.lastRun={...state.lastRun,status:'finished',finishedAt:now().toISOString()};
