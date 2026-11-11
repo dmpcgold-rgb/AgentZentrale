@@ -30,6 +30,10 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   if(typeof seat!=='string'||!(/^[0-9]{3}[A-D]$/.test(seat)))throw new Error('Sitzplatz ungültig.');
   const previous=state.rows[travelDate];
   if(previous&&['booking','confirmed','uncertain'].includes(previous.status))throw new Error('Buchungsstatus bereits geschützt. Keine Änderung ohne Abgleich.');
+  if(previous?.status==='existing_verified'){
+   if(previous.seat!==seat)throw new Error('Bereits verifiziertes Ticket hat anderen Sitzplatz. Keine Änderung.');
+   return status();
+  }
   if(previous?.status==='user_reported'){
    if(previous.seat!==seat)throw new Error('Bereits gemeldete Buchung hat anderen Sitzplatz. Manuell prüfen.');
    return status();
