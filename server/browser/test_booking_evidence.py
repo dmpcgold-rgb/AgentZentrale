@@ -1,5 +1,5 @@
 import unittest
-from booking_evidence import assess_existing_ticket
+from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 
 class BookingEvidenceTests(unittest.TestCase):
     def test_finds_known_ticket_by_weekday_date_and_seat(self):
@@ -29,6 +29,14 @@ class BookingEvidenceTests(unittest.TestCase):
         evidence=assess_existing_ticket(rows,'2026-11-17','191D')
         self.assertEqual(evidence['status'],'not_seen_in_incomplete_account')
         self.assertFalse(evidence['safeToBook'])
+
+    def test_explicit_trip_date_is_scoped_and_unique(self):
+        self.assertEqual(extract_explicit_trip_date('Abfahrt: 17.11.2026 18:22'), '2026-11-17')
+        self.assertEqual(extract_explicit_trip_date('Fahrtdatum 17.11.2026'), '2026-11-17')
+        self.assertIsNone(extract_explicit_trip_date('Kaufdatum: 17.11.2026'))
+        self.assertIsNone(extract_explicit_trip_date('DI 17 NOV'))
+        self.assertIsNone(extract_explicit_trip_date('Abfahrt 17.11.2026 Reisedatum 18.11.2026'))
+        self.assertIsNone(extract_explicit_trip_date('Abfahrt 31.02.2026'))
 
     def test_unseen_never_allows_checkout(self):
         for rows in ([],[{'dateLabel':'DI 17 NOV','seat':'bad'}],
