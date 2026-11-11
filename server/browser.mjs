@@ -105,23 +105,37 @@ export function sanitizeBatchInventory(raw,requestedDates){
 // after blocking the entire clone's network, so this is NEVER live inventory.
 // No URLs, account data, or seat-map markup are ever returned.
 export function sanitizeOfflineSeatPreview(raw,date){
- const base={date,status:'review_required',previewScope:'offline_disposable_clone',
+ const base={date,status:'review_required',reason:'browser_unverified',
+   previewScope:'offline_disposable_clone',
    preferredSeats:['233A','233D','191D','182A'].map(seat=>({
      seat,observation:'unknown'
    })),
    liveAvailabilityVerified:false,seatSelectionConfirmed:false,
    klimaTicketPriceVerified:false,checkoutTotalVerified:false,
    bookingAuthorized:false,canPurchase:false};
+ // Known rejection codes only. Never forward arbitrary provider text,
+ // HTML, blocked network URLs, credentials or customer metadata.
+ const allowedReasons=new Set(['connection_not_verified',
+   'zero_price_not_reconfirmed','comfort_control_ambiguous',
+   'comfort_click_target_ambiguous','offline_click_timeout']);
+ if(raw?.status==='seat_preview_blocked' &&
+    raw.bookingAuthorized===false&&raw.liveAvailabilityVerified===false){
+   return {...base,reason:allowedReasons.has(raw.blockReason)
+      ?raw.blockReason:'preview_blocked'};
+ }
  if(!raw||raw.status!=='seat_preview_offline'||
     raw.bookingAuthorized!==false||
     raw.liveAvailabilityVerified!==false||
     raw.zeroPriceObserved!==true||
-    !raw.inspection||raw.inspection.seatMapLabel!==true||
+    !raw.inspection||typeof raw.inspection.seatMapLabel!=='boolean'||
     !Array.isArray(raw.preferredControls)||
     raw.preferredControls.length>12||
     !Number.isInteger(raw.blockedRequestCount)||raw.blockedRequestCount<0||
     raw.blockedRequestCount>100||
     raw.connection?.date!==date)return base;
+ if(raw.inspection.seatMapLabel===false)
+   return {...base,reason:'seatmap_not_rendered_offline',
+      blockedRequestCount:raw.blockedRequestCount};
  const map=new Map();
  for(const item of raw.preferredControls){
    if(!item||typeof item!=='object'||typeof item.seat!=='string'||
@@ -130,6 +144,8 @@ export function sanitizeOfflineSeatPreview(raw,date){
    map.set(item.seat,item.disabled?'disabled_in_offline_copy':'visible_in_offline_copy');
  }
  return {...base,status:'offline_seat_map_observed',
+   reason:map.size?'offline_view_only':'preferred_controls_not_detected',
+   blockedRequestCount:raw.blockedRequestCount,
    preferredSeats:base.preferredSeats.map(x=>({
      seat:x.seat,observation:map.get(x.seat)||'unknown'
    }))};
