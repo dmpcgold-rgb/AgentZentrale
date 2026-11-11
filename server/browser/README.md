@@ -373,3 +373,14 @@ Neu ist die authentifizierte API `POST /westbahn/browser/seat-preview` für ein 
 Das Node-Gateway gibt ausschließlich eine streng reduzierte Beobachtung für die vier priorisierten Plätze 233A, 233D, 191D und 182A aus: `visible_in_offline_copy`, `disabled_in_offline_copy` oder `unknown`. Andere Sitzplätze und Anbieterinhalte werden verworfen. Die Offline-Kopie ist **keine** Grundlage für eine Live-Reservierung; bei Zweifel erfolgt `review_required`. Immer: `liveAvailabilityVerified:false`, `seatSelectionConfirmed:false`, `bookingAuthorized:false`, `canPurchase:false`.
 
 Die Android-Testversion 1.4.6 bietet den Button **„Wunschplätze im Offline-Sitzplan ansehen“**. Sie erklärt ausdrücklich, dass offline sichtbare Plätze nicht als tatsächlich frei gelten. Tests `server/tests/browser_audit.test.mjs` und `server/tests/browser_route.test.mjs` prüfen die feste Ausgabe, den Zugriffsschutz und das Überspringen bereits gebuchter Tage. Für echte Sitzplatzverfügbarkeit und den 0-Euro-Warenkorb muss ein separater, verifizierter Live-Adapter entwickelt werden.
+
+
+## Offline-Sitzplan: Warum alle Wunschplätze `unknown` bleiben (11.11.2026)
+
+Der Test für 18.11.2026 meldete `status:review_required` und `observation:unknown` für **233A, 233D, 191D und 182A**. Das ist weder ein Nachweis für besetzte noch freie Plätze. Bislang hat das Gateway die Gründe einer lokalen Browser-Blockade unter `review_required` zusammengefasst.
+
+Ab Version **1.4.7** gibt `seat-preview` ausschließlich fest vorgegebene, nicht personenbezogene `reason`-Codes zurück: `connection_not_verified`, `zero_price_not_reconfirmed`, `comfort_control_ambiguous`, `comfort_click_target_ambiguous`, `offline_click_timeout`, `seatmap_not_rendered_offline`, `preferred_controls_not_detected` und `browser_unverified`. Ist die Offline-Ansicht sichtbar, kann zusätzlich die Anzahl der blockierten Anfragen ausgegeben werden; URLs, Sitzplandaten, Nutzerangaben, Cookies, Codes und Anbietertexte werden verworfen.
+
+Der neue `reason`-Code dient der gezielten Fehlerbehebung im isolierten Browser. Es wird **kein** Preis als verbindlicher KlimaTicket-Kaufpreis ausgelegt, keine Live-Verfügbarkeit behauptet, kein bestehender Reservierungseintrag überschrieben und kein Sitzplatz gekauft. Die Sicherheitsflags bleiben `liveAvailabilityVerified:false`, `bookingAuthorized:false` und `canPurchase:false`. Die Android-Testoberfläche zeigt eine verständliche Erklärung an.
+
+Nach erfolgreichem Docker-Build kann der Operator denselben `POST /westbahn/browser/seat-preview`-Test für 18.11.2026 erneut durchführen; nur der neue feste Fehlergrund ist für die nächste Korrektur relevant. Diesen Test nicht für den bereits geschützten 17.11. verwenden.
