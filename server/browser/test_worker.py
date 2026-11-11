@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,15 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_manual_seat_review_empty_input_keeps_session_open(self):
+  from unittest.mock import Mock
+  page=Mock()
+  ready={'status':'connection_found','connection':{'displayedPriceCents':0}}
+  with patch('worker.authenticated_prepare',return_value=ready) as search, patch('builtins.input',side_effect=['','unknown','a','','q']), patch('worker.select_primary_seat_in_open_modal',return_value={'status':'primary_seat_selected'}) as choose:
+   result=manual_seat_review(page,'2026-11-17')
+  self.assertEqual(result['status'],'manual_review_ended')
+  search.assert_called_once()
+  choose.assert_called_once_with(page)
  def test_login_trust_and_no_credentials(self):
   from unittest.mock import Mock
   self.assertTrue(trusted_login_url('https://westbahn.at/anmelden/'))

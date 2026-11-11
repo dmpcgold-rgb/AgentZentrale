@@ -42,3 +42,5 @@ Die regulären Modi `prepare` und `comfort-inspect` öffnen zuerst das österrei
 
 ## Wunschplätze im geöffneten Sitzplan
 Wagen 11, Reihe 233, Plätze 233A und 233D sind anhand der sichtbaren WESTbahn-Oberfläche als bevorzugte Plätze erfasst. In `seat-review` zuerst die Detailseite und den Dialog über „Ändern“ öffnen; anschließend `a` + Enter im SSH-Terminal. Der Agent prüft die eindeutige Dialogstruktur und eine vorhandene Auswahl. Er klickt einen Wunschplatz nur bei eindeutig erkennbarem freien Status, bestätigt niemals die Auswahl und klickt weder Warenkorb noch Kaufen. Bei unbekannter DOM-Struktur oder nicht bestätigtem Platz wird abgebrochen. Kein automatischer Ersatzplatz: Layout und Viererplatz-Ausschluss sind noch nicht verifiziert.
+
+In der manuellen Sitzplanprüfung beendet ausschließlich `q` + Enter den Eingabedialog (oder eine unterbrochene Terminalverbindung). Leeres Enter und unbekannte Eingaben lassen die Sitzung offen. `a` + Enter prüft den geöffneten Sitzplan. Der Startdialog unterscheidet jetzt zwischen Login und Sitzplanprüfung.

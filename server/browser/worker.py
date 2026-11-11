@@ -1049,14 +1049,20 @@ def manual_seat_review(page, day, root=None):
             if input().strip().lower()=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl oder Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
-        while input().strip().lower()=='a':
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+        while True:
+            command=input().strip().lower()
+            if command=='q':
+                break
+            if command!='a':
+                print('Browser bleibt geöffnet. a + Enter für Wunschplatzprüfung; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+                continue
             try:
                 result=select_primary_seat_in_open_modal(page)
             except Exception:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
-            print('Browser bleibt geöffnet. a + Enter für erneute Prüfung, Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
+            print('Browser bleibt geöffnet. a + Enter für erneute Prüfung, q + Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
         return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
 
 

@@ -42,7 +42,11 @@ pids+=("$!")
 sleep 1
 for pid in "${pids[@]}"; do kill -0 "$pid"; done
 printf '\nPrivater WESTbahn-Login: http://127.0.0.1:6080/vnc.html\nEinmaliges VNC-Passwort: %s\n' "$password"
-printf 'Im Handy-Browser anmelden. Erst danach hier Enter drücken.\n\n'
+if [ "$#" -eq 0 ]; then
+  printf 'Im Handy-Browser anmelden. Erst danach hier Enter drücken.\n\n'
+else
+  printf 'Sitzplanprüfung: Browser öffnen und die Anweisungen des Agenten befolgen. a + Enter prüft den geöffneten Sitzplan; q + Enter beendet.\n\n'
+fi
 if [ "$#" -eq 0 ]; then
   /opt/agent-venv/bin/python /app/server/browser/worker.py login
 else
