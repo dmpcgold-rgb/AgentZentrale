@@ -50,8 +50,11 @@ export function sanitizeTicketAudit(raw,mode,date,seat=null){
 }
 
 export function sanitizeBatchInventory(raw,requestedDates){
+ const emptyCoverage={pagesAttempted:0,pagesVerified:0,pagesFailed:0,
+                      domainsRead:0,complete:false,reason:'not_verified'};
  const base={status:'review_required',inventoryComplete:false,safeToBook:false,
-             bookingAuthorized:false,accountPageReads:0,days:requestedDates.map(date=>({
+             bookingAuthorized:false,accountPageReads:0,coverage:emptyCoverage,
+             days:requestedDates.map(date=>({
                 date,status:'review_required',seats:[],dateVerified:false,detailVerified:false,
                 potentialDuplicate:false,safeToBook:false
              }))};
@@ -59,6 +62,23 @@ export function sanitizeBatchInventory(raw,requestedDates){
     raw.safeToBook!==false||raw.bookingAuthorized!==false||
     !Number.isInteger(raw.accountPageReads)||raw.accountPageReads<1||
     !Array.isArray(raw.days)||raw.days.length!==requestedDates.length)return base;
+ const legacyCoverage={pagesAttempted:raw.accountPageReads,
+  pagesVerified:raw.accountPageReads,pagesFailed:0,domainsRead:0,
+  complete:false,reason:'pagination_not_authoritative'};
+ const coverage=raw.coverage===undefined?legacyCoverage:raw.coverage;
+ if(!coverage||typeof coverage!=='object'||Array.isArray(coverage)||
+    !Number.isInteger(coverage.pagesAttempted)||coverage.pagesAttempted<1||
+    coverage.pagesAttempted>20||
+    coverage.pagesVerified!==raw.accountPageReads||
+    !Number.isInteger(coverage.pagesFailed)||coverage.pagesFailed<0||
+    coverage.pagesFailed!==coverage.pagesAttempted-coverage.pagesVerified||
+    !Number.isInteger(coverage.domainsRead)||coverage.domainsRead<0||
+    coverage.domainsRead>2||coverage.complete!==false||
+    !['pagination_not_authoritative','page_error_or_login'].includes(coverage.reason)||
+    (coverage.pagesFailed>0&&coverage.reason!=='page_error_or_login'))return base;
+ const safeCoverage={pagesAttempted:coverage.pagesAttempted,
+   pagesVerified:coverage.pagesVerified,pagesFailed:coverage.pagesFailed,
+   domainsRead:coverage.domainsRead,complete:false,reason:coverage.reason};
  const days=[];
  for(let i=0;i<requestedDates.length;i++){
   const item=raw.days[i];
@@ -77,7 +97,8 @@ export function sanitizeBatchInventory(raw,requestedDates){
              potentialDuplicate:item.potentialDuplicate,safeToBook:false});
  }
  return {status:'inventory_batch_read',inventoryComplete:false,safeToBook:false,
-         bookingAuthorized:false,accountPageReads:Math.min(20,raw.accountPageReads),days};
+         bookingAuthorized:false,accountPageReads:Math.min(20,raw.accountPageReads),
+         coverage:safeCoverage,days};
 }
 
 export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}={}){
