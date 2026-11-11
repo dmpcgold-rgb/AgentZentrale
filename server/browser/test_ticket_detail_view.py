@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from ticket_detail_view import safe_detail_url, matching_card, read_detail, inspect_existing_ticket_details
+from ticket_detail_view import safe_detail_url, matching_card, read_detail, inspect_existing_ticket_details, rejection_reason
 
 HOME='https://westbahn.at/ticketshop/dashboard/tickets?page=1&mode=valid'
 DETAIL='https://westbahn.at/ticketshop/dashboard/tickets/details?id=TESTREF123'
@@ -29,6 +29,28 @@ class TicketDetailTests(unittest.TestCase):
         ):
             with self.subTest(url=url,caption=caption):
                 self.assertIsNone(safe_detail_url(HOME,url,caption))
+
+    def test_rejected_detail_controls_report_only_fixed_categories(self):
+        cases=(
+            ({'tag':'a','href':'#','caption':'Details'},'no_static_destination'),
+            ({'tag':'button','href':None,'caption':'Details'},'non_link_detail_control'),
+            ({'tag':'a','href':'/ticketshop/dashboard/tickets/details?session=PRIVATE-9199',
+              'caption':'Details'},'unrecognized_query'),
+            ({'tag':'a','href':'/account/order/PRIVATE-9199','caption':'Details'},'unrecognized_detail_path'),
+            ({'tag':'a','href':'https://evil.example/ticketshop/dashboard/tickets/PRIVATE-9199',
+              'caption':'Details'},'untrusted_destination'),
+            ({'tag':'a','href':'javascript:alert(1)','caption':'Details'},'script_or_data_destination'),
+            ({'tag':'a','href':'/ticketshop/dashboard/tickets/details?id=PRIVATE-9199',
+              'caption':'Umbuchen'},'unsafe_action_label')
+        )
+        for item,reason in cases:
+            with self.subTest(reason=reason):
+                result=rejection_reason(HOME,item)
+                self.assertEqual(result,reason)
+                self.assertNotIn('PRIVATE',result)
+        self.assertEqual(rejection_reason(HOME,{'tag':'a',
+            'href':'/ticketshop/dashboard/tickets/details?id=PRIVATE-9199',
+            'caption':'Details'}),'accepted')
 
     def test_card_match_requires_trip_date_seat_route_and_time(self):
         self.assertTrue(matching_card(CARD,'2026-11-17','191D'))
@@ -151,6 +173,8 @@ class TicketDetailBrowserTests(unittest.TestCase):
             result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
             self.assertEqual(result['detailStatus'],'no_unique_safe_detail_link',result)
             self.assertFalse(result['bookingAuthorized'])
+            self.assertEqual(result['rejectionReasons'],{'non_link_detail_control':1})
+            self.assertEqual(result['controlKinds'],{'button':1})
         finally:
             context.close()
 
