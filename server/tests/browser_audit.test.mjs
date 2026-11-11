@@ -208,6 +208,36 @@ test('fully matched provider detail within batch remains existing-only proof',()
  }
 });
 
+test('gateway exposes only bounded redacted coverage, never complete inventory',()=>{
+ const dates=['2026-11-17'];
+ const source={status:'inventory_batch_read',accountPageReads:3,
+   safeToBook:false,bookingAuthorized:false,inventoryComplete:false,
+   coverage:{pagesAttempted:4,pagesVerified:3,pagesFailed:1,domainsRead:2,
+      complete:false,reason:'page_error_or_login',privateTicket:'DO_NOT_LEAK'},
+   days:[{date:dates[0],status:'review_required',seats:[],
+     dateVerified:false,detailVerified:false,potentialDuplicate:false,safeToBook:false}]
+ };
+ const good=sanitizeBatchInventory(source,dates);
+ assert.equal(good.status,'inventory_batch_read');
+ assert.deepEqual(good.coverage,{
+   pagesAttempted:4,pagesVerified:3,pagesFailed:1,domainsRead:2,
+   complete:false,reason:'page_error_or_login'
+ });
+ assert.equal(JSON.stringify(good).includes('DO_NOT_LEAK'),false);
+ assert.equal(good.safeToBook,false);
+ for(const bad of [
+   {...source,coverage:{...source.coverage,complete:true}},
+   {...source,coverage:{...source.coverage,pagesVerified:4}},
+   {...source,coverage:{...source.coverage,pagesFailed:0}},
+   {...source,coverage:{...source.coverage,reason:'all_pages_confirmed'}},
+   {...source,coverage:{...source.coverage,pagesAttempted:123}}
+ ]){
+   const result=sanitizeBatchInventory(bad,dates);
+   assert.equal(result.status,'review_required');
+   assert.equal(result.bookingAuthorized,false);
+ }
+});
+
 test('inventory worker receives only five validated planned days, no checkout',async()=>{
  const dates=['2026-11-17','2026-11-18'];
  const calls=[];
