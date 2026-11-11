@@ -71,6 +71,22 @@ class TicketDetailTests(unittest.TestCase):
             with self.subTest(href=href,label=label):
                 self.assertIsNone(safe_detail_url(HOME,href,label))
 
+    def test_safe_read_only_caption_variants_and_unsafe_actions(self):
+        route='/ticketshop/dashboard/ticket/AB12CD34/EF5678'
+        for label in ('Details','  Mehr   Details ', 'Details ansehen',
+                      'Details anzeigen','Weitere Details','Ticketdetails anzeigen',
+                      'Reservierungsdetails ansehen', 'Ticket ansehen ›',
+                      'Details zur Fahrt','Zur Ticketansicht'):
+            with self.subTest(label=label):
+                self.assertEqual(safe_detail_url(HOME,route,label),'https://westbahn.at'+route)
+                self.assertEqual(rejection_reason(HOME,{'tag':'a','href':route,'caption':label}), 'accepted')
+        for label in ('Details löschen','Details und stornieren',
+                      'Details bezahlen','Ticket ändern', 'Ticket herunterladen',
+                      'Details und unbekannte Aktion', 'Details zur Zahlung',
+                      'Ticket buchen','Umbuchen','Details mit Kauf'):
+            with self.subTest(label=label):
+                self.assertIsNone(safe_detail_url(HOME,route,label))
+
     def test_rejected_detail_controls_report_only_fixed_categories(self):
         cases=(
             ({'tag':'a','href':'#','caption':'Details'},'no_static_destination'),
@@ -96,7 +112,7 @@ class TicketDetailTests(unittest.TestCase):
     def test_opaque_ticket_rejections_have_private_safe_diagnostic_reasons(self):
         cases=(
             ('/ticketshop/dashboard/ticket/AB12CD34/EF5678','Details', 'accepted'),
-            ('/ticketshop/dashboard/ticket/AB12CD34/EF5678','Mehr Details','ticket_view_caption_not_allowlisted'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF5678','Details und unbekannte Aktion','ticket_view_caption_not_allowlisted'),
             ('/ticketshop/dashboard/ticket/AB12CD34/EF5678?mode=valid','Details','ticket_view_query_not_allowed'),
             ('/ticketshop/dashboard/ticket/PAY12345/EF5678','Details','ticket_view_token_safety_filter'),
         )
