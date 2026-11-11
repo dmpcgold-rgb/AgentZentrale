@@ -9,7 +9,7 @@ const evidence=()=>({
  status:'ticket_detail_check',date:DATE,seat:SEAT,
  detailStatus:'detail_read',yearVerified:true,seatMatched:true,
  tripMatched:true,referenceVisible:true,dateExplicit:true,
- inventoryComplete:false,
+ inventoryComplete:false,safeToBook:false,
  bookingAuthorized:false,confirmationVerified:false,
  bookingId:'PRIVATE-BOOKING-99999',ticketLink:'https://westbahn.at/private'
 });
@@ -35,6 +35,17 @@ test('known ticket is verified as existing but never authorizes booking',()=>{
  assert.equal(r.checks.referenceVisible,true);
  assert.equal(JSON.stringify(r).includes('PRIVATE-BOOKING'),false);
  assert.equal(JSON.stringify(r).includes('ticketLink'),false);
+});
+
+test('provider claims of booking permissions cannot be reused as read-only proof',()=>{
+ for(const raw of [
+  {...evidence(),bookingAuthorized:true},
+  {...evidence(),safeToBook:true},
+  {...evidence(),confirmationVerified:true},
+  {...evidence(),status:'success_banner'}
+ ]){
+  assert.equal(sanitizeTicketAudit(raw,'ticket-detail-check',DATE,SEAT).status,'review_required');
+ }
 });
 
 test('incomplete detail, wrong seat, wrong date and untrusted output cannot verify',()=>{
