@@ -15,7 +15,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
  const record=(date,status,detail,extra={})=>{state.rows[date]={date,status,detail,updatedAt:now().toISOString(),...extra};save();};
  const recordUserReported=(travelDate,seat)=>{
   if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)throw new Error('Reisedatum ungültig.');
-  if(typeof seat!=='string'||!/^\\d{3}[A-D]$/.test(seat))throw new Error('Sitzplatz ungültig.');
+  if(typeof seat!=='string'||!(/^[0-9]{3}[A-D]$/.test(seat)))throw new Error('Sitzplatz ungültig.');
   const previous=state.rows[travelDate];
   if(previous&&['booking','confirmed','uncertain'].includes(previous.status))throw new Error('Buchungsstatus bereits geschützt. Keine Änderung ohne Abgleich.');
   if(previous?.status==='user_reported'){
