@@ -1326,6 +1326,54 @@ def confirm_review_selection(page,day):
 
 
 
+
+def find_seat_change_control(page, diagnostic=False):
+    """Find the unique 'Ändern' label beside the seat-reservation heading.
+
+    WESTbahn may render the label as an anchor without href, a span with a
+    framework click handler, or a button. Require a compact common header row
+    rather than querying arbitrary links or buttons elsewhere on the page.
+    """
+    script=r"""(audit) => {
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const visible=e=>!!e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';
+      const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent||'');
+      const leaf=(value)=>[...document.querySelectorAll('body *')].filter(e=>visible(e)&&label(e)===value&&![...e.children].some(c=>visible(c)&&label(c)===value));
+      const headings=leaf('Sitzplatzreservierung');
+      const changes=leaf('Ändern');
+      const matches=[];
+      for(const h of headings){
+        for(const change of changes){
+          // Find the smallest common ancestor; it must be a short header row.
+          let row=h,level=0;
+          while(row&&row!==document.body&&!row.contains(change)&&level<8){row=row.parentElement;level++;}
+          if(!row||row===document.body||!row.contains(change))continue;
+          const content=norm(row.innerText||row.textContent||'');
+          const hr=h.getBoundingClientRect(),cr=change.getBoundingClientRect(),rr=row.getBoundingClientRect();
+          if(content.length>280||rr.height>190||Math.abs((hr.top+hr.bottom-cr.top-cr.bottom)/2)>85)continue;
+          if(cr.left<hr.left-20)continue;
+          if(/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))continue;
+          let target=change;
+          for(let e=change;e&&e!==row.parentElement;e=e.parentElement){
+            if(e.matches('button,a,[role="button"],[role="link"],[tabindex]')||getComputedStyle(e).cursor==='pointer'||e.hasAttribute('onclick')){target=e;break;}
+          }
+          if(target.matches(':disabled,[aria-disabled="true"]')||target.closest('[inert],[aria-disabled="true"]')||getComputedStyle(target).pointerEvents==='none')continue;
+          // Do not accept a large clickable container enclosing the whole row:
+          // clicking the exact 'Ändern' text reliably bubbles to its handler.
+          if(target.contains(h))target=change;
+          matches.push({element:target,level,kind:target.tagName.toLowerCase()});
+        }
+      }
+      const distinct=[...new Set(matches.map(m=>m.element))];
+      if(audit)return {seatHeadingCount:headings.length,changeLabelCount:changes.length,
+                       matchedControls:distinct.length,matchKinds:matches.map(m=>m.kind),
+                       reason:distinct.length===1?'unique_change_control':'not_unique_or_not_in_header'};
+      return distinct.length===1?distinct[0]:null;
+    }"""
+    if diagnostic:
+        return page.evaluate(script,True)
+    return page.evaluate_handle(script,False).as_element()
+
 def open_review_seat_map(page, day):
     """Open the official zero-price Comfort detail and seat picker, not checkout."""
     def live_url(p):
@@ -1370,25 +1418,12 @@ def open_review_seat_map(page, day):
         entry=detail_seat_map_entry_check(actual,day)
         if not entry.get('verified'):
             raise Blocked('Sitzplanöffnung gesperrt: '+json.dumps({'entry':entry,'detail':summary},ensure_ascii=False))
-    # Scope "Ändern" to the seat reservation section, never a cart action.
-    change=actual.evaluate_handle(r"""() => {
-      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
-      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
-      const txt=e=>norm(e.innerText||e.textContent);
-      const headings=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&txt(e)==='Sitzplatzreservierung'&&![...e.children].some(c=>vis(c)&&txt(c)==='Sitzplatzreservierung'));
-      const matches=new Set();
-      for(const h of headings){
-        for(let e=h.parentElement;e&&e!==document.body;e=e.parentElement){
-          const v=txt(e);
-          if(/Meine Auswahl|In den Warenkorb/i.test(v))break;
-          const controls=[...e.querySelectorAll('button,a[href],[role="button"],[role="link"]')].filter(c=>vis(c)&&(norm(c.getAttribute('aria-label'))==='Ändern'||txt(c)==='Ändern')&&!c.matches(':disabled,[aria-disabled="true"]')&&getComputedStyle(c).pointerEvents!=='none');
-          if(controls.length===1){matches.add(controls[0]);break;}
-          if(controls.length>1)break;
-        }
-      }
-      return matches.size===1?[...matches][0]:null;
-    }""").as_element()
-    if change is None: raise Blocked('Ändern im Sitzplatzbereich nicht eindeutig.')
+    # Use the heading-row label even if WESTbahn renders it as a span or an
+    # anchor without href. Never select an unscoped page-wide 'Ändern'.
+    change=find_seat_change_control(actual)
+    if change is None:
+        audit=find_seat_change_control(actual,diagnostic=True)
+        raise Blocked('Ändern im Sitzplatzbereich nicht eindeutig. Diagnose: '+json.dumps(audit,ensure_ascii=False))
     change.click(timeout=5000)
     for _ in range(16):
         actual.wait_for_timeout(250)

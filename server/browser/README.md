@@ -64,3 +64,6 @@ Die Live-Diagnose vom 17.11.-Test erkannte in der kleinsten Auswahlregion nur ei
 
 ## Sichere Sitzplanöffnung ohne Checkout
 Wenn die Produktkarte nicht eindeutig lesbar ist, darf `a` die Sitzplatzübersicht anhand einer gesonderten schreibgeschützten Vorprüfung öffnen: Detailseite für das exakte Datum und die Strecke, eindeutige `Meine Auswahl`-Fußzeile mit ausschließlich 0 EUR, WB 1009, 18:22–18:49 und Sitzplatzabschnitt. Das davon getrennte 7,90-EUR-Angebot ist kein Gesamtpreis. Diese Vorprüfung **berechtigt weder zur Sitzplatzbestätigung noch zum Warenkorb oder Kauf**; `b` und spätere Checkout-Schritte bleiben strenger und blockieren bei unklaren Produktdaten. Kein unbestätigter Kauf.
+
+## Sitzplatzbearbeitung im Detailbildschirm
+Die Erkennung der „Ändern“-Schaltfläche erfasst jetzt auch `a` ohne `href`, Text-Spans mit Framework-Handler und Buttons. Es wird nur ein einziges, kompaktes gemeinsames Überschriftsfeld „Sitzplatzreservierung / Ändern“ akzeptiert. Andere „Ändern“-Links auf derselben Seite, Warenkorb und Kaufaktionen werden nicht angeklickt. Bei Mehrdeutigkeit liefert der Agent eine kleine Diagnose mit Anzahlen und Elementtypen, keine sensiblen Seitendaten.
