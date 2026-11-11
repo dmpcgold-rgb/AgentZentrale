@@ -6,7 +6,7 @@ import {ActionButton,Body,Card,Heading,Muted,Section,styles} from '../components
 import {T} from '../theme';
 const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)',existing_verified:'Bestehendes Ticket geprüft'};
 export default function WestbahnScreen({navigation}){
- const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[previewResult,setPreviewResult]=useState(null),[previewDate,setPreviewDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
+ const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[seatPreview,setSeatPreview]=useState(null),[previewResult,setPreviewResult]=useState(null),[previewDate,setPreviewDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
  const dates=planDates();
  useEffect(()=>{
    if(!remote.connected)return;
@@ -55,6 +55,15 @@ export default function WestbahnScreen({navigation}){
        method:'POST',body:{date:previewDate.trim()},timeoutMs:75000
      });
      setPreviewResult(result);
+   }catch(e){setError(e.message);}finally{setBusy(false);}
+ }
+ async function previewSeatMap(){
+   setBusy(true);setError('');setSeatPreview(null);
+   try {
+     const result=await remote.request('/westbahn/browser/seat-preview',{
+       method:'POST',body:{date:previewDate.trim()},timeoutMs:75000
+     });
+     setSeatPreview(result);
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  async function auditExistingTicket(){
@@ -120,6 +129,15 @@ export default function WestbahnScreen({navigation}){
    <Muted>{previewResult.displayedComfortCents===0?'Angezeigter öffentlicher Comfort-Preis: 0,00 € (nicht verbindlich)':typeof previewResult.displayedComfortCents==='number'?'Angezeigter Comfort-Preis: '+(previewResult.displayedComfortCents/100).toFixed(2)+' € (nicht verbindlich)':'Kein eindeutig geprüfter Comfort-Anzeigepreis'}</Muted>
    <Muted>KlimaTicket-Warenkorb, konkreter Sitzplatz und fehlende Reservierung NICHT bestätigt. Keine Buchungsfreigabe.</Muted>
  </View>:null}
+ <View style={{marginTop:10,gap:8}}>
+  <ActionButton title="Wunschplätze im Offline-Sitzplan ansehen" secondary
+    disabled={busy||!remote.connected||!browser?.enabled} onPress={previewSeatMap}/>
+  {seatPreview?<View style={{gap:4}}>
+    <Body>{seatPreview.status==='offline_seat_map_observed'?'Isolierter Sitzplan untersucht':seatPreview.status==='existing_ledger_entry'?'Für diesen Tag besteht bereits ein Buchungsvermerk':'Sitzplan nicht eindeutig lesbar'}</Body>
+    {(seatPreview.preferredSeats||[]).map(s=><Muted key={s.seat}>{s.seat}: {s.observation==='visible_in_offline_copy'?'Im Offline-Sitzplan sichtbar (nicht live geprüft)':s.observation==='disabled_in_offline_copy'?'Offline als deaktiviert dargestellt':'Nicht eindeutig erkennbar'}</Muted>)}
+    <Muted>Keine Live-Verfügbarkeit, keine Sitzplatzauswahl und kein KlimaTicket-Endpreis bestätigt. Keine Buchung.</Muted>
+  </View>:null}
+ </View>
  <Muted style={{marginTop:12}}>Vorhandenes Ticket im WESTbahn-Konto prüfen – ohne Buchung</Muted>
  <View style={{flexDirection:'row',gap:8,marginTop:8}}>
   <TextInput accessibilityLabel="Reisedatum" style={[styles.input,{flex:2}]} value={auditDate}
