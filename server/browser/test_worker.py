@@ -69,6 +69,13 @@ class ResultParsingTests(unittest.TestCase):
    result=offline_seat_preview(None,'2026-11-17')
   self.assertEqual(result['status'],'seat_preview_blocked')
   self.assertEqual(result['connection']['displayedPriceCents'],790)
+ def test_preview_rejects_stale_zero_when_control_price_disappears(self):
+  conn={'displayedPriceCents':0,'priceStatus':'displayed','priceSource':'comfort_control'}
+  detail={'targetClassLabels':1,'controls':[{'visible':True,'disabled':False,'pointerEvents':'auto','prices':[]}]}
+  with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}), patch('worker.comfort_control_details',return_value=detail):
+   result=offline_seat_preview(None,'2026-11-17')
+  self.assertEqual(result['status'],'seat_preview_blocked')
+  self.assertIsNone(result['connection']['displayedPriceCents'])
  def test_exact_departure_and_price(self):
   result=parse_connection(RESULTS)
   self.assertEqual(result['trainNumber'],'1009')

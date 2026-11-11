@@ -410,8 +410,10 @@ def offline_seat_preview(page, day):
     details=comfort_control_details(page,conn)
     # Require a fresh, unambiguous zero on the exact control in this context.
     # Do not reuse an old price from the main browser.
-    conn=apply_comfort_control_price(conn,details)
-    if conn.get('displayedPriceCents')!=0 or conn.get('priceSource')!='comfort_control' or conn.get('priceStatus')!='displayed':
+    original=conn
+    fresh={**conn,'displayedPriceCents':None,'priceSource':None,'priceStatus':'not_displayed'}
+    conn=apply_comfort_control_price(fresh,details)
+    if original.get('displayedPriceCents') not in (None,0) or conn.get('displayedPriceCents')!=0 or conn.get('priceSource')!='comfort_control' or conn.get('priceStatus')!='displayed':
         return {'status':'seat_preview_blocked','connection':conn,'inspection':details,
                 'message':'Comfort-Preis in der isolierten Vorschau nicht eindeutig 0 EUR. Keine Klicks oder Buchung.'}
     controls=details.get('controls',[])
