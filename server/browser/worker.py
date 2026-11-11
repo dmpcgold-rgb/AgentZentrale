@@ -951,6 +951,88 @@ def authenticated_prepare(page, day, inspect_only=False, root=None):
     result['bookingAuthorized']=False
     return result
 
+
+# Verified against the visible WESTbahn seat plan. These are preferred seats,
+# not a guarantee of availability or a rule that other train layouts are identical.
+PRIMARY_SEATS=('233A','233D')
+PRIMARY_COACH='11'
+
+def seat_modal_state(page, target=None):
+    """Inspect a unique seat-picker modal, or return a unique safe control handle."""
+    script=r"""(target) => {
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const vis=e=>e.getClientRects().length>0 && getComputedStyle(e).visibility!=='hidden';
+      const text=e=>norm(e.innerText||e.textContent);
+      const titles=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&text(e)==='Sitzplatzreservierung'&&![...e.children].some(c=>vis(c)&&text(c)==='Sitzplatzreservierung'));
+      const modals=new Set();
+      for(const t of titles){
+        for(let e=t.parentElement;e&&e!==document.body;e=e.parentElement){
+          const buttons=[...e.querySelectorAll('button,[role="button"]')].filter(vis);
+          if(buttons.some(b=>text(b)==='Abbrechen')&&buttons.some(b=>text(b)==='Bestätigen')){modals.add(e);break;}
+        }
+      }
+      if(modals.size!==1)return target?null:{modalFound:false,controls:[]};
+      const modal=[...modals][0];
+      // The selected-seat summary precedes the actual seat map. Never use an
+      // arbitrary seat label in the map as evidence of the selected seat.
+      const beforeMap=(modal.innerText||'').split(/Legende|2\+\s*\|\s*Comfort|2\+\s*Comfort/i)[0];
+      const summary=beforeMap.match(/Wagen\s+Platz\s+(\d{1,2})\s+(\d{2,4})\s*([A-D])\b/i);
+      const selected=summary?{coach:summary[1],seat:summary[2]+summary[3].toUpperCase()}:null;
+      const controls=[];
+      const elements=[];
+      for(const e of modal.querySelectorAll('button,[role="button"],[role="option"],[data-seat],[data-seat-number]')){
+        if(!vis(e))continue;
+        const raw=[text(e),e.getAttribute('aria-label'),e.getAttribute('title'),e.getAttribute('data-seat'),e.getAttribute('data-seat-number')].map(norm);
+        const code=raw.map(v=>v.match(/^(?:Sitzplatz\s*)?(233)\s*([AD])(?:\s*(?:[,;:\-–]\s*)?(?:frei|verfügbar|ausgewählt|nicht verfügbar|belegt))?$/i)).find(Boolean);
+        const coach=raw.map(v=>v.match(/^(?:Wagen\s*)?(11)$/i)).find(Boolean);
+        if(!code&&!coach)continue;
+        const state=[...raw,e.getAttribute('class')||'',e.getAttribute('data-status')||'',e.getAttribute('aria-selected')||''].join(' ');
+        const disabled=e.matches(':disabled,[aria-disabled="true"]')||!!e.closest('[aria-disabled="true"],[inert]')||getComputedStyle(e).pointerEvents==='none';
+        const unavailable=/nicht verfügbar|nicht reservierbar|belegt|ausgebucht|unavailable|occupied|blocked|disabled/i.test(state);
+        const free=!disabled&&!unavailable&&/(?:\bfrei\b|\bverfügbar\b|\bavailable\b|\bfree\b)/i.test(state);
+        controls.push({kind:code?'seat':'coach',value:code?code[1]+code[2].toUpperCase():coach[1],disabled,unavailable,free});
+        elements.push(e);
+      }
+      if(target){
+        const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||c.free));
+        return matches.length===1?elements[matches[0].i]:null;
+      }
+      return {modalFound:true,selected,controls};
+    }"""
+    if target is not None:
+        return page.evaluate_handle(script,target).as_element()
+    return page.evaluate(script,None)
+
+def select_primary_seat_in_open_modal(page):
+    """Select only an explicit preferred seat; never confirm, buy or select a fallback."""
+    u=urlsplit(page.url)
+    if u.scheme!='https' or u.hostname!='westbahn.at' or u.path.rstrip('/')!='/reservierung/sitzplatz-upgrade/details':
+        return {'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Keine eindeutige WESTbahn-Reservierungsdetailseite.'}
+    state=seat_modal_state(page)
+    if not state.get('modalFound'):
+        return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':state,'message':'Sitzplan nicht eindeutig geöffnet.'}
+    selected=state.get('selected') or {}
+    if selected.get('coach')==PRIMARY_COACH and selected.get('seat') in PRIMARY_SEATS:
+        return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz im Sitzplan bereits ausgewählt; nicht bestätigt oder gebucht.'}
+    if selected.get('coach')!=PRIMARY_COACH:
+        coach=seat_modal_state(page,{'kind':'coach','value':PRIMARY_COACH})
+        if coach is None:
+            return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':state,'message':'Wagen 11 nicht eindeutig auswählbar.'}
+        coach.click(timeout=5000)
+        page.wait_for_timeout(1200)
+    for seat in PRIMARY_SEATS:
+        control=seat_modal_state(page,{'kind':'seat','value':seat})
+        if control is None: continue
+        control.click(timeout=5000)
+        page.wait_for_timeout(750)
+        state=seat_modal_state(page)
+        selected=state.get('selected') or {}
+        if selected=={'coach':PRIMARY_COACH,'seat':seat}:
+            return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz im Sitzplan ausgewählt; nicht bestätigt oder gebucht.'}
+        break
+    return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':seat_modal_state(page),'message':'Wunschplatz nicht eindeutig frei oder ausgewählt. Keine automatische Bestätigung.'}
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -967,8 +1049,14 @@ def manual_seat_review(page, day, root=None):
             if input().strip().lower()=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Sitzplan manuell ansehen; nicht kaufen. Nach Prüfung hier Enter drücken.',file=sys.stderr,flush=True)
-        input()
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl oder Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
+        while input().strip().lower()=='a':
+            try:
+                result=select_primary_seat_in_open_modal(page)
+            except Exception:
+                result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
+            print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
+            print('Browser bleibt geöffnet. a + Enter für erneute Prüfung, Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
         return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
 
 
