@@ -170,7 +170,9 @@ def read_detail(page, url, day, seat):
             elif request.is_navigation_request() and request.url!=url:
                 route.abort()
             else:
-                route.continue_()
+                # Preserve later route handlers (including mocked ticket pages).
+                # continue_() skips them and can fetch an unrelated live page.
+                route.fallback()
         page.route('**/*',read_only_request)
         response=page.goto(url,wait_until='domcontentloaded',timeout=20000)
         if response is None or response.status!=200 or not safe_detail_url(page.url,page.url,'Details'):
