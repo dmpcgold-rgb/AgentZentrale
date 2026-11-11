@@ -143,11 +143,11 @@ test('batch inventory reports observed cards without ever marking a day bookable
   safeToBook:false,bookingAuthorized:false,privateReference:'SECRET-BOOKING',
   days:[
    {date:dates[0],status:'visible_year_verified',seats:['191D'],
-     dateVerified:true,potentialDuplicate:true,safeToBook:false},
+     dateVerified:true,detailVerified:false,potentialDuplicate:true,safeToBook:false},
    {date:dates[1],status:'possible_existing',seats:['233A'],
-     dateVerified:false,potentialDuplicate:true,safeToBook:false},
+     dateVerified:false,detailVerified:false,potentialDuplicate:true,safeToBook:false},
    {date:dates[2],status:'review_required',seats:[],
-     dateVerified:false,potentialDuplicate:false,safeToBook:false}
+     dateVerified:false,detailVerified:false,potentialDuplicate:false,safeToBook:false}
   ]};
  const result=sanitizeBatchInventory(raw,dates);
  assert.equal(result.status,'inventory_batch_read');
@@ -165,7 +165,7 @@ test('batch inventory rejects forged complete inventory, unknown seat and wrong 
  const base={status:'inventory_batch_read',accountPageReads:1,
    inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
    days:[{date:dates[0],status:'visible_year_verified',
-      seats:['191D'],dateVerified:true,potentialDuplicate:true,safeToBook:false}]};
+      seats:['191D'],dateVerified:true,detailVerified:false,potentialDuplicate:true,safeToBook:false}]};
  for(const bad of [
     {...base,inventoryComplete:true},
     {...base,safeToBook:true},
@@ -180,6 +180,31 @@ test('batch inventory rejects forged complete inventory, unknown seat and wrong 
    assert.equal(result.status,'review_required');
    assert.equal(result.days[0].status,'review_required');
    assert.equal(result.bookingAuthorized,false);
+ }
+});
+
+
+test('fully matched provider detail within batch remains existing-only proof',()=>{
+ const dates=['2026-11-17'];
+ const raw={status:'inventory_batch_read',accountPageReads:4,
+  inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+  days:[{date:dates[0],status:'detail_verified',seats:['191D'],
+         dateVerified:true,detailVerified:true,potentialDuplicate:true,safeToBook:false}]};
+ const result=sanitizeBatchInventory(raw,dates);
+ assert.equal(result.status,'inventory_batch_read');
+ assert.equal(result.days[0].status,'detail_verified');
+ assert.equal(result.days[0].detailVerified,true);
+ assert.equal(result.inventoryComplete,false);
+ assert.equal(result.safeToBook,false);
+ assert.equal(result.bookingAuthorized,false);
+ for(const bad of [
+   {...raw,days:[{...raw.days[0],detailVerified:false}]},
+   {...raw,days:[{...raw.days[0],dateVerified:false}]},
+   {...raw,days:[{...raw.days[0],potentialDuplicate:false}]},
+   {...raw,days:[{...raw.days[0],seats:['191D','233A']}]},
+   {...raw,days:[{...raw.days[0],date:'2026-11-18'}]}
+ ]){
+   assert.equal(sanitizeBatchInventory(bad,dates).status,'review_required');
  }
 });
 
