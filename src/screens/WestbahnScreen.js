@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useState,useEffect} from 'react';
 import {Alert,ScrollView,Linking,Text,TextInput,View} from 'react-native';
 import {useRemote} from '../store/RemoteContext';
 import {RULES,BOOKING_URL,planDates} from '../core/westbahn';
@@ -6,8 +6,31 @@ import {ActionButton,Body,Card,Heading,Muted,Section,styles} from '../components
 import {T} from '../theme';
 const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)',existing_verified:'Bestehendes Ticket geprüft'};
 export default function WestbahnScreen({navigation}){
- const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null);
+ const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
  const dates=planDates();
+ useEffect(()=>{
+   if(!remote.connected)return;
+   let cancelled=false;
+   Promise.all([
+     remote.request('/westbahn/review-status'),
+     remote.request('/westbahn/readiness')
+   ]).then(([weekly,prepared])=>{
+     if(!cancelled){setWeeklyState(weekly);setReadiness(prepared);}
+   }).catch(()=>{});
+   return ()=>{cancelled=true;};
+ },[remote.connected]);
+ async function refreshWeeklyStatus(){
+   setBusy(true);setError('');
+   try{
+     const [weekly,prepared,ledger]=await Promise.all([
+       remote.request('/westbahn/review-status'),
+       remote.request('/westbahn/readiness'),
+       remote.request('/westbahn/status')
+     ]);
+     setWeeklyState(weekly);setReadiness(prepared);setData(ledger);
+   }catch(e){setError(e.message);}finally{setBusy(false);}
+ }
+
  async function request(path,body){setBusy(true);setError('');try{const r=await remote.request(path,body===undefined?{}:{method:'POST',body});if(path==='/westbahn/run'){Alert.alert('Lauf gestartet',r.message);setData(await remote.request('/westbahn/status'));}else setData(r);}catch(e){setError(e.message);}finally{setBusy(false);}}
  async function browserRequest(mode){setBusy(true);setError('');try{const result=await remote.request('/westbahn/browser/'+mode,mode==='status'?{}:{method:'POST',body:mode==='prepare'?{date:dates[0]}:{},timeoutMs:75000});if(mode==='status')setBrowser(result);else setBrowserMessage(result.message);}catch(e){setError(e.message);}finally{setBusy(false);}}
  async function auditFiveDays(){
@@ -21,6 +44,8 @@ export default function WestbahnScreen({navigation}){
        const latest=await remote.request('/westbahn/status');
        setData(latest);
      }
+     const weekly=await remote.request('/westbahn/review-status');
+     setWeeklyState(weekly);
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  async function auditExistingTicket(){
@@ -42,6 +67,21 @@ export default function WestbahnScreen({navigation}){
  <Heading subtitle={`Montag bis Freitag · ${RULES.departure} Uhr · ${RULES.class}`}>WESTbahn-Agent</Heading>
  <Card><Body>{RULES.origin} → {RULES.destination}</Body><Muted>KlimaTicket Österreich · 0 € · Keine Viererplätze</Muted><Body style={{marginTop:8}}>233 A / 233 D → 191 D → 182 A → 193 (nur eindeutig passende Plätze)</Body><Muted>Danach Einzelplätze gegenüber mit Tisch, dann leicht versetzt.</Muted></Card>
  <Card><Heading>Automatik</Heading><Body>Montag ab 07:00 · Europe/Vienna</Body><Muted>Planung ab 17.11.2026 (16.11. bereits manuell reserviert), bis sechs Monate voraus. Tatsächliche Verfügbarkeit wird erst beim Anbieter geprüft.</Muted><Muted style={{marginTop:9}}>{!remote.connected?'Server nicht verbunden.':data?.providerConnected?'Buchungsadapter verbunden.':'Kein bestätigter Live-Buchungsadapter verbunden.'}</Muted><Muted>Automatik: {data?.automatic?'Aktiv':'Aus / noch nicht geprüft'}</Muted><View style={{gap:8,marginTop:10}}><ActionButton title="Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={()=>request('/westbahn/status')}/><ActionButton title="Jetzt 0-€-Buchungen prüfen" disabled={busy||!data?.providerConnected||data?.running} onPress={()=>authorize('run')}/><ActionButton title={data?.automatic?'Automatik deaktivieren':'Automatik aktivieren'} secondary disabled={busy||(!data?.providerConnected&&!data?.automatic)} onPress={()=>data?.automatic?request('/westbahn/settings',{enabled:false}):authorize('settings')}/><ActionButton title="Offizielle WESTbahn öffnen" secondary onPress={()=>Linking.openURL(BOOKING_URL).catch(()=>setError('Website konnte nicht geöffnet werden.'))}/>{!remote.connected?<ActionButton title="Server verbinden" secondary onPress={()=>navigation.navigate('Einstellungen')}/>:null}</View>{error?<Body style={{color:T.red,marginTop:8}}>{error}</Body>:null}</Card>
+ <Card>
+   <Heading>Automatische Montagskontrolle</Heading>
+   <Body>{weeklyState?.enabled?'Reine Ticketprüfung aktiv – montags ab 07:00 Uhr':'Prüfdienst nicht aktiviert oder Serverstatus unbekannt'}</Body>
+   <Muted>Letzter Prüfstart: {weeklyState?.lastRun?.startedAt||'Noch keiner'}</Muted>
+   <Muted>Ergebnis: {weeklyState?.lastRun?.status||'Noch keine Prüfung'}</Muted>
+   <Muted>Bestellte Tickets: keine – dieser Prüfautomat kann ausschließlich vorhandene Reservierungen lesen.</Muted>
+   <View style={{marginTop:10}}>
+    <ActionButton title="Montagsprüfung-Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={refreshWeeklyStatus}/>
+   </View>
+   {readiness?<View style={{marginTop:10,gap:4}}>
+     <Muted>Wunschplätze: {readiness.preferredSeats?.join(' / ')} · Preisgrenze: 0 €</Muted>
+     {(readiness.days||[]).map(d=><Muted key={d.date}>{d.date} · {d.status==='protected_existing'?'Bereits geschützt':d.status==='checkout_needs_review'?'Bestellung ungeklärt':d.status==='possible_existing'?'Mögliche Reservierung':d.status==='reported_existing'?'Bereits gemeldet':'Bestand nicht vollständig geklärt'}</Muted>)}
+     <Muted>Automatischer Kauf: noch nicht freigeschaltet – vollständiger Bestandsnachweis und getesteter Bestelladapter fehlen.</Muted>
+   </View>:null}
+ </Card>
  <Card><Heading>Cloud-Browser</Heading><Muted>Eigener Chromium-Browser auf dem Server. Anmeldung erfolgt einmal am Server. Ticketprüfung nur lesend, keine Käufe oder Änderungen.</Muted><Muted>{browser?.enabled?'Browser aktiviert.':'Browser noch nicht aktiviert oder Status nicht geprüft.'} {browser?.profilePresent?'Profil vorhanden (Login nicht verifiziert).':''}</Muted><View style={{gap:8,marginTop:10}}><ActionButton title="Browser-Status" secondary disabled={busy||!remote.connected} onPress={()=>browserRequest('status')}/><ActionButton title="WESTbahn im Server-Browser öffnen" secondary disabled={busy||!browser?.enabled} onPress={()=>browserRequest('probe')}/><ActionButton title={'Verbindung suchen: '+(dates[0]||'—')} secondary disabled={busy||!browser?.enabled||!dates[0]} onPress={()=>browserRequest('prepare')}/></View>{browserMessage?<Body style={{marginTop:8}}>{browserMessage}</Body>:null}
  <View style={{marginTop:10}}>
   <ActionButton title="Nächste 5 Pendeltage prüfen" secondary disabled={busy||!remote.connected||!browser?.enabled} onPress={auditFiveDays}/>
