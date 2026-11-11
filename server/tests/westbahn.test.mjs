@@ -26,7 +26,7 @@ function provider({price=0,fail=false,invalidReceipt=false,already=false,
     return {status:'confirmed',accountVerified:true,inventoryComplete:true,
       receiptSource:readbackWrongSource?'unknown':'provider_account',
       receipt:receipt(readbackWrongId?{bookingId:'OTHER-BOOKING-ID'}:{}),
-      seat:seat('233A')};
+      seat:{...seat('233A'),available:false}};
    }
    return {status:'none',accountVerified:!unverifiedBefore,
            inventoryComplete:!incompleteBefore};
