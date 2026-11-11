@@ -85,3 +85,12 @@ Die echte DOM-Diagnose zeigte 1 Sitzplatzüberschrift und 3 Beschriftungstreffer
 
 ### Strukturprüfung für versetztes „Ändern“ (11. November)
 Die Live-Diagnose ergab `seatHeadingCount=1`, `changeLabelCount=3`, `editorLabelCandidates=1` und `nearbyEditLabels=0`. Der Agent prüft deshalb zusätzlich, ob Überschrift und genau eine Editor-Schaltfläche in einem **begrenzten gemeinsamen Sitzplatzbereich** liegen, der „Wagen“, „Platz“ und eine Sitznummer enthält, jedoch keinen Warenkorb- oder Checkout-Bereich. Ein bloß gleichlautender Seiten-Button ist nicht ausreichend. Die Diagnose liefert nun bis zu acht Position-/Bereichsnachweise unter `editorEvidence`, ohne Seiteninhalte oder Zugangsdaten. Bei unklarer Zuordnung wird weiter gestoppt.
+
+
+## Checkout-Prüfung ohne Kauf (V1.4.1)
+
+Nach \`b\` (Sitzplatzbestätigung) kann der Benutzer im privaten Chrome-Fenster **manuell** auf „In den Warenkorb“ gehen. Mit \`c\` + Enter in derselben laufenden \`seat-review\`-Sitzung untersucht der Worker den Warenkorb **nur lesend**. Er verlangt eine einzige Buchung „Reservierung Comfort Class“, Menge 1, WB 1009, Strecke Wien Meidling → Wiener Neustadt, 18:22–18:49, das geprüfte Datum, den unmittelbar zuvor bestätigten Sitzplatz, mindestens zwei Preisangaben ausschließlich 0,00 EUR, Gesamtsumme 0,00 EUR, genau eine AGB-Checkbox und einen eindeutig bezeichneten Abschlussbutton auf dem offiziellen HTTPS-Checkout. Nicht eindeutige Daten blockieren die Prüfung. Die Prüfung klickt **weder** AGB noch Warenkorb noch „Zahlungspflichtig bestellen“. Strukturierte Diagnose ohne Konto- oder Ticketnummern.
+
+Diese Funktion ist **noch keine vollautomatische Buchung**: Der heutige Browser-Worker kann nicht vollständig und belastbar nachweisen, dass keine vorhandene Reservierung zum Datum existiert (Kontobestand liefert \`inventoryComplete:false\`), und die tatsächliche WESTbahn-Bestätigungsseite mit echter Anbieter-Buchungsnummer ist noch nicht live getestet. Der bestehende Wochenlauf mit 0-EUR-Freigabe bleibt deswegen ohne separat geprüften Anbieteradapter gesperrt. Ein sichtbarer Betrag von 0,00 EUR, ein Sitzplatzdialog oder ein Warenkorb sind **kein** bestätigtes Ticket. Für die vollständige Automation fehlen Live-Tests für Dublettenprüfung, einmaliges Absenden, Bestätigung und Wiederanlauf nach Zeitüberschreitungen. Keine Zugangsdaten im GitHub-Repository speichern.
+
+Tests (im Server-Container): \`cd /app/server/browser && /opt/agent-venv/bin/python -m unittest test_checkout_guard.py test_worker.py\`.
