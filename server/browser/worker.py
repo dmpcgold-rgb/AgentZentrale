@@ -1347,10 +1347,15 @@ def find_seat_change_control(page, diagnostic=False):
       const isSmall=e=>raw(e).length<100;
       const leaf=(value)=>all.filter(e=>raw(e)===value&&!Array.from(e.children).some(c=>visible(c)&&raw(c)===value));
       const headings=leaf('Sitzplatzreservierung');
-      const editLabels=all.filter(e=>isSmall(e)&&names(e).some(n=>editor.test(n)));
+      // The UI may nest a span inside a button and both have the same
+      // "Ändern" text. Keep only the deepest labelled element; clickOwner
+      // later recovers its interactive ancestor.
+      const editLabels=all.filter(e=>isSmall(e)&&names(e).some(n=>editor.test(n))&&!Array.from(e.children).some(c=>visible(c)&&names(c).some(n=>editor.test(n))));
       const changedText=all.filter(e=>isSmall(e)&&editor.test(raw(e)));
       const candidates=[];
       const seatCandidates=[];
+      const headingCenter=headings.length===1?headings[0].getBoundingClientRect():null;
+      const nearEditLabels=headingCenter?editLabels.filter(e=>{const b=e.getBoundingClientRect();return b.left>=headingCenter.left-25&&Math.abs((headingCenter.top+headingCenter.bottom-b.top-b.bottom)/2)<=85;}):[];
       const sectionFacts={seatCodes:0,editorAria:0,interactiveElements:0,seatColumnLabels:0};
       const clickOwner=(el,stop)=> {
         for(let e=el;e&&e!==stop.parentElement;e=e.parentElement){
@@ -1365,9 +1370,14 @@ def find_seat_change_control(page, diagnostic=False):
         let row=h,depth=0;
         while(row&&row!==document.body&&!row.contains(e)&&depth<maxDepth){row=row.parentElement;depth++;}
         if(!row||row===document.body||!row.contains(e))return null;
-        if(raw(row).length>maxLength||row.getBoundingClientRect().height>maxHeight)return null;
-        const hr=h.getBoundingClientRect(),er=e.getBoundingClientRect();
-        if(Math.abs((hr.top+hr.bottom-er.top-er.bottom)/2)>verticalDistance||er.left<hr.left-25)return null;
+        const hr=h.getBoundingClientRect(),er=e.getBoundingClientRect(),rr=row.getBoundingClientRect();
+        const dy=Math.abs((hr.top+hr.bottom-er.top-er.bottom)/2);
+        if(dy>Math.min(verticalDistance,85)||er.left<hr.left-25)return null;
+        // WESTbahn renders the heading and edit action in different grid
+        // columns. Their nearest shared DOM ancestor may contain the entire
+        // seat section, including the amenities and the 7.90 EUR offer.
+        // Prefer same-row screen geometry over arbitrary 200px/380-char caps.
+        if(raw(row).length>1800||rr.width>1600)return null;
         if(/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(raw(row)))return null;
         return row;
       };
@@ -1415,7 +1425,7 @@ def find_seat_change_control(page, diagnostic=False):
       const selected=editUnique.length===1?editUnique[0]:(editUnique.length===0&&seatUnique.length===1?seatUnique[0]:null);
       if(audit)return {
         seatHeadingCount:headings.length,changeLabelCount:changedText.length,
-        editorLabelCandidates:editLabels.length,matchedControls:editUnique.length,
+        editorLabelCandidates:editLabels.length,nearbyEditLabels:nearEditLabels.length,matchedControls:editUnique.length,
         seatLinkCandidates:seatUnique.length,seatCodeCount:sectionFacts.seatCodes,
         seatColumnLabels:sectionFacts.seatColumnLabels,editorAria:sectionFacts.editorAria,
         interactiveElements:sectionFacts.interactiveElements,

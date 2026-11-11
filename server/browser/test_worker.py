@@ -420,6 +420,25 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(report['seatLinkCandidates'],0,report)
   self.assertGreaterEqual(report['seatCodeCount'],1,report)
   self.assertIsNone(find_seat_change_control(self.page))
+ def test_editor_grid_columns_with_long_card_and_nested_labels(self):
+  # The live WESTbahn card has a tall amenities/offer column and the edit
+  # action in a separate grid column, so its common ancestor is not a header.
+  html="""<main><section style="display:grid;grid-template-columns:300px 140px;width:440px">
+   <div><strong>Sitzplatzreservierung</strong><p>Wagen 9 Platz 208A</p><p>""" + ("Sitzplatzdetails und Ausstattung " * 19) + """</p></div>
+   <div><button aria-label="Sitzplatz ändern" onclick="window.edited=(window.edited||0)+1"><span>Ändern</span></button></div>
+   </section><aside><button>Ändern</button><h2>Meine Auswahl</h2><button>In den Warenkorb</button></aside></main>"""
+  self.page.set_content(html)
+  result=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(result['selectedMode'],'change',result)
+  self.assertGreaterEqual(result['changeLabelCount'],2)
+  self.assertEqual(result['matchedControls'],1,result)
+  find_seat_change_control(self.page).click()
+  self.assertEqual(self.page.evaluate('window.edited'),1)
+ def test_editor_does_not_choose_other_change_links_on_the_page(self):
+  self.page.set_content("""<main><section><strong>Sitzplatzreservierung</strong><p>Wagen 9 Platz 208A</p></section><aside><button>Ändern</button><button>Ändern</button><h2>Meine Auswahl</h2></aside></main>""")
+  diag=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(diag['matchedControls'],0,diag)
+  self.assertIsNone(find_seat_change_control(self.page))
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):

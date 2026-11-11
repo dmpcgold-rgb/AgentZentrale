@@ -79,3 +79,6 @@ Unerwartete Playwright-/JavaScript-Fehler während `a` und `b` werden nicht mehr
 
 ## Korrigierter JavaScript-Syntaxfehler
 Der GitHub-Browser-Test zeigte `Page.evaluate: SyntaxError: Unexpected token ')'` im Editor-Suchskript. Eine überzählige schließende Klammer in der `leafSeats`-Filterbedingung wurde entfernt. Ein neuer automatisierter Node.js-Syntaxcheck prüft das eingebettete Playwright-JavaScript vor dem Einsatz am Server. Die Sitzplatz- und Kauf-Sicherheitsregeln bleiben unverändert.
+
+### Korrektur: Raster-Spalten bei „Ändern“
+Die echte DOM-Diagnose zeigte 1 Sitzplatzüberschrift und 3 Beschriftungstreffer für „Ändern“, aber 0 zugeordnete Controls. Daher entfernt die Erkennung jetzt doppelte verschachtelte Texttreffer und berücksichtigt die tatsächliche Position innerhalb derselben Bildschirmzeile. Das frühere starre Limit für die Höhe bzw. Textlänge des gemeinsamen Containers wurde durch begrenzte Container- und Positionsprüfungen ersetzt. Weiterhin darf niemals ein allgemeines „Ändern“ außerhalb des Sitzplatzbereichs gewählt werden. Zusätzliche Tests decken getrennte Rasterspalten und andere „Ändern“-Knöpfe ab.
