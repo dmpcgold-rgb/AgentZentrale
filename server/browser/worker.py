@@ -690,6 +690,7 @@ def account_inventory(context, requested_page=None, max_pages=10):
                     # Keep stronger positive evidence seen on either official domain.
                     merged[key]['bookingReference']=merged[key].get('bookingReference') is True or row.get('bookingReference') is True
                     merged[key]['ticketReference']=merged[key].get('ticketReference') is True or row.get('ticketReference') is True
+                    merged[key]['ticketCode']=merged[key].get('ticketCode') is True or row.get('ticketCode') is True
                     if merged[key].get('fullDate') is None and row.get('fullDate'):
                         merged[key]['fullDate']=row['fullDate']
                     elif merged[key].get('fullDate') and row.get('fullDate') and merged[key]['fullDate']!=row['fullDate']:
