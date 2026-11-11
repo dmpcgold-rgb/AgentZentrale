@@ -1,4 +1,4 @@
-export const RULES = Object.freeze({origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',departure:'18:22',class:'2+',ticket:'KlimaTicket Österreich',preferred:['233A','233D','191D','182A'],priceCents:0,timezone:'Europe/Vienna'});
+export const RULES = Object.freeze({origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',departure:'18:22',class:'2+',ticket:'KlimaTicket Österreich',productType:'seat_reservation',quantity:1,preferred:['233A','233D','191D','182A'],priceCents:0,timezone:'Europe/Vienna'});
 export const FIRST_UNRESERVED_DATE='2026-11-17';
 export const BOOKING_URL='https://westbahn.at/reservierung/sitzplatz-upgrade/';
 export function viennaClock(at=new Date()) {
@@ -17,5 +17,5 @@ export function chooseSeat(seats) {
  const rank=s=>{const p=RULES.preferred.indexOf(s.id);return p>=0?p:s.id.startsWith('193')?4:s.layout==='opposite-table'?5:6;};
  return [...valid].sort((a,b)=>rank(a)-rank(b)||a.id.localeCompare(b.id))[0]||null;
 }
-export function validateQuote(q,date,seat){return !!q&&q.date===date&&q.origin===RULES.origin&&q.destination===RULES.destination&&q.departure===RULES.departure&&q.class===RULES.class&&q.ticket===RULES.ticket&&q.currency==='EUR'&&q.totalCents===0&&q.seat===seat&&typeof q.quoteId==='string'&&q.quoteId.length>0;}
-export function confirmedReceipt(r,date,seat){return !!r&&r.confirmed===true&&typeof r.bookingId==='string'&&r.bookingId.trim().length>0&&r.date===date&&r.origin===RULES.origin&&r.destination===RULES.destination&&r.departure===RULES.departure&&r.class===RULES.class&&r.ticket===RULES.ticket&&typeof seat==='string'&&/^\d{3}[A-Z]$/.test(seat)&&r.seat===seat&&r.totalCents===0&&r.currency==='EUR';}
+export function validateQuote(q,date,seat){return !!q&&q.date===date&&q.origin===RULES.origin&&q.destination===RULES.destination&&q.departure===RULES.departure&&q.class===RULES.class&&q.ticket===RULES.ticket&&q.productType===RULES.productType&&q.quantity===RULES.quantity&&q.currency==='EUR'&&q.totalCents===0&&q.seat===seat&&typeof q.quoteId==='string'&&q.quoteId.length>0;}
+export function confirmedReceipt(r,date,seat){return !!r&&r.confirmed===true&&typeof r.bookingId==='string'&&r.bookingId.trim().length>0&&r.date===date&&r.origin===RULES.origin&&r.destination===RULES.destination&&r.departure===RULES.departure&&r.class===RULES.class&&r.ticket===RULES.ticket&&r.productType===RULES.productType&&r.quantity===RULES.quantity&&typeof seat==='string'&&/^\d{3}[A-Z]$/.test(seat)&&r.seat===seat&&r.totalCents===0&&r.currency==='EUR';}
