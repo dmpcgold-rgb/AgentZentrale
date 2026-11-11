@@ -139,7 +139,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
                 const snapshot=westbahn.recordVerifiedExisting(item.date,item.seats[0]);
                 const row=snapshot?.rows?.find(x=>x.date===item.date);
                 if(row?.seat===item.seats[0] &&
-                   ['existing_verified','confirmed','booking','uncertain'].includes(row.status))
+                   ['existing_verified','confirmed'].includes(row.status))
                   ledgerProtectedDates.push(item.date);
                 else ledgerReviewDates.push(item.date);
               }catch{
