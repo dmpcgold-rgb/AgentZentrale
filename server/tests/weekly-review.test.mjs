@@ -96,13 +96,16 @@ test('not Monday or before 07:00 never starts a browser review',async()=>{
  assert.equal(seen.length,0);
 });
 
-test('disabled weekly checks never run; manual run also blocked',async()=>{
+test('disabled Monday timer never runs, but explicitly requested read-only review works',async()=>{
  const seen=[];
  const review=createWeeklyReview({browser:fakeBrowser(batch(),seen),
   westbahn:createWestbahn({now}),now,enabled:false});
  assert.equal(await review.tick(),false);
- await assert.rejects(review.run(),/nicht aktiviert/);
  assert.equal(seen.length,0);
+ const manual=await review.run();
+ assert.equal(manual.status,'inventory_batch_read');
+ assert.equal(seen.length,1);
+ assert.equal(review.status().enabled,false);
 });
 
 test('failed account read is logged as uncertain and never buys',async()=>{
