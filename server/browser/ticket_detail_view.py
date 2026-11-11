@@ -260,7 +260,7 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
                             kind='anchor' if tag=='a' else 'button' if tag=='button' else 'custom_control'
                             control_kinds[kind]=control_kinds.get(kind,0)+1
                             fingerprint=route_signature(page.url,href,tag)
-                            template=(kind,reason,fingerprint['route'],fingerprint['query'])
+                            template=(kind,reason,fingerprint['route'],fingerprint['query'],fingerprint.get('ticketRouteShape','not_applicable'))
                             route_templates[template]=route_templates.get(template,0)+1
                 reports.append('account_read')
             except Exception:
@@ -281,7 +281,8 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
                 'otherDetailControls':suspicious,
                 'rejectionReasons':rejection_reasons,'controlKinds':control_kinds,
                 'candidatePathPatterns':[
-                    {'kind':key[0],'reason':key[1],'route':key[2],'query':key[3],'count':n}
+                    {'kind':key[0],'reason':key[1],'route':key[2],'query':key[3],
+                     'ticketRouteShape':key[4],'count':n}
                     for key,n in sorted(route_templates.items())[:12]],
                 'accountPagesRead':reports,
                 'message':'Passende Karte vorhanden; kein eindeutig lesbarer Detail-Link. Kein Klick auf andere Bedienelemente.'}
