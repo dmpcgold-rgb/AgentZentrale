@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createWestbahn} from '../westbahn.mjs';
@@ -279,4 +279,33 @@ test('the scheduled review saves only sanitized coverage, never private provider
  assert.equal(serialized.includes('SHOULD_NOT_PERSIST'),false);
  assert.equal(output.inventoryComplete,false);
  assert.equal(output.bookingAuthorized,false);
+});
+
+
+test('crash-recovered in-flight read respects previously persisted cooldown',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'wb-claimed-recovery-'));
+ try{
+  const file=join(dir,'review.json');
+  writeFileSync(file,JSON.stringify({
+   lastSchedule:'2026-11-16',lastSuccessWeek:null,attemptsThisWeek:1,
+   nextRetryAt:'2026-11-16T06:30:00.000Z',
+   lastRun:{startedAt:'2026-11-16T06:00:00.000Z',status:'running'}
+  }));
+  let clock=new Date('2026-11-16T06:15:00Z'),attempts=0;
+  const now=()=>clock,ledger=createWestbahn({now});
+  const review=createWeeklyReview({file,now,westbahn:ledger,
+    browser:{async run(mode,day,seat,days){
+      attempts++;
+      return {status:'inventory_batch_read',accountPageReads:4,
+       inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+       days:days.map(x=>item(x))};
+    }}
+  });
+  assert.equal(await review.tick(),false);
+  assert.equal(attempts,0);
+  clock=new Date('2026-11-16T06:30:00Z');
+  assert.equal(await review.tick(),true);
+  assert.equal(attempts,1);
+  assert.equal(review.status().lastSuccessWeek,'2026-11-16');
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });
