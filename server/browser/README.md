@@ -128,3 +128,19 @@ Die neue Bestandsprüfung ist fail-closed. Sie dient als Voraussetzung für eine
 ## Visuelle Sitzplatz-Ändern-Erkennung (11.11.2026)
 
 Falls die WESTbahn-Oberfläche den Sitzplatz-Link in einer anderen DOM-Spalte als die Überschrift platziert und beide zusammen mit dem Warenkorb unter demselben Layout-Container liegen, verwendet der Agent einen zusätzlichen, **eng begrenzten visuellen** Fallback. Er verlangt eine sichtbare Sitzplatzüberschrift, eine zugehörige Wagen-/Platz-Zusammenfassung sowie genau ein an derselben Bildschirmzeile ausgerichtetes klickbares „Ändern“-Element. Das weiter oben liegende „Bearbeiten“ der Reisedaten und beliebige Warenkorb-Buttons dürfen nicht gewählt werden. Bei mehreren oder fehlenden Treffern wird abgebrochen. Tests für eine gemischte Grid-Zeile und ein fehlendes Sitzplatzfeld sind ergänzt. Der echte WESTbahn-Live-Test dieser verbesserten Erkennung steht noch aus.
+
+
+## Datumsprüfung und App-Status (11. November 2026)
+
+Die Kontokarte im echten Test für 17.11.2026 / 191D wurde als `existing_ticket_visible` erkannt, aber ohne ausdrückliche Jahresangabe (`dateFullyVerified:false`). Das ist korrekt und kein Beleg eines vollständigen Buchungsbestands. Die Bestandsprüfung kann jetzt zusätzlich ein explizites Reisedatum im Format TT.MM.JJJJ aus eindeutig benannten Feldern „Fahrtdatum“, „Reisedatum“ oder „Abfahrt“ derselben sichtbaren Ticketkarte lesen. Andere Datumsangaben wie „Kaufdatum“ dürfen **nicht** als Reisedatum interpretiert werden. Bei mehreren unterschiedlichen vollständigen Reisedaten wird keine eindeutige Jahresbestätigung angenommen.
+
+Der Android-WESTbahn-Bildschirm kennzeichnet `user_reported` als **„Bereits gebucht (gemeldet)“**; dieser Schutzstatus wird nicht als offizielle Buchungsbestätigung ausgegeben. Ein neuer Android-Build ist separat erforderlich, um die Anzeige in einer installierten APK zu sehen.
+
+Zum Prüfen der Änderungen im aktualisierten Container:
+
+```bash
+cd /app/server/browser
+python -m unittest test_booking_evidence.py test_checkout_guard.py
+```
+
+Es erfolgen keine Buchungen, keine Warenkorbänderungen und keine automatischen Käufe. `safeToBook` bleibt bei der Bestandsprüfung absichtlich `false`, solange ein vollständiger Anbieterabgleich fehlt.
