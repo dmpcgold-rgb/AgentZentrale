@@ -289,9 +289,10 @@ class BrowserTests(unittest.TestCase):
   self.page.locator('p').last.evaluate("(e)=>e.textContent='€ 7,90'")
   self.assertFalse(seat_modal_state(self.page)['detailComfort'])
  def test_detail_summary_requires_zero_and_correct_seat(self):
-  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html',body='<section><h2>Meine Auswahl</h2><p>Menge Produkt Summe</p><p>1 Reservierung Comfort Class € 0,00</p><p>Wien Meidling - Wiener Neustadt</p><p>1009 Sitzplätze: 182A</p><p>17.11.2026, 18:22–18:49</p><p>€ 0,00</p><button>In den Warenkorb</button></section>'))
+  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body='<section><h2>Meine Auswahl</h2><p>Menge Produkt Summe</p><p>1 Reservierung Comfort Class € 0,00</p><p>Wien Meidling - Wiener Neustadt</p><p>1009 Sitzplätze: 182A</p><p>17.11.2026, 18:22–18:49</p><p>€ 0,00</p><button>In den Warenkorb</button></section>'))
   self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
-  self.assertTrue(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
+  summary=detail_selection_summary(self.page,'2026-11-17','182A')
+  self.assertTrue(summary['verified'],summary)
   self.assertFalse(detail_selection_summary(self.page,'2026-11-17','191D')['verified'])
   self.page.locator('p').last.evaluate("(e)=>e.textContent='€ 7,90'")
   self.assertFalse(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
