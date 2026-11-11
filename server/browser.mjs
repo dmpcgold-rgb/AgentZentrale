@@ -52,7 +52,7 @@ export function sanitizeTicketAudit(raw,mode,date,seat=null){
 export function sanitizeBatchInventory(raw,requestedDates){
  const base={status:'review_required',inventoryComplete:false,safeToBook:false,
              bookingAuthorized:false,accountPageReads:0,days:requestedDates.map(date=>({
-                date,status:'review_required',seats:[],dateVerified:false,
+                date,status:'review_required',seats:[],dateVerified:false,detailVerified:false,
                 potentialDuplicate:false,safeToBook:false
              }))};
  if(raw?.status!=='inventory_batch_read'||raw.inventoryComplete!==false||
@@ -63,16 +63,18 @@ export function sanitizeBatchInventory(raw,requestedDates){
  for(let i=0;i<requestedDates.length;i++){
   const item=raw.days[i];
   if(!item||item.date!==requestedDates[i]||
-     !['visible_year_verified','possible_existing','review_required'].includes(item.status)||
+     !['detail_verified','visible_year_verified','possible_existing','review_required'].includes(item.status)||
      item.safeToBook!==false||typeof item.dateVerified!=='boolean'||
+     typeof item.detailVerified!=='boolean'||
      typeof item.potentialDuplicate!=='boolean'||!Array.isArray(item.seats)||
      item.seats.length>12||item.seats.some(s=>typeof s!=='string'||!SEAT.test(s)))return base;
-  if((item.status==='visible_year_verified'&&(!item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
-     (item.status==='possible_existing'&&(item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
-     (item.status==='review_required'&&(item.dateVerified||item.potentialDuplicate||item.seats.length)))return base;
+  if((item.status==='detail_verified'&&(!item.detailVerified||!item.dateVerified||!item.potentialDuplicate||item.seats.length!==1))||
+     (item.status==='visible_year_verified'&&(item.detailVerified||!item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
+     (item.status==='possible_existing'&&(item.detailVerified||item.dateVerified||!item.potentialDuplicate||!item.seats.length))||
+     (item.status==='review_required'&&(item.detailVerified||item.dateVerified||item.potentialDuplicate||item.seats.length)))return base;
   days.push({date:item.date,status:item.status,seats:[...new Set(item.seats)].sort(),
-             dateVerified:item.dateVerified,potentialDuplicate:item.potentialDuplicate,
-             safeToBook:false});
+             dateVerified:item.dateVerified,detailVerified:item.detailVerified,
+             potentialDuplicate:item.potentialDuplicate,safeToBook:false});
  }
  return {status:'inventory_batch_read',inventoryComplete:false,safeToBook:false,
          bookingAuthorized:false,accountPageReads:Math.min(20,raw.accountPageReads),days};
