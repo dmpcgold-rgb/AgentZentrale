@@ -216,3 +216,15 @@ Nach Update: `python -m unittest test_detail_route_diagnostics.py test_ticket_de
 Die anonyme Echtprüfung meldete für die vorhandene Ticketkarte `ticketRouteShape: "8-11|4-7;token_ascii"` und einen Link der Struktur `/ticketshop/dashboard/ticket/[opaque]/[opaque]`. Deshalb akzeptiert die bestehende **rein lesende** Ticketdetailprüfung jetzt ausschließlich **8–11** Zeichen im ersten und **4–7** Zeichen im zweiten Pfadbestandteil, jeweils ASCII-Buchstaben/Ziffern/Bindestrich/Unterstrich. Bisherige simulierte 12+-Zeichen-IDs wurden als ungültige Testannahme korrigiert. Tests prüfen die neuen Grenzwerte sowie weiterhin nicht erlaubte längere/kürzere IDs, gefährliche Aktionsnamen, fremde Hosts, Query-Strings und Fragmente. Nur die eindeutig als „Details“ bzw. als reine Ticketansicht bezeichnete URL aus der passenden existierenden Kontokarte darf per GET geöffnet werden; der Browser blockiert schreibende Anfragen.
 
 Die Live-Verifikation dieser aktualisierten Regeln steht noch aus. Der Modus kann niemals eine Bestellung auslösen oder `safeToBook` oder `confirmationVerified` auf `true` setzen. Bei Unklarheiten bleibt die Aktion gesperrt.
+
+
+## Unterscheidung der Rest-Sperre im echten Kontotest (11.11.2026)
+
+Der Live-Test mit den jetzt passenden URL-Längen (8–11 / 4–7 Zeichen) ergab `non_readonly_ticket_route`. Das heißt: Der Link hat die erwartete URL-Form, scheitert jedoch an einer zusätzlichen Sicherheitsregel. Die Diagnose wurde präzisiert, ohne einzelne Ticket-URLs oder Kennungen auszugeben:
+
+- `ticket_view_caption_not_allowlisted`: angezeigte Beschriftung enthält einen Detail-Hinweis, stimmt aber nicht exakt mit einer freigegebenen reinen Ansicht überein
+- `ticket_view_token_safety_filter`: mindestens eine Kennung enthält eine Zeichenfolge, die der Schutzfilter als Verwaltungs-/Kaufbegriff einstuft; auch zufällige Übereinstimmungen sind möglich
+- `ticket_view_query_not_allowed`: die beobachtete reine Ticketdetail-Route enthält unerwartete Abfrageparameter
+- `ticket_view_other_policy_block`: eine andere Regel verweigert den Link
+
+**Diese Änderung schaltet keine neuen Links oder Kaufaktionen frei.** Sie benennt nur die Blockadeursache und ist daher auch bei unerwarteten Anbieterdaten sicher. Die bestehenden `safeToBook:false`, `bookingAuthorized:false` und `confirmationVerified:false` bleiben unverändert. Im nächsten Echtlauf ist nur `rejectionReasons` nötig, um den nächsten sicheren Schritt zu bestimmen.
