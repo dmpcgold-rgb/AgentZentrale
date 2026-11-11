@@ -92,7 +92,7 @@ def matching_card(card, day, seat):
 
 def read_detail(page, url, day, seat):
     """Navigate once via GET and return sanitized evidence only."""
-    if not safe_detail_url(page.url,url,'Details'):
+    if not safe_detail_url(url,url,'Details'):
         return {'detailStatus':'blocked_target','yearVerified':False}
     try:
         response=page.goto(url,wait_until='domcontentloaded',timeout=20000)
