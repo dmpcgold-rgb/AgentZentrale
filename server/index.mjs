@@ -113,6 +113,26 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
       }
+      // Uses a disposable profile with the network disabled BEFORE the
+      // Comfort interaction. No seat selection, checkout or live availability.
+      if(is('POST','/westbahn/browser/seat-preview')){
+        const body=await readJson(req);
+        const date=body?.date;
+        if(typeof date!=='string'||!planDates(new Date(now())).includes(date))
+          throw new ApiError(400,'Reisedatum außerhalb des erlaubten Pendelplans.');
+        const rows=westbahn.status()?.rows||[];
+        if(rows.some(x=>x.date===date))
+          return write(res,200,{date,status:'existing_ledger_entry',
+            bookingAuthorized:false,liveAvailabilityVerified:false,
+            seatSelectionConfirmed:false,canPurchase:false});
+        try {
+          return write(res,200,await browser.run('seat-preview',date));
+        }catch {
+          return write(res,200,{date,status:'review_required',
+            bookingAuthorized:false,liveAvailabilityVerified:false,
+            seatSelectionConfirmed:false,canPurchase:false});
+        }
+      }
       // A single-trip public preview never authorizes booking. An existing
       // ledger row blocks even the public search to avoid redundant actions.
       if(is('POST','/westbahn/browser/preview-trip')){
