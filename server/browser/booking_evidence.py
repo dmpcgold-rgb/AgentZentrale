@@ -28,7 +28,17 @@ def assess_existing_ticket(rows, requested_day, expected_seat=None):
         if not hit or (hit.group(1) and hit.group(1)!=str(day.year)): continue
         seat=(row.get('seat') or '').replace(' ','').upper()
         if not re.fullmatch(r'[0-9]{3}[A-D]',seat): continue
-        matches.append({'seat':seat, 'yearExplicit':bool(hit.group(1)),
+        # A real four-digit date from this ticket card can resolve a
+        # yearless weekday label. Never infer the year from the current date.
+        explicit=row.get('fullDate')
+        if explicit is not None:
+            if not isinstance(explicit,str): continue
+            try:
+                exact=date.fromisoformat(explicit).isoformat()
+            except ValueError:
+                continue
+            if exact!=day.isoformat(): continue
+        matches.append({'seat':seat, 'yearExplicit':bool(hit.group(1) or explicit),
                         'expectedSeat':expected_seat is None or expected_seat==seat})
     if not matches:
         return {'status':'not_seen_in_incomplete_account','safeToBook':False,'matches':[],
