@@ -248,3 +248,16 @@ Tests nach Docker-Build: `python -m unittest test_ticket_content_diagnostics.py 
 Reine Echtprüfung: `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`.
 
 Auch wenn `pageKind:ticket_content_present` erscheint, darf erst eine eindeutige Verbindung zwischen Fahrtdatum, Sitzplatz, Strecke, Produkt und Buchungsnachweis als zusätzliche Evidenz betrachtet werden. **`confirmationVerified:false`, `bookingAuthorized:false`, `safeToBook:false`, `inventoryComplete:false`** bleiben gesetzt. Kein automatischer Kauf.
+
+
+## Sicherheitsprüfung des Bestellabschlusses (11.11.2026)
+
+Die serverseitige Buchungssteuerung in `server/westbahn.mjs` prüft jetzt **vor einem Checkout**, dass ein künftig angeschlossener Anbieteradapter die Anmeldung und einen **vollständigen** Buchungsbestandsabgleich explizit bestätigt (`accountVerified:true`, `inventoryComplete:true`, `status:'none'`). Eine bloß leere oder unvollständige Liste ist kein Nachweis, dass noch kein Ticket existiert.
+
+Ein bereits gekauftes Ticket darf der Anbieteradapter über `status:'confirmed'` melden, aber nur mit authentifizierter Anbieter-Kontoevidenz (`receiptSource:'provider_account'`), vollständigem Abgleich und einem exakt passenden Receipt (Datum, Strecke, Abfahrt, Comfort 2+, KlimaTicket, Sitzplatz, 0 Euro, Buchungsnummer). Ein bereits belegter Sitzplatz muss nicht nochmals als `available` gelten; bestehende Tickets werden so auch nach dem Kauf korrekt erkannt.
+
+**Nach einer künftig autorisierten 0-Euro-Buchung** muss der Adapter zusätzlich das Anbieter-Konto erneut und unabhängig von seiner `book()`-Antwort lesen. Erst ein **identischer** Buchungsbeleg mit derselben Buchungs-ID und allen Reisedaten darf als `confirmed` gespeichert werden. Ein Erfolgsbanner oder eine Cart-Summe von 0 Euro genügt nicht. Bei fehlender, anderer oder nicht erreichbarer Bestätigung wird die Fahrt **`uncertain`** und darf nie automatisch wiederholt werden – auch nicht nach einem Neustart. Der vorhandene persistente Buchungsstatus wird vor dem ersten tatsächlichen Kaufversuch geschrieben. Bereits als `user_reported` geschützte Buchungen, insbesondere **17.11.2026 / 191D**, bleiben unverändert.
+
+Beim Docker-Build wird nun automatisch `node --test server/tests/westbahn.test.mjs` ausgeführt. Ein fehlgeschlagener Test lässt den Build scheitern, bevor der neue Container ersetzt wird. Zusätzlich kann im Container mit `node --test /app/server/tests/westbahn.test.mjs` geprüft werden. Die Browser-Evidenztests werden weiterhin gesondert über Python ausgeführt.
+
+**Noch keine Live-Buchung:** Im Repository ist kein verifizierter Provider-Adapter installiert. Die vorhandenen Konto-Leseprüfungen sind nicht mit dem zahlungspflichtigen Bestellbutton verbunden. Es wird durch diese Änderung **kein** Kauf ausgelöst, und die wöchentliche Vollautomatik bleibt deaktiviert.
