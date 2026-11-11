@@ -21,5 +21,5 @@ def exact_reference_match(ticket_text, expected):
         return False
     if not REFERENCE_FORMAT.fullmatch(expected):
         return False
-    refs={m.group(1).upper() for m in REFERENCE_FIELD.finditer(ticket_text)}
-    return len(refs)==1 and next(iter(refs))==expected.upper()
+    refs={m.group(1) for m in REFERENCE_FIELD.finditer(ticket_text)}
+    return len(refs)==1 and next(iter(refs))==expected
