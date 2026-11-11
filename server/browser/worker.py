@@ -660,23 +660,29 @@ def account_inventory(context, requested_page=None, max_pages=10):
     for domain in ('westbahn.at','westbahn.de'):
         pending=[requested_page] if requested_page is not None else [1,2]
         seen=set()
+        retries=set()
         while pending and len(seen)<max_pages:
             number=pending.pop(0)
             if number in seen: continue
-            seen.add(number)
             page=context.new_page()
             try:
                 target=f'https://{domain}/ticketshop/dashboard/tickets?page={number}&mode=valid'
                 response=page.goto(target,wait_until='domcontentloaded',timeout=20000)
                 if response is None or response.status>=400:
                     reports.append({'domain':domain,'page':number,'status':'http_error','http':response.status if response else None})
-                    break
+                    if number not in retries:
+                        retries.add(number)
+                        pending.insert(0,number)
+                    else:
+                        seen.add(number)
+                    continue
                 result=account_summary(page)
                 final_domain=urlsplit(page.url).hostname
                 final_page=parse_qs(urlsplit(page.url).query).get('page',['1'])[0]
                 if final_domain!=domain or final_page!=str(number):
                     reports.append({'domain':domain,'page':number,'status':'unexpected_redirect'})
                     break
+                seen.add(number)
                 reports.append({'domain':domain,'page':number,'status':'account_verified',
                                 'comfortCards':result['visibleComfortCards'],
                                 'matchingCards':len(result['matchingVisibleCards'])})
@@ -709,13 +715,22 @@ def account_inventory(context, requested_page=None, max_pages=10):
                     pending.extend(n for n in links if n not in seen and n not in pending)
             except Blocked:
                 reports.append({'domain':domain,'page':number,'status':'account_not_verified'})
+                seen.add(number)
                 break
             except PWTimeout:
                 reports.append({'domain':domain,'page':number,'status':'timeout'})
-                break
+                if number not in retries:
+                    retries.add(number)
+                    pending.insert(0,number)
+                else:
+                    seen.add(number)
             except Exception:
                 reports.append({'domain':domain,'page':number,'status':'unavailable'})
-                break
+                if number not in retries:
+                    retries.add(number)
+                    pending.insert(0,number)
+                else:
+                    seen.add(number)
             finally:
                 page.close()
     rows=list(merged.values())
