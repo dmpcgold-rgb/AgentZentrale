@@ -11,6 +11,7 @@ from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 from confirmation_evidence import reference_indicators
 from detail_route_diagnostics import route_signature
 from ticket_content_diagnostics import categorize_detail_text
+from booking_reference_match import exact_reference_match
 
 ROUTE=re.compile(
     r'^/ticketshop/dashboard/(?:tickets?|reservations?)/(?:'
@@ -182,7 +183,7 @@ def matching_card(card, day, seat):
     return check['status']=='existing_ticket_visible' and any(m['expectedSeat'] for m in check['matches'])
 
 
-def read_detail(page, url, day, seat):
+def read_detail(page, url, day, seat, expected_booking_id=None):
     """Navigate once via GET and return sanitized evidence only."""
     if not safe_detail_url(url,url,'Details'):
         return {'detailStatus':'blocked_target','yearVerified':False}
@@ -240,7 +241,12 @@ def read_detail(page, url, day, seat):
         product='Reservierung Comfort Class' in text
         year_verified=exact==day and seats=={seat} and journey and product
         refs=reference_indicators(text)
+        booking_id_checked=expected_booking_id is not None
+        booking_id_matches=(year_verified and
+            exact_reference_match(text,expected_booking_id)) if booking_id_checked else False
         return {'detailStatus':'detail_read','yearVerified':year_verified,
+                'bookingReferenceChecked':booking_id_checked,
+                'bookingReferenceMatched':booking_id_matches,
                 'seatMatched':seats=={seat},'tripMatched':journey and product,
                 'referenceVisible':any(refs.values()),'dateExplicit':exact is not None,
                 'contentDiagnostics':diagnostic}
@@ -248,7 +254,7 @@ def read_detail(page, url, day, seat):
         return {'detailStatus':'detail_unavailable','yearVerified':False}
 
 
-def inspect_existing_ticket_details(context, day, seat, max_pages=2):
+def inspect_existing_ticket_details(context, day, seat, max_pages=2, expected_booking_id=None):
     """Search read-only account pages; open at most one safe detail GET."""
     blocked={'status':'ticket_detail_check','bookingAuthorized':False,'confirmationVerified':False,
              'inventoryComplete':False,'safeToBook':False,'date':day,'seat':seat}
@@ -345,7 +351,7 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
     url=next(iter(candidates))
     page=context.new_page()
     try:
-        details=read_detail(page,url,day,seat)
+        details=read_detail(page,url,day,seat,expected_booking_id)
     finally:
         page.close()
     return {**blocked,**details,'matchingCards':matched,'safeDetailLinks':1,
