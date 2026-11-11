@@ -17,6 +17,19 @@ class BookingEvidenceTests(unittest.TestCase):
         self.assertFalse(x['matches'][0]['expectedSeat'])
         self.assertFalse(x['safeToBook'])
 
+    def test_explicit_trip_date_resolves_yearless_label(self):
+        rows=[{'dateLabel':'DI 17 NOV','seat':'191D','fullDate':'2026-11-17'}]
+        evidence=assess_existing_ticket(rows,'2026-11-17','191D')
+        self.assertEqual(evidence['status'],'existing_ticket_visible')
+        self.assertTrue(evidence['dateFullyVerified'])
+        self.assertFalse(evidence['safeToBook'])
+
+    def test_wrong_explicit_year_never_matches(self):
+        rows=[{'dateLabel':'DI 17 NOV','seat':'191D','fullDate':'2025-11-17'}]
+        evidence=assess_existing_ticket(rows,'2026-11-17','191D')
+        self.assertEqual(evidence['status'],'not_seen_in_incomplete_account')
+        self.assertFalse(evidence['safeToBook'])
+
     def test_unseen_never_allows_checkout(self):
         for rows in ([],[{'dateLabel':'DI 17 NOV','seat':'bad'}],
                      [{'dateLabel':'MO 16 NOV 2026','seat':'191D'}],
