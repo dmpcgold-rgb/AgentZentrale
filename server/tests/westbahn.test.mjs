@@ -133,6 +133,45 @@ test('user-reported existing reservation persists and prevents any checkout for 
   assert.equal(restarted.status().confirmedThrough,null);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+test('observed existing ticket remains protected after restart and no extra purchase',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'az-observed-ticket-'));
+ try{
+  const file=join(dir,'ledger.json'),p=provider();
+  const a=createWestbahn({now,adapter:p,file});
+  a.recordVerifiedExisting(day,'191D');
+  assert.equal(a.status().rows.find(x=>x.date===day).status,'existing_verified');
+  await a.run();
+  assert.equal(p.count,0);
+  const b=createWestbahn({now,adapter:p,file});
+  assert.equal(b.status().rows.find(x=>x.date===day).status,'existing_verified');
+  await b.run();
+  assert.equal(p.count,0);
+  assert.equal(b.status().confirmedThrough,null,'existing tickets are not new checkout confirmations');
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('verified observation upgrades a matching user-report but never overwrites conflicts',()=>{
+ const a=createWestbahn({now});
+ a.recordUserReported(day,'191D');
+ a.recordVerifiedExisting(day,'191D');
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'existing_verified');
+ assert.doesNotThrow(()=>a.recordVerifiedExisting(day,'191D'));
+ assert.throws(()=>a.recordVerifiedExisting(day,'233A'));
+ assert.throws(()=>a.recordVerifiedExisting('2026-11-33','191D'));
+ assert.throws(()=>a.recordVerifiedExisting(day,'unknown'));
+});
+
+test('existing verified records never weaken checkout uncertainty or confirmed ledger',async()=>{
+ const p=provider({fail:true}),a=createWestbahn({now,adapter:p});
+ await a.run();
+ const before=a.status().rows.find(x=>x.date===day);
+ assert.equal(before.status,'uncertain');
+ a.recordVerifiedExisting(day,'233A');
+ const after=a.status().rows.find(x=>x.date===day);
+ assert.equal(after.status,'uncertain');
+ assert.equal(p.count,1);
+});
+
 test('reported booking validation rejects corrupt input and conflicting updates',()=>{
  const a=createWestbahn({now});
  assert.throws(()=>a.recordUserReported('2026-02-30','191D'));
