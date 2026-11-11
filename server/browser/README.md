@@ -303,3 +303,14 @@ Nach dem Sammeln der sichtbaren Konto-Karten kann `inventory-batch` nun bis zu *
 Die Android-Anzeige unterscheidet nun `detail_verified` („Ticketdetails vollständig geprüft“) von `possible_existing` und `review_required`. Dieser positive Nachweis betrifft nur **bereits vorhandene** Tickets und bestätigt **keinen** neu ausgelösten Kauf. Der Sammelcheck setzt **keine** Buchungssperre im Ledger und autorisiert keine Neubuchung; die separate `audit-ticket`-Aktion bleibt hierfür zuständig. Auch nach einem `detail_verified` im Sammelcheck gilt unverändert `inventoryComplete:false`, `safeToBook:false`, `bookingAuthorized:false`.
 
 Regressionsprüfungen sind in den bestehenden Docker-Build integriert: `test_inventory_batch.py` sowie `server/tests/browser_audit.test.mjs`. Die neuen synthetischen Tests für richtige und falsche Jahr-/Sitzplatz-/Referenz-Nachweise müssen auf dem Zielserver noch ausgeführt werden.
+
+
+## Positive Detailprüfung aus dem Sammelcheck im Doppelbuchungsprotokoll sichern
+
+Nach der erfolgreichen echten Sammelprüfung vom 11.11.2026 (`2026-11-17`, Sitzplatz `191D`, `detail_verified`, vier weitere Tage `review_required`) übernimmt die **authentifizierte** API `POST /westbahn/browser/audit-week` nun nur eindeutig positive `detail_verified`-Ergebnisse als geschützte, bestehende Reservierung in das persistente Buchungsprotokoll (`existing_verified`). Dafür müssen Datum, genau ein Sitzplatz, `detailVerified:true`, `dateVerified:true`, `potentialDuplicate:true` und alle gesperrten Buchungsmerkmale zusammenpassen. Die serverseitige Browser-Sanitizer-Funktion kontrolliert die Struktur, bevor der API-Endpunkt sie erhält.
+
+Die Antwort enthält `ledgerProtectedDates` für erfolgreich gesicherte bestehende Tickets und `ledgerReviewDates` für Konflikte. Bereits bestätigte Buchungen werden nicht überschrieben, `booking` und `uncertain` bleiben bestehen und **werden weiterhin als manuell zu prüfende Konflikte angezeigt**, statt durch die sichtbare Detailseite eine Checkout-Bestätigung zu suggerieren. Abweichende Sitzplätze lösen keinen automatischen Austausch aus. Tage mit `possible_existing`, `visible_year_verified` oder `review_required` werden nie als verifiziert gespeichert.
+
+**Wichtig:** Der direkte Python-Terminalbefehl `worker.py inventory-batch` meldet nur die Beweise und schreibt **nicht** in die Node.js-Buchungsdatei. Der dauerhafte Schutz erfolgt nach einem Aufruf des autorisierten API-Endpunkts (beispielsweise mit der neuen Android-Schaltfläche). Die APK benötigt ein separates Release/Update.
+
+Das ist nur eine positive Bestandsprüfung. Keine Negativfreigabe: `inventoryComplete:false`, `safeToBook:false` und `bookingAuthorized:false` bleiben erhalten; es gibt weiterhin **keinen** produktiven WESTbahn-Buchungsadapter. Der Docker-Build testet die Absicherung und den Neustartschutz mit simulierten Account-/Ticketdaten.
