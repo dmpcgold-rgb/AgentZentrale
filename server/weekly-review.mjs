@@ -54,14 +54,24 @@ export function applyVerifiedBatch(batch,days,westbahn){
 export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
  file=null,enabled=true}={}){
  let running=false;
- let state={lastSchedule:null,lastRun:null};
+ let state={lastSchedule:null,lastRun:null,lastSuccessWeek:null,
+            attemptsThisWeek:0,nextRetryAt:null};
  if(file){
   try{
    const loaded=JSON.parse(readFileSync(file,'utf8'));
    if(loaded&&typeof loaded==='object'&&
       (loaded.lastSchedule===null||sameIso(loaded.lastSchedule))&&
       (!loaded.lastRun||typeof loaded.lastRun==='object')){
-    state={lastSchedule:loaded.lastSchedule,lastRun:loaded.lastRun??null};
+    state={lastSchedule:loaded.lastSchedule,lastRun:loaded.lastRun??null,
+      lastSuccessWeek:typeof loaded.lastSuccessWeek==='string'&&sameIso(loaded.lastSuccessWeek)
+        ?loaded.lastSuccessWeek
+        :loaded.lastSchedule && loaded.lastRun?.status==='inventory_batch_read'
+          ?loaded.lastSchedule:null,
+      attemptsThisWeek:Number.isInteger(loaded.attemptsThisWeek)&&
+       loaded.attemptsThisWeek>=0&&loaded.attemptsThisWeek<=2?loaded.attemptsThisWeek:0,
+      nextRetryAt:typeof loaded.nextRetryAt==='string'&&
+        !Number.isNaN(Date.parse(loaded.nextRetryAt))?loaded.nextRetryAt:null
+    };
    }
   }catch(e){if(e.code!=='ENOENT')throw e;}
  }
@@ -71,7 +81,8 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
   renameSync(file+'.tmp',file);
  }};
  const status=()=>({enabled,running,lastSchedule:state.lastSchedule,lastRun:state.lastRun,
-  purchaseEnabled:false,inventoryComplete:false});
+  lastSuccessWeek:state.lastSuccessWeek,attemptsThisWeek:state.attemptsThisWeek,
+  nextRetryAt:state.nextRetryAt,purchaseEnabled:false,inventoryComplete:false});
  async function run(){
   // A deliberate manual read is allowed even if Monday automation is disabled.
   if(running)throw Error('Sammelprüfung läuft bereits.');
@@ -99,13 +110,40 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
   }finally{running=false;}
  }
  async function tick(){
-   const c=viennaClock(now());
-   if(!enabled||running||c.weekday!=='Mon'||c.time<'07:00'||
-      state.lastSchedule===c.date)return false;
-   // Claim this Monday before opening an account session; never overlap
-   // repeated timer ticks or server restarts.
-   state.lastSchedule=c.date;save();
-   await run();return true;
+   const current=now(), c=viennaClock(current);
+   const weekday=['Mon','Tue','Wed','Thu','Fri'].indexOf(c.weekday);
+   // If the server was offline Monday, catch up once Tue-Fri from 07:00.
+   if(!enabled||running||weekday<0||c.time<'07:00')return false;
+   const monday=new Date(c.date+'T00:00:00Z');
+   monday.setUTCDate(monday.getUTCDate()-weekday);
+   const week=monday.toISOString().slice(0,10);
+   if(state.lastSchedule!==week){
+     state.lastSchedule=week;
+     state.attemptsThisWeek=0;
+     state.nextRetryAt=null;
+     save();
+   }
+   if(state.lastSuccessWeek===week || state.attemptsThisWeek>=2 ||
+      (state.nextRetryAt && current.getTime()<Date.parse(state.nextRetryAt)))return false;
+   // Persist the attempt before opening the provider browser: restart-safe.
+   state.attemptsThisWeek+=1;
+   state.nextRetryAt=null;
+   save();
+   try{
+     const result=await run();
+     if(result.status!=='inventory_batch_read')
+       throw Error('WESTbahn-Kontobestand konnte nicht geprüft werden. Keine Buchung.');
+     state.lastSuccessWeek=week;
+     state.nextRetryAt=null;
+     save();
+     return true;
+   }catch(e){
+     // One additional attempt after 30 minutes; no unbounded polling.
+     state.nextRetryAt=state.attemptsThisWeek<2
+       ?new Date(current.getTime()+30*60_000).toISOString():null;
+     save();
+     throw e;
+   }
  }
  return {run,tick,status};
 }
