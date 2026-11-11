@@ -43,7 +43,7 @@ export function applyVerifiedBatch(batch,days,westbahn){
  }
  return {
   status:'inventory_batch_read',days:audited.days,
-  accountPageReads:audited.accountPageReads,
+  accountPageReads:audited.accountPageReads,coverage:audited.coverage,
   inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
   ledgerProtectedDates:protectedDates,ledgerReviewDates:reviewDates
  };
@@ -96,14 +96,14 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
     state.lastRun={startedAt,finishedAt:now().toISOString(),status:result.status,
       days:result.days.map(x=>({date:x.date,status:x.status,seats:x.seats})),
       ledgerProtectedDates:result.ledgerProtectedDates,
-      ledgerReviewDates:result.ledgerReviewDates,
+      ledgerReviewDates:result.ledgerReviewDates,coverage:result.coverage||null,
       inventoryComplete:false,safeToBook:false,bookingAuthorized:false};
     save();
     return result;
   }catch{
     state.lastRun={startedAt,finishedAt:now().toISOString(),status:'review_failed',
       days:days.map(date=>({date,status:'review_required',seats:[]})),
-      ledgerProtectedDates:[],ledgerReviewDates:[],
+      ledgerProtectedDates:[],ledgerReviewDates:[],coverage:null,
       inventoryComplete:false,safeToBook:false,bookingAuthorized:false};
     save();
     throw Error('Sichere Bestandsprüfung nicht abgeschlossen. Keine Buchung.');
