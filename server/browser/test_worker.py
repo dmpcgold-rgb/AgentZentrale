@@ -303,6 +303,19 @@ class BrowserTests(unittest.TestCase):
   self.assertTrue(summary['verified'],summary)
   self.page.locator('section > span').evaluate("(e)=>e.textContent='€ 7,90'")
   self.assertFalse(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
+ def test_detail_summary_expands_sticky_footer_to_product_row(self):
+  html='<main><aside><h2>Sitzplatzreservierung</h2><p>€ 7,90 pro Person</p></aside><section><div><h2>Meine Auswahl</h2><p>€ 0,00</p><button>In den Warenkorb</button></div><div><p>1 Reservierung Comfort Class € 0,00</p><p>Wien Meidling – Wiener Neustadt</p><p>1009 Sitzplätze: 182A</p><p>17.11.2026, 18:22 – 18:49</p></div></section></main>'
+  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
+  summary=detail_selection_summary(self.page,'2026-11-17','182A')
+  self.assertTrue(summary['verified'],summary)
+  self.page.locator('section div p').nth(1).evaluate("(e)=>e.textContent='1 Reservierung Comfort Class € 7,90'")
+  self.assertFalse(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
+ def test_detail_summary_does_not_expand_into_paid_form(self):
+  html='<main><section><h2>Meine Auswahl</h2><p>€ 0,00</p><button>In den Warenkorb</button></section><aside><h2>Sitzplatzreservierung</h2><p>1 Reservierung Comfort Class € 0,00</p><p>Wien Meidling – Wiener Neustadt</p><p>1009 Sitzplätze: 182A</p><p>17.11.2026, 18:22 – 18:49</p></aside></main>'
+  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
+  self.assertFalse(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):

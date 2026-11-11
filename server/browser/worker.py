@@ -1206,32 +1206,16 @@ def select_primary_seat_in_open_modal(page):
 
 
 def detail_selection_summary(page, day, expected=None):
-    """Verify the scoped selection card, returning only structured diagnostics."""
+    """Verify one complete selection card, not merely its sticky price footer."""
     if not is_review_detail_url(page.evaluate('window.location.href'),day):
         return {'verified':False,'reason':'detail_page_mismatch'}
     data=page.evaluate(r"""() => {
       const norm=s=>(s||'').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g,'').replace(/\s+/g,' ').trim();
-      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
+      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';
       const text=e=>norm(e.innerText||e.textContent);
       const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent||e.value);
       const titles=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&text(e)==='Meine Auswahl'&&![...e.children].some(c=>vis(c)&&text(c)==='Meine Auswahl'));
       const carts=[...document.querySelectorAll('button,a[href],[role="button"],[role="link"],input[type="submit"]')].filter(e=>vis(e)&&label(e)==='In den Warenkorb');
-      const cards=new Set();
-      for(const h of titles){
-        for(let e=h.parentElement;e&&e!==document.body;e=e.parentElement){
-          if(carts.some(b=>e.contains(b))){cards.add(e);break;}
-        }
-      }
-      const smallest=[...cards].filter(e=>![...cards].some(other=>other!==e&&e.contains(other)));
-      if(smallest.length!==1)return {found:false,titleCount:titles.length,cartControlCount:carts.length,cardCount:smallest.length};
-      const card=smallest[0];
-      const walker=document.createTreeWalker(card,NodeFilter.SHOW_TEXT);
-      const fragments=[];
-      for(let n=walker.nextNode();n;n=walker.nextNode()){
-        const p=n.parentElement;
-        if(p&&vis(p)&&!p.closest('script,style,[hidden]')&&norm(n.textContent))fragments.push(norm(n.textContent));
-      }
-      const variants=[text(card),norm(fragments.join(' '))];
       const parse=t=>{
         const seats=[...t.matchAll(/Sitzpl(?:atz|ätze|aetze)\s*:?\s*(\d{2,4})\s*([A-D])\b/gi)].map(m=>m[1]+m[2].toUpperCase());
         const prices=[...t.matchAll(/(?:€\s*(\d+(?:[.,]\d{2}))|(\d+(?:[.,]\d{2}))\s*€)/g)].map(m=>m[1]||m[2]);
@@ -1239,11 +1223,35 @@ def detail_selection_summary(page, day, expected=None):
           route:/Wien\s+Meidling/i.test(t)&&/Wiener\s+Neustadt/i.test(t),train:/\b1009\b/.test(t),
           time:/18\s*:\s*22\s*[-–—−]\s*18\s*:\s*49/.test(t),dates:[...t.matchAll(/\b\d{1,2}\.\s*\d{1,2}\.\s*\d{4}\b/g)].map(m=>m[0].replace(/\s/g,'')),seats,prices};
       };
-      // Each variant describes the same card. Never combine partial identity
-      // checks across unrelated regions, or ignore a nonzero price in either.
-      const parsed=variants.map(parse);
-      const nonzero=parsed.some(p=>p.prices.some(x=>!['0,00','0.00'].includes(x)));
-      return {found:true,titleCount:titles.length,cartControlCount:carts.length,cardCount:smallest.length,nonzero,variants:parsed};
+      const diagnostics={found:false,titleCount:titles.length,cartControlCount:carts.length,regions:[]};
+      if(titles.length!==1||carts.length!==1)return diagnostics;
+      // A heading and sticky footer can share a nested wrapper while the
+      // product row is a sibling. Walk outward, but never accept the entire
+      // page or a region containing the separate paid-product/seat form.
+      let common=titles[0];
+      while(common&&common!==document.body&&!common.contains(carts[0]))common=common.parentElement;
+      for(let card=common,depth=0;card&&card!==document.body&&depth<9;card=card.parentElement,depth++){
+        const walker=document.createTreeWalker(card,NodeFilter.SHOW_TEXT);
+        const fragments=[];
+        for(let n=walker.nextNode();n;n=walker.nextNode()){
+          const p=n.parentElement;
+          if(p&&vis(p)&&!p.closest('script,style,[hidden]')&&norm(n.textContent))fragments.push(norm(n.textContent));
+        }
+        const strings=[text(card),norm(fragments.join(' '))];
+        const variants=strings.map(parse);
+        const nonzero=variants.some(p=>p.prices.some(x=>!['0,00','0.00'].includes(x)));
+        const outsideForm=strings.some(t=>/\bSitzplatzreservierung\b|pro\s*Person|Viertische\s+mit\s+mehr\s+Beinfreiheit/i.test(t));
+        const tooBroad=strings.some(t=>t.length>2600);
+        const region={depth,nonzero,outsideForm,tooBroad,variants};
+        diagnostics.regions.push(region);
+        if(outsideForm||tooBroad||nonzero)break;
+        // Select the first complete region only. An incomplete sticky footer
+        // is not a valid card even when its total happens to be zero.
+        if(variants.some(p=>p.comfort&&p.quantityOne&&p.route&&p.train&&p.time&&p.dates.length&&p.seats.length&&p.prices.length>=2)){
+          return {...diagnostics,found:true,cardCount:1,nonzero,variants};
+        }
+      }
+      return diagnostics;
     }""")
     wanted=date.fromisoformat(day)
     allowed_dates={wanted.strftime('%d.%m.%Y'),f'{wanted.day}.{wanted.month}.{wanted.year}'}
@@ -1252,7 +1260,7 @@ def detail_selection_summary(page, day, expected=None):
         prices=p.get('prices',[])
         seats=list(set(p.get('seats',[])))
         date_ok=bool(p.get('dates')) and set(p['dates']).issubset(allowed_dates)
-        if (not data.get('nonzero') and p.get('comfort') and p.get('quantityOne') and p.get('route') and p.get('train') and p.get('time') and date_ok and len(prices)>=2 and all(x in ('0,00','0.00') for x in prices) and len(seats)==1 and (expected is None or seats==[expected])):
+        if (data.get('found') and not data.get('nonzero') and p.get('comfort') and p.get('quantityOne') and p.get('route') and p.get('train') and p.get('time') and date_ok and len(prices)>=2 and all(x in ('0,00','0.00') for x in prices) and len(seats)==1 and (expected is None or seats==[expected])):
             return {'verified':True,'seat':seats[0],'priceCents':0,'dateVerified':True,'checks':data}
     return {'verified':False,'priceCents':None,'reason':'summary_fields_unverified','checks':data}
 
