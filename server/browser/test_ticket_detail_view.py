@@ -166,6 +166,30 @@ class TicketDetailBrowserTests(unittest.TestCase):
         finally:
             context.close()
 
+    def test_unknown_detail_route_is_masked_and_never_opened(self):
+        context=self.browser.new_context()
+        visited=[]
+        try:
+            account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+            <article><h2>Reservierung Comfort Class</h2>
+            <p>Abfahrt 18:22 Wien Meidling DI 17 NOV</p>
+            <p>Ankunft 18:49 Wiener Neustadt</p><p>Sitzplatz 191D</p>
+            <a href="/account/orders/PRIVATE-9876?user_email=PRIVATE@example.org">Details</a></article>''')
+            def serve(route):
+                visited.append(route.request.url)
+                body=account if 'westbahn.at' in route.request.url else '<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+                route.fulfill(status=200,content_type='text/html; charset=utf-8',body=body)
+            context.route('https://westbahn.at/**',serve)
+            context.route('https://westbahn.de/**',serve)
+            result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
+            self.assertEqual(result['detailStatus'],'no_unique_safe_detail_link')
+            self.assertEqual(result['candidatePathPatterns'][0]['route'],'/account/orders/[opaque]')
+            self.assertEqual(result['candidatePathPatterns'][0]['query'],'includes_other_keys')
+            self.assertNotIn('PRIVATE',str(result))
+            self.assertFalse(any('/account/orders/' in url for url in visited))
+        finally:
+            context.close()
+
     def test_opaque_button_never_clicked(self):
         context=self.browser.new_context()
         try:
