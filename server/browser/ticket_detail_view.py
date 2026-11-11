@@ -22,8 +22,23 @@ OPAQUE_TICKET_ROUTE=re.compile(
 DANGEROUS_SEGMENT=re.compile(
     r'cancel|delete|refund|change|edit|purchase|pay|rebook|order|'
     r'storno|stornier|umbuch|bearbeit|lösch|bezahl|kauf|zahl|transfer|share|download|pdf|print',re.I)
-EXACT_VIEW_LABELS=frozenset(('details','ticketdetails','ticket ansehen',
-                             'ticket anzeigen','reservierung ansehen'))
+# Strictly visual/view labels. These variants are not editing or buying commands.
+EXACT_VIEW_LABELS=frozenset((
+    'details','mehr details','weitere details','details ansehen','details anzeigen',
+    'details öffnen','details zur fahrt','details zur reservierung','details zum ticket',
+    'ticketdetails','ticketdetails ansehen','ticketdetails anzeigen','ticket details',
+    'reservierungsdetails','reservierungsdetails ansehen','reservierungsdetails anzeigen',
+    'ticket ansehen','ticket anzeigen','ticket öffnen','reservierung ansehen',
+    'reservierung anzeigen','zur ticketansicht','zur detailansicht'
+))
+
+
+def view_label_allowed(caption):
+    """Allow only known *read-only* UI captions, ignoring spacing and arrow icons."""
+    if not isinstance(caption,str) or len(caption)>75 or BAD_LABEL.search(caption):
+        return False
+    normalized=' '.join(caption.casefold().split()).strip(' .:›»→↗')
+    return normalized in EXACT_VIEW_LABELS
 ALLOWED_KEYS={'id','ticketid','ticket','bookingid','reservationid','ref'}
 BAD_LABEL=re.compile(r'umbuchen|stornieren|löschen|ändern|bearbeiten|bezahlen|kaufen|bestellen|checkout|'
                      r'zahlung|erstatten|übertragen|weiterleiten|herunterladen|download',re.I)
@@ -50,7 +65,7 @@ def safe_detail_url(base, href, caption):
             return None
         opaque=OPAQUE_TICKET_ROUTE.fullmatch(dest.path)
         if opaque:
-            if caption.strip().casefold() not in EXACT_VIEW_LABELS or dest.query:
+            if not view_label_allowed(caption) or dest.query:
                 return None
             if any(DANGEROUS_SEGMENT.search(x) for x in opaque.groups()):
                 return None
@@ -101,7 +116,7 @@ def rejection_reason(base, candidate):
             # URL or either ticket identifier.
             if target.query:
                 return 'ticket_view_query_not_allowed'
-            if caption.strip().casefold() not in EXACT_VIEW_LABELS:
+            if not view_label_allowed(caption):
                 return 'ticket_view_caption_not_allowlisted'
             if any(DANGEROUS_SEGMENT.search(part) for part in opaque.groups()):
                 return 'ticket_view_token_safety_filter'
