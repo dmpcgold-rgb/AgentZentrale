@@ -351,3 +351,14 @@ Der Python-Worker gibt pro Konto-Sammelprüfung ausschließlich unkritische Metr
 Die Android-Anzeige stellt die letzte erfolgreiche Woche, gegebenenfalls den nächsten Wiederholungsversuch und die Seitenabdeckung dar. Die Änderung benötigt einen aktualisierten APK-Build; die GitHub-Änderung selbst installiert keine neue App. Neue Regressionstests wurden in `test_inventory_batch.py`, `browser_audit.test.mjs` und `weekly-review.test.mjs` ergänzt und werden über die vorhandenen Docker-Build-Prüfungen ausgeführt.
 
 **Es wurden keine echten Reservierungen ausgelöst oder verändert.** Der Kaufadapter bleibt weiterhin nicht angebunden; fehlende vorhandene Tickets werden nicht als zweifelsfrei ungebucht eingestuft.
+
+
+## Einzelne offene WESTbahn-Fahrt unverbindlich prüfen
+
+Die authentifizierte API `POST /westbahn/browser/preview-trip` akzeptiert `{"date":"JJJJ-MM-TT"}` nur für einen gültigen zukünftigen Pendeltag. Besteht an diesem Tag **irgendein Eintrag** im lokalen Buchungsprotokoll, wird nicht einmal die öffentliche Verbindungssuche ausgelöst; die API meldet `existing_ledger_entry`. Bei fehlendem Protokolleintrag prüft sie ausschließlich die öffentliche WESTbahn-Verbindung und deren eindeutig angezeigten **2+ Comfort-Anzeigepreis**, nicht einen reservierbaren Sitzplatz oder den späteren KlimaTicket-Warenkorb. Die Anzeige gilt nie als vollständiger Bestand oder als tatsächliche Kaufpreisbestätigung.
+
+Die fest formatierte Antwort beschränkt sich auf Datum, Strecke, 18:22, Ankunft, Zugnummer, Comfort-Preis und konservative Sicherheitsflags. Selbst bei angezeigten 0,00 € gelten `accountInventoryVerified:false`, `seatAvailabilityVerified:false`, `klimaTicketPriceVerified:false`, `checkoutTotalVerified:false`, `bookingAuthorized:false` und `canPurchase:false`. Unbekannte Kontoangaben, Ticketcodes, URLs, Buchungsreferenzen und private Anbieterantworten werden vom Node-Gateway nicht ausgegeben.
+
+Die Android-Oberfläche enthält ein Datumsfeld und die Schaltfläche „Verbindung und Comfort-Preis nur prüfen“. Für den Button ist eine aktualisierte APK erforderlich. Die neue Funktion nutzt ausschließlich den vorhandenen Suchmodus `prepare`; sie führt keinen Warenkorb-Schritt aus. Bei einem Browserfehler wird die neutrale Meldung `review_required` zurückgegeben. Eine fehlende Reservierung kann über diese Funktion **nicht** nachgewiesen werden.
+
+Sicherheitstests: `server/tests/trip-preview.test.mjs` und neue Routentests in `server/tests/browser_route.test.mjs`, eingebunden in Docker und GitHub Actions. Kein Live-Kauf-Test und kein automatischer Checkout.
