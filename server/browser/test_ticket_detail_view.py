@@ -10,6 +10,14 @@ CARD={'text':'Reservierung Comfort Class Abfahrt 18:22 Wien Meidling DI 17 NOV '
 
 
 class TicketDetailTests(unittest.TestCase):
+    def test_module_syntax_and_no_duplicate_functions(self):
+        import ast
+        from pathlib import Path
+        source=Path(__file__).with_name('ticket_detail_view.py').read_text(encoding='utf-8')
+        tree=ast.parse(source,filename='ticket_detail_view.py')
+        names=[node.name for node in tree.body if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))]
+        self.assertEqual(len(names),len(set(names)),names)
+
     def test_safe_unique_same_origin_view_link_only(self):
         self.assertEqual(safe_detail_url(HOME,'/ticketshop/dashboard/tickets/details?id=TESTREF123','Details'),DETAIL)
         self.assertEqual(safe_detail_url(HOME,'/ticketshop/dashboard/tickets/ABCDEFGH','Ticket anzeigen'),
