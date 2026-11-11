@@ -76,7 +76,8 @@ class TicketDetailTests(unittest.TestCase):
         for label in ('Details','  Mehr   Details ', 'Details ansehen',
                       'Details anzeigen','Weitere Details','Ticketdetails anzeigen',
                       'Reservierungsdetails ansehen', 'Ticket ansehen ›',
-                      'Details zur Fahrt','Zur Ticketansicht'):
+                      'Details zur Fahrt','Zur Ticketansicht',
+                      'Ansehen','Anzeigen','Ticket','Zum Ticket'):
             with self.subTest(label=label):
                 self.assertEqual(safe_detail_url(HOME,route,label),'https://westbahn.at'+route)
                 self.assertEqual(rejection_reason(HOME,{'tag':'a','href':route,'caption':label}), 'accepted')
