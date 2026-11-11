@@ -25,3 +25,5 @@ Die Vorschau ermittelt den Comfort-Preis im temporären Profil erneut. Bei fehle
 
 ## Preisvergleich
 `worker.py price-audit --date 2026-11-17` vergleicht den Preis im normalen Profil, einer temporären Kopie mit gleichen Browseroptionen und einer Kopie mit den Sicherheitsbeschränkungen der Offline-Vorschau. Pro Ansicht werden vier Preisbeobachtungen und der Anmeldestatus des österreichischen Kontos ermittelt. Keine privaten Kontodaten im Ergebnis, keine Comfort-/Sitzplatzklicks, keine Buchung. Eine Abweichung identifiziert die betroffene Konfiguration, nicht automatisch die genaue Ursache.
+
+Die Offline-Sitzplatzvorschau gibt unter `blockedRequests` zusätzlich Methode, Provider-Domain, Ressourcentyp und eine datensparsam redigierte Pfadstruktur jeder blockierten Anfrage aus. Keine Query-Werte, Header, Cookies, IDs oder Request-Bodies werden ausgegeben. Diese Diagnose erteilt noch keine Online-Freigabe: Auch GET-Anfragen können zustandsändernd sein.

@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,17 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_request_summary_redacts_secrets(self):
+  from types import SimpleNamespace
+  request=SimpleNamespace(url='https://westbahn.at/api/seats/PRIVATE123?token=SECRET',method='GET',resource_type='fetch')
+  summary=safe_request_summary(request)
+  self.assertEqual(summary['path'],'/api/seats/:redacted')
+  self.assertEqual(summary['method'],'GET')
+  self.assertTrue(summary['hasQuery'])
+  self.assertNotIn('SECRET',str(summary))
+  self.assertNotIn('PRIVATE123',str(summary))
+  request.url='https://other.example/private?code=SECRET'
+  self.assertEqual(safe_request_summary(request)['host'],'other-origin')
  def test_preview_profile_preserves_local_state_and_skips_locks(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp)
@@ -166,6 +177,7 @@ class BrowserTests(unittest.TestCase):
    self.assertEqual(result['status'],'seat_preview_offline')
    self.assertEqual(result['preferredControls'],[{'seat':'233A','disabled':False}])
    self.assertFalse(result['liveAvailabilityVerified'])
+   self.assertIn('blockedRequests',result)
   finally: context.close()
  def test_offline_preview_uses_sibling_label_button(self):
   context=self.b.new_context(service_workers='block')
