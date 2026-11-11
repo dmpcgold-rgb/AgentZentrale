@@ -48,8 +48,9 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
      const before=await adapter.existing({date,...RULES});
      if(before?.status==='confirmed'){
       const receipt=before.receipt;
-      if(verifiedAccountReadback(before,date,receipt?.seat,receipt?.bookingId)&&
-          chooseSeat([before.seat])?.id===receipt.seat)
+      // A previously purchased seat is not available for a new selection.
+      // Its availability must not invalidate an authenticated existing ticket.
+      if(verifiedAccountReadback(before,date,receipt?.seat,receipt?.bookingId))
         record(date,'confirmed','Bereits beim Anbieter reserviert.',{seat:receipt.seat,bookingId:receipt.bookingId});
       else
         record(date,'blocked','Vorhandene Buchung ist nicht eindeutig passend; keine Doppelbuchung.');
