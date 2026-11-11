@@ -138,6 +138,24 @@ class ResultParsingTests(unittest.TestCase):
   self.assertEqual(result['status'],'manual_review_ended')
   search.assert_called_once()
   choose.assert_called_once_with(page)
+ def test_checkout_audit_after_confirmed_seat_does_not_buy(self):
+  from unittest.mock import Mock
+  page=Mock()
+  checkout=Mock()
+  checkout.is_closed.return_value=False
+  checkout.evaluate.return_value='https://westbahn.at/ticketshop/checkout'
+  page.context.pages=[checkout]
+  ready={'status':'connection_found','connection':{'displayedPriceCents':0}}
+  with patch('worker.authenticated_prepare',return_value=ready), \
+       patch('worker.read_review_command',side_effect=['b','c','q']), \
+       patch('worker.find_open_review_page',return_value=(page,{})), \
+       patch('worker.confirm_review_selection',return_value={'status':'seat_confirmed','selection':{'coach':'8','seat':'191D'}}), \
+       patch('worker.audit_cart',return_value={'verified':True,'bookingAuthorized':False}) as audit:
+   result=manual_seat_review(page,'2026-11-17')
+  self.assertEqual(result['status'],'manual_review_ended')
+  audit.assert_called_once_with(checkout,'2026-11-17','191D')
+  checkout.get_by_role.assert_not_called()
+
  def test_review_page_uses_live_url_and_unique_modal(self):
   from unittest.mock import Mock
   original=Mock()
