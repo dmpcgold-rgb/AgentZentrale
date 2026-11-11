@@ -26,8 +26,11 @@ export function sanitizeTicketAudit(raw,mode,date,seat=null){
    referenceVisible:raw.referenceVisible===true,
    dateExplicit:raw.dateExplicit===true
   };
-  const verified=Object.values(checks).every(x=>x===true) &&
-       raw.date===date&&raw.seat===seat&&raw.inventoryComplete===false;
+  const verified=raw.status==='ticket_detail_check'&&
+       Object.values(checks).every(x=>x===true) &&
+       raw.date===date&&raw.seat===seat&&raw.inventoryComplete===false&&
+       raw.safeToBook===false&&raw.bookingAuthorized===false&&
+       raw.confirmationVerified===false;
   return {...base,status:verified?'existing_ticket_verified':'review_required',
           checks,reason:verified?'ticket_details_match':'ticket_details_unverified'};
  }
