@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
+import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
 import { planDates } from '../src/core/westbahn.js';
 import { ApiError, compareToken, requireName, requirePath, requireText, enforceWritableFile, isAllowedOwner, apiPath, responseText, verifyProposalObject, generateBranch } from './lib.mjs';
 
@@ -13,7 +14,7 @@ const MAX_FILE = 25_000;
 const MAX_PROMPT = 1800;
 const MAX_PROPOSALS = 25;
 
-export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}) } = {}) {
+export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null } = {}) {
   const attempts = new Map();
   let dailyUsage = { day: '', count: 0 };
   const configuredToken = env.AGENTZENTRALE_ACCESS_TOKEN || '';
@@ -110,47 +111,22 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
       }
-      // Only reads an existing WESTbahn ticket. It never starts checkout,
-      // writes booking state or claims that a missing card proves availability.
+      if (is('GET', '/westbahn/review-status')) {
+        return write(res,200,review?review.status():{
+          enabled:false,running:false,lastRun:null,lastSchedule:null,
+          purchaseEnabled:false,inventoryComplete:false
+        });
+      }
+      // Scheduled and manual weekly audits share one conservative decision path.
       if (is('POST', '/westbahn/browser/audit-week')) {
-        // All dates are derived on the server, never from user-supplied URL
-        // fragments. Positive visible cards may request review, but a missing
-        // card never means it is safe to purchase.
         const days=planDates(new Date(now())).slice(0,5);
         if (!days.length) throw new ApiError(409,'Keine geplanten Pendeltage für die Prüfung.');
-        try {
-          const result=await browser.run('inventory-batch',null,null,days);
-          const ledgerProtectedDates=[],ledgerReviewDates=[];
-          if(result?.status==='inventory_batch_read' &&
-             result.inventoryComplete===false &&
-             result.safeToBook===false &&
-             result.bookingAuthorized===false && Array.isArray(result.days)){
-            for(const item of result.days){
-              // Only precise, previously sanitized positive detail proofs may
-              // protect a day. A missing ticket or card alone cannot do this.
-              const proven=item?.status==='detail_verified' &&
-                days.includes(item.date) &&
-                item.detailVerified===true && item.dateVerified===true &&
-                item.potentialDuplicate===true && item.safeToBook===false &&
-                Array.isArray(item.seats) && item.seats.length===1 &&
-                typeof item.seats[0]==='string' && /^[0-9]{3}[A-D]$/.test(item.seats[0]);
-              if(!proven)continue;
-              try {
-                const snapshot=westbahn.recordVerifiedExisting(item.date,item.seats[0]);
-                const row=snapshot?.rows?.find(x=>x.date===item.date);
-                if(row?.seat===item.seats[0] &&
-                   ['existing_verified','confirmed'].includes(row.status))
-                  ledgerProtectedDates.push(item.date);
-                else ledgerReviewDates.push(item.date);
-              }catch{
-                // A seat disagreement must never be overwritten, including
-                // by an otherwise valid account detail verification.
-                ledgerReviewDates.push(item.date);
-              }
-            }
-          }
-          return write(res,200,{...result,ledgerProtectedDates,ledgerReviewDates});
-        } catch(e){throw new ApiError(409,e.message);}
+        try{
+          const result=review
+            ?await review.run()
+            :applyVerifiedBatch(await browser.run('inventory-batch',null,null,days),days,westbahn);
+          return write(res,200,result);
+        }catch(e){throw new ApiError(409,e.message);}
       }
       if (is('POST', '/westbahn/browser/audit-ticket')) {
         const body = await readJson(req);
@@ -276,7 +252,18 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     const host = process.env.HOST || '127.0.0.1';
     const port = Number(process.env.PORT || 8787);
     const westbahn = await loadWestbahn();
-    setInterval(() => westbahn.tick().catch(e => console.error('WESTbahn-Zeitplan:', e.message)), 30_000).unref();
-    createServer(createAgentHandler({westbahn})).listen(port, host, () => console.log(`AgentZentrale Gateway läuft auf ${host}:${port}`));
+    const browser=createBrowser();
+    const review=createWeeklyReview({
+      westbahn,browser,
+      enabled:browser.status().enabled && process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
+      file:process.env.WESTBAHN_REVIEW_STATE||'./data/westbahn-review.json'
+    });
+    setInterval(() => review.tick().catch(e =>
+      console.error('WESTbahn-Lesekontrolle:',e.message)),30_000).unref();
+    // Booking attempts remain disabled without a verified checkout adapter.
+    setInterval(() => westbahn.tick().catch(e =>
+      console.error('WESTbahn-Zeitplan:',e.message)),30_000).unref();
+    createServer(createAgentHandler({westbahn,browser,review})).listen(port,host,
+      ()=>console.log(`AgentZentrale Gateway läuft auf ${host}:${port}`));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
