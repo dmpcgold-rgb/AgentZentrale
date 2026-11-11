@@ -4,6 +4,7 @@ No URL, token, query value, account name, order number, or free-form caption
 ever appears in returned diagnostics. It performs no browser interaction.
 """
 from urllib.parse import urljoin, urlsplit, parse_qsl
+import re
 
 STATIC_SEGMENTS=frozenset((
     'ticketshop','dashboard','tickets','ticket','reservierung','reservierungen',
@@ -13,6 +14,26 @@ STATIC_SEGMENTS=frozenset((
     'profile','manage','manage-ticket','storno','cancel','checkout','shop'
 ))
 KNOWN_QUERY_KEYS=frozenset(('id','ticketid','ticket','bookingid','reservationid','ref','page','mode'))
+
+
+def token_length_band(value):
+    """Coarse lengths only, never the value or its exact length."""
+    n=len(value)
+    if n<=3: return '1-3'
+    if n<=7: return '4-7'
+    if n<=11: return '8-11'
+    if n<=90: return '12-90'
+    return 'over90'
+
+
+def observed_ticket_shape(pieces):
+    """Diagnose the live two-token ticket path without revealing identifiers."""
+    if len(pieces)!=5 or [p.lower() for p in pieces[:3]]!=['ticketshop','dashboard','ticket']:
+        return None
+    opaque=pieces[-2:]
+    bands='|'.join(token_length_band(v) for v in opaque)
+    charset='token_ascii' if all(re.fullmatch(r'[A-Za-z0-9_-]+',v) for v in opaque) else 'other_or_encoded'
+    return bands+';'+charset
 
 
 def route_signature(base, href, tag='a'):
@@ -37,6 +58,10 @@ def route_signature(base, href, tag='a'):
         query='none' if not keys else (
             'known_only' if all(k in KNOWN_QUERY_KEYS for k in keys) else 'includes_other_keys'
         )
-        return {'kind':kind,'route':route[:180], 'query':query}
+        result={'kind':kind,'route':route[:180], 'query':query}
+        shape=observed_ticket_shape(pieces)
+        if shape is not None:
+            result['ticketRouteShape']=shape
+        return result
     except (ValueError,TypeError):
         return {'kind':kind,'route':'invalid_destination','query':'redacted'}
