@@ -3,10 +3,10 @@ from booking_reference_match import exact_reference_match
 
 
 class BookingReferenceMatchTests(unittest.TestCase):
-    def test_exact_labeled_booking_matches_case_insensitively(self):
+    def test_exact_labeled_booking_match_is_case_sensitive(self):
         ticket='Reservierung Comfort Class\nBuchungsnummer: WB-TEST1234'
         self.assertTrue(exact_reference_match(ticket,'WB-TEST1234'))
-        self.assertTrue(exact_reference_match(ticket,'wb-test1234'))
+        self.assertFalse(exact_reference_match(ticket,'wb-test1234'))
 
     def test_matching_substring_does_not_pass(self):
         ticket='Buchungsnummer: WB-TEST12345'
