@@ -15,10 +15,16 @@ ROUTE=re.compile(
     r'^/ticketshop/dashboard/(?:tickets?|reservations?)/(?:'
     r'(?:detail|details|view)(?:/[A-Za-z0-9_-]{1,90})?'
     r'|[A-Za-z0-9_-]{8,90})/?$',re.I)
-# Route shape observed in the signed-in account: two opaque identifiers.
-# Admit only a static Details link with no query and no action-like tokens.
+# Observed path structure: two opaque IDs inside an existing-ticket detail URL.
+# Only strict, view-labeled same-host GET routes can be opened; never checkout.
 OPAQUE_TICKET_ROUTE=re.compile(
-    r'^/ticketshop/dashboard/ticket/([A-Za-z0-9_-]{12,90})/([A-Za-z0-9_-]{12,90})/?
+    r'^/ticketshop/dashboard/ticket/([A-Za-z0-9_-]{12,90})/([A-Za-z0-9_-]{12,90})/?$',re.I)
+DANGEROUS_SEGMENT=re.compile(
+    r'cancel|delete|refund|change|edit|purchase|pay|rebook|order|'
+    r'storno|stornier|umbuch|bearbeit|lösch|bezahl|kauf|zahl|transfer|share|download|pdf|print',re.I)
+EXACT_VIEW_LABELS=frozenset(('details','ticketdetails','ticket ansehen',
+                             'ticket anzeigen','reservierung ansehen'))
+ALLOWED_KEYS={'id','ticketid','ticket','bookingid','reservationid','ref'}
 BAD_LABEL=re.compile(r'umbuchen|stornieren|löschen|ändern|bearbeiten|bezahlen|kaufen|bestellen|checkout|'
                      r'zahlung|erstatten|übertragen|weiterleiten|herunterladen|download',re.I)
 DETAIL_LABEL=re.compile(r'details?|ansehen|anzeigen|ticket(?:details?| ansehen| anzeigen)?|reservierung ansehen',re.I)
@@ -89,6 +95,8 @@ def rejection_reason(base, candidate):
             return 'untrusted_destination'
         if target.fragment:
             return 'fragment_destination'
+        if OPAQUE_TICKET_ROUTE.fullmatch(target.path):
+            return 'accepted' if safe_detail_url(base,href,caption) else 'non_readonly_ticket_route'
         if not ROUTE.fullmatch(target.path):
             return 'unrecognized_detail_path'
         last=target.path.rstrip('/').rsplit('/',1)[-1]
