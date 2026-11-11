@@ -257,12 +257,16 @@ class ResultParsingTests(unittest.TestCase):
   self.assertEqual(result['status'],'seat_preview_blocked')
   self.assertIsNone(result['connection']['displayedPriceCents'])
  def test_price_audit_distinguishes_context_from_profile(self):
-  zero={'priceSamplesCents':[790,0,0]}
-  paid={'priceSamplesCents':[790,790]}
+  zero={'accountVerifiedBeforeSearch':True,'priceSamplesCents':[790,0,0]}
+  paid={'accountVerifiedBeforeSearch':True,'priceSamplesCents':[790,790]}
   self.assertEqual(classify_price_audit(zero,zero,paid),'restricted_context_price_differs')
   self.assertEqual(classify_price_audit(zero,paid,paid),'profile_copy_price_differs')
   self.assertEqual(classify_price_audit(paid,paid,paid),'normal_browser_zero_not_confirmed')
   self.assertEqual(classify_price_audit(zero,zero,zero),'isolated_zero_observed')
+  unverified={'accountVerifiedBeforeSearch':False,'priceSamplesCents':[790,790]}
+  self.assertEqual(classify_price_audit(unverified,zero,zero),'normal_session_unverified')
+  self.assertEqual(classify_price_audit(zero,unverified,zero),'cloned_session_unverified')
+  self.assertEqual(classify_price_audit(zero,zero,unverified),'restricted_session_unverified')
  def test_exact_departure_and_price(self):
   result=parse_connection(RESULTS)
   self.assertEqual(result['trainNumber'],'1009')
