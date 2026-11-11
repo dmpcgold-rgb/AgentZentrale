@@ -2,6 +2,12 @@
 # On-demand desktop, bound to the container network; host publishes loopback only.
 # Access through a private SSH local forward, never through public Funnel.
 set -euo pipefail
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -ne 3 ] || [ "$1" != 'seat-review' ] || [ "$2" != '--date' ] || ! [[ "$3" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo 'Verwendung: login-private.sh [seat-review --date YYYY-MM-DD]' >&2
+    exit 2
+  fi
+fi
 umask 077
 cd /app/server
 export DISPLAY=:97
@@ -37,4 +43,8 @@ sleep 1
 for pid in "${pids[@]}"; do kill -0 "$pid"; done
 printf '\nPrivater WESTbahn-Login: http://127.0.0.1:6080/vnc.html\nEinmaliges VNC-Passwort: %s\n' "$password"
 printf 'Im Handy-Browser anmelden. Erst danach hier Enter drücken.\n\n'
-/opt/agent-venv/bin/python /app/server/browser/worker.py login
+if [ "$#" -eq 0 ]; then
+  /opt/agent-venv/bin/python /app/server/browser/worker.py login
+else
+  /opt/agent-venv/bin/python /app/server/browser/worker.py "$@"
+fi

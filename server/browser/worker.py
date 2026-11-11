@@ -814,7 +814,7 @@ def run_price_audit(p, root, kwargs, day):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -822,7 +822,7 @@ def main():
         try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: raise Blocked('Browserprofil ist gerade in Benutzung.')
         with sync_playwright() as p:
-            kwargs={'headless':args.mode!='login','timeout':20000,'accept_downloads':False}
+            kwargs={'headless':args.mode not in ('login','seat-review'),'timeout':20000,'accept_downloads':False}
             if os.environ.get('WESTBAHN_CHROMIUM_PATH'): kwargs['executable_path']=os.environ['WESTBAHN_CHROMIUM_PATH']
             if args.mode=='price-audit':
                 if not args.date: raise Blocked('Reisedatum fehlt.')
@@ -849,8 +849,8 @@ def main():
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
-                if args.mode in ('prepare','comfort-inspect') and not args.date: raise Blocked('Reisedatum fehlt.')
-                target=date_url(args.date) if args.mode in ('prepare','comfort-inspect') else URL
+                if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
+                target=date_url(args.date) if args.mode in ('prepare','comfort-inspect','seat-review') else URL
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
                     print('Melde dich im geöffneten WESTbahn-Browser an. Danach hier Enter drücken. Keine Zugangsdaten im Terminal eingeben.',file=sys.stderr,flush=True)
@@ -858,6 +858,12 @@ def main():
                 if args.mode=='probe': return inspect(page)
                 if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
                 if not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode=='seat-review':
+                    result=prepare(page,args.date)
+                    print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
+                    print('Manuelle Browseransicht: Agent führt keine Comfort-, Sitzplatz- oder Kaufklicks aus. Bei Preis ungleich 0 EUR nicht fortfahren. Warenkorb und Sitzplan nur ansehen; nicht kaufen. Nach Prüfung hier Enter drücken.',file=sys.stderr,flush=True)
+                    input()
+                    return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
                 if args.mode=='comfort-inspect': return inspect_comfort(page,args.date)
                 return prepare(page,args.date)
             finally: context.close()
