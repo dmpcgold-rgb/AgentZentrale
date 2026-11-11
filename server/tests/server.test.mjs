@@ -104,3 +104,22 @@ test('GitHub proposal rejects sensitive target files before AI call', async t =>
   assert.equal(attempted.status, 403);
   assert.equal(calls.filter(c=>c.url.includes('/v1/responses')).length, 0);
 });
+
+test('known booking API demands authorization and explicit existing-ticket consent', async t => {
+  const req=await setup(t);
+  const payload={date:'2026-11-17',seat:'191D',confirm:'BESTEHENDE-BUCHUNG'};
+  const denied=await req('/westbahn/known-booking',{method:'POST',token:'wrong',body:payload});
+  assert.equal(denied.status,401);
+  const noConsent=await req('/westbahn/known-booking',{method:'POST',body:{...payload,confirm:'NEIN'}});
+  assert.equal(noConsent.status,403);
+  const reported=await req('/westbahn/known-booking',{method:'POST',body:payload});
+  assert.equal(reported.status,200);
+  assert.equal(reported.body.rows.find(r=>r.date===payload.date).status,'user_reported');
+  const again=await req('/westbahn/known-booking',{method:'POST',body:payload});
+  assert.equal(again.status,200);
+  const conflict=await req('/westbahn/known-booking',{method:'POST',body:{...payload,seat:'233A'}});
+  assert.equal(conflict.status,409);
+  const status=await req('/westbahn/status');
+  assert.equal(status.body.rows.find(r=>r.date===payload.date).seat,'191D');
+  assert.equal(status.body.confirmedThrough,null);
+});
