@@ -69,9 +69,12 @@ export default function WestbahnScreen({navigation}){
  <Card><Heading>Automatik</Heading><Body>Montag ab 07:00 · Europe/Vienna</Body><Muted>Planung ab 17.11.2026 (16.11. bereits manuell reserviert), bis sechs Monate voraus. Tatsächliche Verfügbarkeit wird erst beim Anbieter geprüft.</Muted><Muted style={{marginTop:9}}>{!remote.connected?'Server nicht verbunden.':data?.providerConnected?'Buchungsadapter verbunden.':'Kein bestätigter Live-Buchungsadapter verbunden.'}</Muted><Muted>Automatik: {data?.automatic?'Aktiv':'Aus / noch nicht geprüft'}</Muted><View style={{gap:8,marginTop:10}}><ActionButton title="Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={()=>request('/westbahn/status')}/><ActionButton title="Jetzt 0-€-Buchungen prüfen" disabled={busy||!data?.providerConnected||data?.running} onPress={()=>authorize('run')}/><ActionButton title={data?.automatic?'Automatik deaktivieren':'Automatik aktivieren'} secondary disabled={busy||(!data?.providerConnected&&!data?.automatic)} onPress={()=>data?.automatic?request('/westbahn/settings',{enabled:false}):authorize('settings')}/><ActionButton title="Offizielle WESTbahn öffnen" secondary onPress={()=>Linking.openURL(BOOKING_URL).catch(()=>setError('Website konnte nicht geöffnet werden.'))}/>{!remote.connected?<ActionButton title="Server verbinden" secondary onPress={()=>navigation.navigate('Einstellungen')}/>:null}</View>{error?<Body style={{color:T.red,marginTop:8}}>{error}</Body>:null}</Card>
  <Card>
    <Heading>Automatische Montagskontrolle</Heading>
-   <Body>{weeklyState?.enabled?'Reine Ticketprüfung aktiv – montags ab 07:00 Uhr':'Prüfdienst nicht aktiviert oder Serverstatus unbekannt'}</Body>
+   <Body>{weeklyState?.enabled?'Reine Ticketprüfung ab Montag 07:00 Uhr – bei Serverausfall Nachholprüfung bis Freitag':'Prüfdienst nicht aktiviert oder Serverstatus unbekannt'}</Body>
    <Muted>Letzter Prüfstart: {weeklyState?.lastRun?.startedAt||'Noch keiner'}</Muted>
    <Muted>Ergebnis: {weeklyState?.lastRun?.status||'Noch keine Prüfung'}</Muted>
+   <Muted>Letzte erfolgreiche Kalenderwoche: {weeklyState?.lastSuccessWeek||'Noch keine'}</Muted>
+   {weeklyState?.nextRetryAt?<Muted>Nächste sichere Wiederholung: {weeklyState.nextRetryAt}</Muted>:null}
+   {weeklyState?.lastRun?.coverage?<Muted>Kontoseiten geprüft: {weeklyState.lastRun.coverage.pagesVerified} von {weeklyState.lastRun.coverage.pagesAttempted} gelesenen Seiten. Vollständigkeit nicht nachgewiesen.</Muted>:null}
    <Muted>Bestellte Tickets: keine – dieser Prüfautomat kann ausschließlich vorhandene Reservierungen lesen.</Muted>
    <View style={{marginTop:10}}>
     <ActionButton title="Montagsprüfung-Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={refreshWeeklyStatus}/>
@@ -88,6 +91,7 @@ export default function WestbahnScreen({navigation}){
  </View>
  {weekAudit?<View style={{marginTop:10,gap:4}}>
    <Body>Bestandsprüfung: {weekAudit.status==='inventory_batch_read'?'Sichtbare Karten gelesen':'Konto nicht vollständig lesbar'}</Body>
+   {weekAudit.coverage?<Muted>Kontoseiten: {weekAudit.coverage.pagesVerified} erfolgreich, {weekAudit.coverage.pagesFailed} Fehler. Kein vollständiger Bestandsnachweis.</Muted>:null}
    {(weekAudit.days||[]).map(x=><Muted key={x.date}>{x.date} · {x.status==='detail_verified'?'Ticketdetails vollständig geprüft':x.status==='visible_year_verified'?'Bestehende Karte mit Jahresangabe':x.status==='possible_existing'?'Möglicherweise reserviert':'Nicht sicher geklärt'}{x.seats?.length?' · '+x.seats.join(', '):''}{weekAudit.ledgerProtectedDates?.includes(x.date)?' · Doppelbuchungsschutz aktiv':weekAudit.ledgerReviewDates?.includes(x.date)?' · Protokoll-Konflikt, manuell prüfen':''}</Muted>)}
    <Muted>Kontobestand nicht vollständig bestätigt. Auch bei fehlender Karte kein automatischer Kauf.</Muted>
  </View>:null}
