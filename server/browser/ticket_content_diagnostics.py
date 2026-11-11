@@ -32,10 +32,10 @@ def categorize_detail_text(text, document_type='unknown', has_password_field=Fal
         page_kind='ticket_content_present'
     elif has_product or seat_label or has_route:
         page_kind='partial_ticket_content'
+    elif account_words and not loading:
+        page_kind='account_overview'
     elif loading or len(text.strip())<80:
         page_kind='empty_or_loading'
-    elif account_words:
-        page_kind='account_overview'
     else:
         page_kind='unrecognized_content'
     body_band=('0-79' if len(text.strip())<80 else
