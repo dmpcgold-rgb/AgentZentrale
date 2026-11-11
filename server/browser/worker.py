@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import date
 from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from checkout_guard import audit_cart
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
 ORIGIN = 'Wien Meidling'
@@ -1547,6 +1548,7 @@ def safe_review_failure(error, phase):
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
+    last_confirmed_seat=None
     while True:
         result=authenticated_prepare(page,day,root=root)
         print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
@@ -1560,16 +1562,31 @@ def manual_seat_review(page, day, root=None):
             if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. a + Enter öffnet bei Bedarf Comfort und Sitzplan und prüft/wählt den Wunschplatz, b + Enter für Sitzplatzbestätigung und 0-EUR-Detailprüfung. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. a + Enter öffnet bei Bedarf Comfort und Sitzplan und prüft/wählt den Wunschplatz, b + Enter bestätigt den Sitzplatz, c + Enter prüft den Warenkorb nur lesend. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
         while True:
             command=read_review_command(page)
             if command=='q':
                 break
-            if command not in ('a','b'):
-                print('Browser bleibt geöffnet. a + Enter öffnet/wählt; b + Enter bestätigt; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+            if command not in ('a','b','c'):
+                print('Browser bleibt geöffnet. a + Enter öffnet/wählt; b + Enter bestätigt; c + Enter prüft den Warenkorb; q + Enter beendet. Kein automatischer Kauf.',file=sys.stderr,flush=True)
                 continue
-            phase='locate_open_review_page'
+            phase='inspect_checkout' if command=='c' else 'locate_open_review_page'
             try:
+                if command=='c':
+                    checkouts=[]
+                    for current in page.context.pages:
+                        if current.is_closed(): continue
+                        u=urlsplit(current.evaluate('window.location.href'))
+                        if u.scheme=='https' and u.hostname=='westbahn.at' and u.path.rstrip('/')=='/ticketshop/checkout':
+                            checkouts.append(current)
+                    if len(checkouts)!=1 or not last_confirmed_seat:
+                        result={'status':'cart_inspection_blocked','bookingAuthorized':False,
+                                'message':'Ein eindeutiger Warenkorb und vorher bestätigter Sitzplatz fehlen.'}
+                    else:
+                        result={'status':'cart_inspection','seat':last_confirmed_seat,
+                                **audit_cart(checkouts[0],day,last_confirmed_seat)}
+                    print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
+                    continue
                 actual,diagnostic=find_open_review_page(page,day)
                 if actual is None and command=='a':
                     phase='open_comfort_and_seat_map'
@@ -1582,12 +1599,14 @@ def manual_seat_review(page, day, root=None):
                     phase='confirm_seat_only' if command=='b' else 'select_preferred_seat'
                     result=confirm_review_selection(actual,day) if command=='b' else select_primary_seat_in_open_modal(actual)
                     result['pageInspection']=diagnostic
+                    if result.get('status')=='seat_confirmed':
+                        last_confirmed_seat=result.get('selection',{}).get('seat')
             except Blocked as error:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':str(error)}
             except Exception as error:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'failure':safe_review_failure(error,phase),'message':'Technischer Fehler bei der Sitzplanprüfung; Details unter failure. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
-            print('Browser bleibt geöffnet. a + Enter für Auswahl, b + Enter für Sitzplatzbestätigung, q + Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
+            print('Browser bleibt geöffnet. a + Enter Auswahl, b + Enter Sitzplatzbestätigung, c + Enter Warenkorb-Audit, q + Enter beenden. Kein automatischer Kauf.',file=sys.stderr,flush=True)
         return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
 
 
