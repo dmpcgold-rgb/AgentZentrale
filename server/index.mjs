@@ -6,6 +6,7 @@ import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
+import { safeTripPreview } from './trip-preview.mjs';
 import { planDates } from '../src/core/westbahn.js';
 import { ApiError, compareToken, requireName, requirePath, requireText, enforceWritableFile, isAllowedOwner, apiPath, responseText, verifyProposalObject, generateBranch } from './lib.mjs';
 
@@ -111,6 +112,23 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       if (is('POST', '/westbahn/browser/probe') || is('POST', '/westbahn/browser/prepare')) {
         const body = await readJson(req);
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
+      }
+      // A single-trip public preview never authorizes booking. An existing
+      // ledger row blocks even the public search to avoid redundant actions.
+      if(is('POST','/westbahn/browser/preview-trip')){
+        const body=await readJson(req);
+        const date=body?.date;
+        if(typeof date!=='string'||!planDates(new Date(now())).includes(date))
+          throw new ApiError(400,'Reisedatum außerhalb des erlaubten Pendelplans.');
+        const known=westbahn.status()?.rows||[];
+        if(known.some(x=>x.date===date))
+          return write(res,200,safeTripPreview({date,ledgerRows:known}));
+        try{
+          const raw=await browser.run('prepare',date);
+          return write(res,200,safeTripPreview({date,raw,ledgerRows:known}));
+        }catch{
+          return write(res,200,safeTripPreview({date}));
+        }
       }
       if (is('GET', '/westbahn/readiness')) return write(res,200,
         bookingReadiness({westbahn,review,now:new Date(now())}));
