@@ -235,3 +235,16 @@ Der Live-Test mit den jetzt passenden URL-Längen (8–11 / 4–7 Zeichen) ergab
 Nach dem echten Kontotest mit `ticket_view_caption_not_allowlisted` wurde die **enge** Liste bekannter Lesefunktionen erweitert: beispielsweise `Mehr Details`, `Details ansehen`, `Weitere Details`, `Ticketdetails anzeigen`, `Reservierungsdetails ansehen` und `Zur Ticketansicht`. Mehrere Leerzeichen und dekorative Pfeile am Ende werden normalisiert. Nur eine **passende Konto-Ticketkarte** mit genau der beobachteten URL-Struktur (8–11 / 4–7 ASCII-Zeichen), gleichem offiziellen WESTbahn-Host und ohne Query/Fragment darf mit einer dieser Beschriftungen gelesen werden. Mutierende Aktionen (z. B. `Umbuchen`, `Stornieren`, `Zahlungspflichtig bestellen`) bleiben explizit verboten. Unbekannte Beschriftungen bleiben gesperrt.
 
 Die Änderung ist noch nicht live verifiziert. Selbst bei `detail_read` bleiben `bookingAuthorized:false`, `safeToBook:false`, `confirmationVerified:false` und `inventoryComplete:false`. Eine rein lesende Detailprüfung ist keine automatische Buchung.
+
+
+## Diagnose tatsächlich geladener Ticketdetailseiten
+
+Der Live-Test am 11.11.2026 bestand **22 Tests** und fand **eine erlaubte Detail-URL**. Die HTML-Antwort war lesbar (`detailStatus:detail_read`), enthielt aber **keinen** nachweisbaren Sitzplatz, keine eindeutig passende Strecke/Uhrzeit, keine Buchungsreferenz und kein vollständiges Fahrtdatum. Damit ist **nicht** belegt, dass der Inhalt die richtige Ticketdetailseite war. Ein HTTP-200-Ergebnis allein bedeutet ausdrücklich **keine** verifizierte Reservierung.
+
+Der neue Diagnoseschritt liest nach dem Laden der reinen Detailseite bei fehlenden Inhalten ein zweites Mal nach einer kurzen, begrenzten Wartezeit. Er liefert nur `contentDiagnostics` mit **pageKind** (z. B. `login_required`, `account_overview`, `empty_or_loading`, `embedded_document`, `ticket_content_present`, `partial_ticket_content` oder `unrecognized_content`), `documentType`, einer groben Größenklasse und festen booleschen Indikatoren. Es werden **keine** HTML-Texte, Kennungen, Links, Buchungsnummern oder Datums-/Sitzplatzwerte ausgegeben. Ein frei lesbares Datum irgendwo in der Seite gilt nicht automatisch als Reisedatum. Die bestehenden strengeren Verifikationen bleiben aktiv.
+
+Tests nach Docker-Build: `python -m unittest test_ticket_content_diagnostics.py test_ticket_detail_view.py test_detail_route_diagnostics.py`.
+
+Reine Echtprüfung: `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`.
+
+Auch wenn `pageKind:ticket_content_present` erscheint, darf erst eine eindeutige Verbindung zwischen Fahrtdatum, Sitzplatz, Strecke, Produkt und Buchungsnachweis als zusätzliche Evidenz betrachtet werden. **`confirmationVerified:false`, `bookingAuthorized:false`, `safeToBook:false`, `inventoryComplete:false`** bleiben gesetzt. Kein automatischer Kauf.
