@@ -4,7 +4,7 @@ import {useRemote} from '../store/RemoteContext';
 import {RULES,BOOKING_URL,planDates} from '../core/westbahn';
 import {ActionButton,Body,Card,Heading,Muted,Section,styles} from '../components/Kit';
 import {T} from '../theme';
-const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)'};
+const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)',existing_verified:'Bestehendes Ticket geprüft'};
 export default function WestbahnScreen({navigation}){
  const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState('2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[auditResult,setAuditResult]=useState(null);
  const dates=planDates();
@@ -40,6 +40,7 @@ export default function WestbahnScreen({navigation}){
  {auditResult?<View style={{marginTop:10}}>
    <Body>{auditResult.status==='existing_ticket_verified'?'Vorhandene Ticketdetails erkannt':'Noch kein eindeutig geprüfter Ticketbeleg'}</Body>
    <Muted>{auditResult.date} · {auditResult.seat||'—'} · {auditResult.checks?.yearVerified?'Reisedatum bestätigt':'Datum nicht sicher verifiziert'}</Muted>
+   <Muted>{auditResult.ledgerProtected?'Im Buchungsprotokoll gegen Doppelbuchung geschützt.':'Keine gesicherte Bestandsfreigabe; Ticketstatus manuell prüfen.'}</Muted>
    <Muted>Keine neue Reservierung. Fehlende Treffer erlauben keinen automatischen Kauf.</Muted>
  </View>:null}
  </Card>
