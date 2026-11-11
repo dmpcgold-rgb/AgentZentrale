@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Private WESTbahn browser. Read-only search; no checkout or payment actions."""
-import argparse, fcntl, json, os, sys, re
+import argparse, fcntl, json, os, sys, re, shutil, tempfile
 from pathlib import Path
 from datetime import date
 from urllib.parse import urlsplit, parse_qs, urlencode
@@ -407,9 +407,13 @@ def offline_seat_preview(page, day):
     result=prepare(page,day)
     if result.get('status')!='connection_found': return result
     conn=result['connection']
-    if conn.get('displayedPriceCents')!=0 or conn.get('priceSource')!='comfort_control':
-        raise Blocked('Comfort-Preis nicht eindeutig 0 EUR. Keine Sitzplatzvorschau.')
     details=comfort_control_details(page,conn)
+    # Require a fresh, unambiguous zero on the exact control in this context.
+    # Do not reuse an old price from the main browser.
+    conn=apply_comfort_control_price(conn,details)
+    if conn.get('displayedPriceCents')!=0 or conn.get('priceSource')!='comfort_control' or conn.get('priceStatus')!='displayed':
+        return {'status':'seat_preview_blocked','connection':conn,'inspection':details,
+                'message':'Comfort-Preis in der isolierten Vorschau nicht eindeutig 0 EUR. Keine Klicks oder Buchung.'}
     controls=details.get('controls',[])
     if details.get('targetClassLabels')!=1 or len(controls)!=1 or controls[0].get('controlTag')!='button' or controls[0].get('disabled') is not False:
         raise Blocked('Comfort-Schaltfläche nicht eindeutig aktiv. Keine Sitzplatzvorschau.')
@@ -661,6 +665,45 @@ def account_inventory(context, requested_page=None):
             'message':f'{len(rows)} unterschiedliche sichtbare Datum/Sitzplatz-Kombinationen auf beiden WESTbahn-Domains. Bestand nicht vollständig bestätigt; keine Buchung.'}
 
 
+
+def copy_preview_profile(source, destination):
+    """Clone a closed Chromium profile without startup tabs, caches or locks."""
+    if not source.is_dir():
+        raise Blocked('Gespeichertes Browserprofil fehlt.')
+    omit={'SingletonLock','SingletonCookie','SingletonSocket','LOCK','lockfile',
+          'Cache','Code Cache','GPUCache','DawnGraphiteCache','DawnWebGPUCache',
+          'Crashpad','Sessions','Current Session','Current Tabs','Last Session','Last Tabs'}
+    def ignore(path,names):
+        return [n for n in names if n in omit or (Path(path)/n).is_symlink()]
+    shutil.copytree(source,destination,ignore=ignore)
+
+def run_seat_preview(p, root, kwargs, day):
+    # The caller holds the profile lock and the real Chromium is not running.
+    # Preserve IndexedDB, cookies, preferences and other local profile state.
+    # The temporary directory is private and removed even after an error.
+    with tempfile.TemporaryDirectory(prefix='.seat-preview-',dir=root) as tmp:
+        profile=Path(tmp)/'chromium'
+        copy_preview_profile(root/'chromium',profile)
+        preview=p.chromium.launch_persistent_context(str(profile),**kwargs,
+                    service_workers='block',args=['--no-first-run','--disable-background-networking'])
+        try:
+            def guard(route):
+                if route.request.is_navigation_request():
+                    try: subframe=route.request.frame.parent_frame is not None
+                    except Exception: subframe=False
+                    if not allowed_navigation(route.request.url,subframe):
+                        route.abort()
+                        return
+                route.continue_()
+            preview.route('**/*',guard)
+            preview.route_web_socket('**/*',lambda ws: ws.close())
+            q=preview.pages[0] if preview.pages else preview.new_page()
+            q.set_default_timeout(5000)
+            q.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
+            return offline_seat_preview(q,day)
+        finally: preview.close()
+
+
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
@@ -672,6 +715,9 @@ def main():
         with sync_playwright() as p:
             kwargs={'headless':args.mode!='login','timeout':20000,'accept_downloads':False}
             if os.environ.get('WESTBAHN_CHROMIUM_PATH'): kwargs['executable_path']=os.environ['WESTBAHN_CHROMIUM_PATH']
+            if args.mode=='seat-preview':
+                if not args.date: raise Blocked('Reisedatum fehlt.')
+                return run_seat_preview(p,root,kwargs,args.date)
             context=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
             try:
                 page=context.pages[0] if context.pages else context.new_page()
@@ -687,22 +733,6 @@ def main():
                                 return
                         route.continue_()
                     context.route('**/*',guard)
-                if args.mode=='seat-preview':
-                    if not args.date: raise Blocked('Reisedatum fehlt.')
-                    # Copy only session state into a temporary browser context.
-                    # Never save changes made by the offline preview to the real profile.
-                    browser=p.chromium.launch(**{k:v for k,v in kwargs.items() if k!='accept_downloads'})
-                    try:
-                        preview=browser.new_context(storage_state=context.storage_state(),service_workers='block',accept_downloads=False)
-                        preview.route('**/*',guard)
-                        preview.route_web_socket('**/*',lambda ws: ws.close())
-                        try:
-                            q=preview.new_page()
-                            q.set_default_timeout(5000)
-                            q.goto(date_url(args.date),wait_until='domcontentloaded',timeout=25000)
-                            return offline_seat_preview(q,args.date)
-                        finally: preview.close()
-                    finally: browser.close()
                 if args.mode=='account': return account_inventory(context,args.page)
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')

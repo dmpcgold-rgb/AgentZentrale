@@ -1,7 +1,8 @@
-import unittest, os
+import unittest, os, tempfile
+from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -46,6 +47,28 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_preview_profile_preserves_local_state_and_skips_locks(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp)
+   src=root/'source'
+   dst=root/'clone'
+   (src/'Default'/'IndexedDB').mkdir(parents=True)
+   (src/'Default'/'IndexedDB'/'state').write_text('test-only')
+   (src/'Default'/'Sessions').mkdir()
+   (src/'Default'/'Sessions'/'tabs').write_text('test-only')
+   (src/'SingletonLock').write_text('lock')
+   copy_preview_profile(src,dst)
+   self.assertEqual((dst/'Default'/'IndexedDB'/'state').read_text(),'test-only')
+   self.assertFalse((dst/'Default'/'Sessions').exists())
+   self.assertFalse((dst/'SingletonLock').exists())
+   self.assertTrue((src/'SingletonLock').exists())
+ def test_preview_rechecks_price_and_blocks_nonzero(self):
+  conn={'displayedPriceCents':790,'priceStatus':'displayed','priceSource':'comfort_control'}
+  detail={'targetClassLabels':1,'controls':[{'visible':True,'disabled':False,'pointerEvents':'auto','prices':['€ 7,90']}]}
+  with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}), patch('worker.comfort_control_details',return_value=detail):
+   result=offline_seat_preview(None,'2026-11-17')
+  self.assertEqual(result['status'],'seat_preview_blocked')
+  self.assertEqual(result['connection']['displayedPriceCents'],790)
  def test_exact_departure_and_price(self):
   result=parse_connection(RESULTS)
   self.assertEqual(result['trainNumber'],'1009')
