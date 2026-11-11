@@ -1417,10 +1417,20 @@ def find_seat_change_control(page, diagnostic=False):
         // *only* a visible leaf 'Ändern' on the same on-screen heading row.
         // Never use the unrelated travel-data editor higher up the page.
         if(new Set(candidates).size===0){
+          // The heading must belong to a real seat-summary region; visual
+          // proximity alone must never authorize an unrelated page editor.
+          let localSeatSummary=false;
+          for(let ancestor=h.parentElement;ancestor&&ancestor!==document.body;ancestor=ancestor.parentElement){
+            const s=raw(ancestor);
+            if(s.length>3500)break;
+            if(/\bWagen\b/i.test(s)&&/\bPlatz\b/i.test(s)&&/\b[0-9]{3}[A-D]\b/.test(s)){
+              localSeatSummary=true;break;
+            }
+          }
           const hb=h.getBoundingClientRect();
-          const visualLeaves=changedText.filter(e=>
+          const visualLeaves=localSeatSummary?changedText.filter(e=>
             /^Ändern$/i.test(raw(e)) &&
-            ![...e.children].some(child=>visible(child)&&/^Ändern$/i.test(raw(child))));
+            ![...e.children].some(child=>visible(child)&&/^Ändern$/i.test(raw(child)))):[];
           for(const c of visualLeaves){
             const cb=c.getBoundingClientRect();
             const dy=Math.abs((cb.top+cb.bottom-hb.top-hb.bottom)/2);
