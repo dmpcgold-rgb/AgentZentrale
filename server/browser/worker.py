@@ -1786,6 +1786,7 @@ def main():
                         inventory.get('matchingVisibleCards'),batch_days,
                         inventory.get('reports'))
                     detail_checks={}
+                    detail_diagnostics={}
                     examined=0
                     # Prioritize uncertain, yearless cards before already dated
                     # tickets. The bounded two-detail budget must not be spent
@@ -1802,13 +1803,16 @@ def main():
                         try:
                             detail_checks[item['date']]=inspect_existing_ticket_details(
                                 context,item['date'],item['seats'][0],max_pages=2)
+                            detail_diagnostics[item['date']]=detail_checks[item['date']].get('detailStatus','unknown')
                         except Exception:
-                            # Ambiguity, missing year or session problems never
-                            # turn a possible ticket into a booking permission.
-                            pass
-                    return summarize_inventory_batch(
+                            # Report only a fixed diagnostic category, never
+                            # exception text, URLs or private ticket identifiers.
+                            detail_diagnostics[item['date']]='inspection_error'
+                    summary=summarize_inventory_batch(
                         inventory.get('matchingVisibleCards'),batch_days,
                         inventory.get('reports'),detail_checks)
+                    summary['detailDiagnostics']=detail_diagnostics
+                    return summary
                 if args.mode=='booking-check':
                     if not args.date: raise Blocked('Reisedatum für Bestandsprüfung fehlt.')
                     session=ensure_austrian_session(page,root)
