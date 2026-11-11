@@ -974,6 +974,10 @@ def seat_modal_state(page, target=None):
       const smallest=[...modals].filter(e=>![...modals].some(other=>other!==e&&e.contains(other)));
       if(smallest.length!==1)return target?null:{modalFound:false,controls:[]};
       const modal=smallest[0];
+      if(target&&target.kind==='confirm'){
+        const buttons=[...modal.querySelectorAll('button,[role="button"]')].filter(e=>vis(e)&&text(e)==='Bestätigen'&&!e.matches(':disabled,[aria-disabled="true"]')&&getComputedStyle(e).pointerEvents!=='none');
+        return buttons.length===1?buttons[0]:null;
+      }
       // The selected-seat summary precedes the actual seat map. Never use an
       // arbitrary seat label in the map as evidence of the selected seat.
       const beforeMap=(modal.innerText||modal.textContent||'').split(/Legende|2\+\s*\|\s*Comfort|2\+\s*Comfort/i)[0];
@@ -1200,6 +1204,62 @@ def select_primary_seat_in_open_modal(page):
     return blocked('Kein eindeutig freier Wunsch- oder nachweislich passender Zweierplatz. Viererplätze und unbekannte Anordnungen ausgeschlossen.')
 
 
+
+def detail_selection_summary(page, day, expected=None):
+    """Read the specific selection card; never infer the total from page-wide prices."""
+    if not is_review_detail_url(page.evaluate('window.location.href'),day):
+        return {'verified':False,'reason':'detail_page_mismatch'}
+    data=page.evaluate(r"""() => {
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
+      const text=e=>norm(e.innerText||e.textContent);
+      const titles=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&text(e)==='Meine Auswahl'&&![...e.children].some(c=>vis(c)&&text(c)==='Meine Auswahl'));
+      const cards=new Set();
+      for(const h of titles){
+        for(let e=h.parentElement;e&&e!==document.body;e=e.parentElement){
+          if([...e.querySelectorAll('button,[role="button"]')].some(b=>vis(b)&&text(b)==='In den Warenkorb')){cards.add(e);break;}
+        }
+      }
+      if(cards.size!==1)return {found:false};
+      const t=text([...cards][0]);
+      const seats=[...t.matchAll(/Sitzpl(?:atz|ätze)\s*:\s*(\d{2,4})\s*([A-D])\b/gi)].map(m=>m[1]+m[2].toUpperCase());
+      const prices=[...t.matchAll(/(?:€\s*(\d+(?:[.,]\d{2}))|(\d+(?:[.,]\d{2}))\s*€)/g)].map(m=>m[1]||m[2]);
+      return {found:true,comfort:/Reservierung\s+Comfort\s+Class/i.test(t),quantityOne:/\b1\s+Reservierung\s+Comfort\s+Class/i.test(t),
+        route:/Wien\s+Meidling/i.test(t)&&/Wiener\s+Neustadt/i.test(t),train:/\b1009\b/.test(t),
+        time:/18:22\s*[-–—]\s*18:49/.test(t),dates:[...t.matchAll(/\b\d{1,2}\.\d{1,2}\.\d{4}\b/g)].map(m=>m[0]),seats,prices};
+    }""")
+    wanted=date.fromisoformat(day)
+    date_ok=any(x in data.get('dates',[]) for x in (wanted.strftime('%d.%m.%Y'),f'{wanted.day}.{wanted.month}.{wanted.year}'))
+    prices=data.get('prices',[])
+    seats=list(set(data.get('seats',[])))
+    ok=bool(data.get('found') and data.get('comfort') and data.get('quantityOne') and data.get('route') and data.get('train') and data.get('time') and date_ok and len(prices)>=2 and all(x in ('0,00','0.00') for x in prices) and len(seats)==1)
+    return {'verified':ok and (expected is None or seats==[expected]),'seat':seats[0] if len(seats)==1 else None,
+            'priceCents':0 if prices and all(x in ('0,00','0.00') for x in prices) else None,
+            'dateVerified':date_ok,'checks':data}
+
+def confirm_review_selection(page,day):
+    """Confirm the seat within the dialog only; never add to basket or buy."""
+    summary=detail_selection_summary(page,day)
+    if not summary['verified']:
+        return {'status':'seat_confirmation_blocked','bookingAuthorized':False,'summary':summary,'message':'Detailzusammenfassung nicht eindeutig 0 EUR; keine Bestätigung.'}
+    state=seat_modal_state(page)
+    selected=state.get('selected') or {}
+    # A pre-approved seat is eligible; unknown layout is not accepted here.
+    if not any(coach==selected.get('coach') and selected.get('seat') in seats for coach,seats in PREFERRED_SEAT_GROUPS):
+        return {'status':'seat_confirmation_blocked','bookingAuthorized':False,'message':'Kein eindeutig freigegebener Wunsch-/Ersatzplatz ausgewählt.'}
+    control=seat_modal_state(page,{'kind':'confirm'})
+    if control is None:
+        return {'status':'seat_confirmation_blocked','bookingAuthorized':False,'message':'Bestätigen im Sitzplandialog nicht eindeutig.'}
+    control.click(timeout=5000)
+    for _ in range(12):
+        page.wait_for_timeout(250)
+        if not seat_modal_state(page).get('modalFound'):
+            summary=detail_selection_summary(page,day,selected['seat'])
+            if summary['verified']:
+                return {'status':'seat_confirmed','selection':selected,'summary':summary,'bookingAuthorized':False,'message':'Sitzplatz in Detailauswahl bestätigt; nicht im Warenkorb und nicht gebucht.'}
+    return {'status':'seat_confirmation_unverified','bookingAuthorized':False,'message':'Auswahl nach Bestätigung nicht eindeutig. Nicht fortfahren.'}
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -1216,12 +1276,12 @@ def manual_seat_review(page, day, root=None):
             if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl, b + Enter für Sitzplatzbestätigung und 0-EUR-Detailprüfung. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
         while True:
             command=read_review_command(page)
             if command=='q':
                 break
-            if command!='a':
+            if command not in ('a','b'):
                 print('Browser bleibt geöffnet. a + Enter für Wunschplatzprüfung; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
                 continue
             try:
@@ -1229,12 +1289,12 @@ def manual_seat_review(page, day, root=None):
                 if actual is None:
                     result={'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':diagnostic,'message':'Keine eindeutige Detailseite mit geöffnetem Sitzplan für das gewünschte Datum gefunden.'}
                 else:
-                    result=select_primary_seat_in_open_modal(actual)
+                    result=confirm_review_selection(actual,day) if command=='b' else select_primary_seat_in_open_modal(actual)
                     result['pageInspection']=diagnostic
             except Exception:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
-            print('Browser bleibt geöffnet. a + Enter für erneute Prüfung, q + Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
+            print('Browser bleibt geöffnet. a + Enter für Auswahl, b + Enter für Sitzplatzbestätigung, q + Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
         return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}
 
 
