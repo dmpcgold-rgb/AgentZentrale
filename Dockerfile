@@ -27,6 +27,8 @@ COPY --chown=node:node server /app/server
 RUN /opt/agent-venv/bin/python -m compileall -q /app/server/browser
 COPY --chown=node:node src/core /app/src/core
 COPY --chown=node:node package.json /app/package.json
+# Do not deploy checkout changes until the standalone ledger and receipt tests pass.
+RUN node --test server/tests/westbahn.test.mjs
 RUN mkdir -p /app/server/data && chown -R node:node /app/server/data
 WORKDIR /app/server
 USER node
