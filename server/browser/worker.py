@@ -7,6 +7,7 @@ from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from checkout_guard import audit_cart
 from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
+from confirmation_evidence import reference_indicators, summarize_confirmation_candidates
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
 ORIGIN = 'Wien Meidling'
@@ -563,9 +564,11 @@ def account_summary(page):
         # absence of a reservation from a partial page or a yearless label.
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
         full_date=extract_explicit_trip_date(t)
+        references=reference_indicators(t)
         rows.append({'dateLabel':label.group(0) if label else None,
                      'seat':seat.group(1).replace(' ','') if seat else None,
-                     'fullDate':full_date})
+                     'fullDate':full_date,
+                     **references})
     return {'status':'account_verified','page':parse_qs(parsed.query).get('page',['1'])[0],'visibleComfortCards':max(max_visible,len(cards)),'matchingVisibleCards':rows,'scrollPasses':scroll_passes,'newCardsAfterScroll':len(cards)-first_count,
             'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {max(max_visible,len(cards))} erkannte Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten; {len(cards)-first_count} neu beim Scrollen. Keine vollständige Bestandsprüfung; keine Buchung.'}
 
@@ -663,6 +666,14 @@ def account_inventory(context, requested_page=None):
                     key=(label,seat)
                     if key not in merged:
                         merged[key]={**row,'sources':[]}
+                    # Keep stronger positive evidence seen on either official domain.
+                    merged[key]['bookingReference']=merged[key].get('bookingReference') is True or row.get('bookingReference') is True
+                    merged[key]['ticketReference']=merged[key].get('ticketReference') is True or row.get('ticketReference') is True
+                    if merged[key].get('fullDate') is None and row.get('fullDate'):
+                        merged[key]['fullDate']=row['fullDate']
+                    elif merged[key].get('fullDate') and row.get('fullDate') and merged[key]['fullDate']!=row['fullDate']:
+                        # Conflicting journey years must not be silently resolved.
+                        merged[key]['fullDate']='conflicting'
                     if domain not in merged[key]['sources']:
                         merged[key]['sources'].append(domain)
                 if requested_page is None:
@@ -1645,7 +1656,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check','confirmation-check']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -1676,7 +1687,7 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account','booking-check') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit','booking-check') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account','booking-check','confirmation-check') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit','booking-check','confirmation-check') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
@@ -1697,6 +1708,14 @@ def main():
                     inventory=account_inventory(context)
                     evidence=assess_existing_ticket(inventory.get('matchingVisibleCards'),args.date,args.seat)
                     return {'status':'booking_check','date':args.date,'inventoryComplete':False,**evidence}
+                if args.mode=='confirmation-check':
+                    if not args.date or not args.seat: raise Blocked('Datum und Sitzplatz für Bestätigungsprüfung fehlen.')
+                    session=ensure_austrian_session(page,root)
+                    if session['status']!='account_verified':
+                        return {'status':'account_not_verified','confirmationVerified':False,'bookingAuthorized':False,
+                                'message':'Konto nicht bestätigt; keine Bestätigung.'}
+                    inventory=account_inventory(context)
+                    return summarize_confirmation_candidates(inventory.get('matchingVisibleCards'),args.date,args.seat)
                 if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
