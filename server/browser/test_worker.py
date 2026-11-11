@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,30 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_login_trust_and_no_credentials(self):
+  from unittest.mock import Mock
+  self.assertTrue(trusted_login_url('https://westbahn.at/anmelden/'))
+  self.assertFalse(trusted_login_url('https://westbahn.at.evil.test/anmelden/'))
+  self.assertFalse(trusted_login_url('https://westbahn.at@evil.test/anmelden/'))
+  with tempfile.TemporaryDirectory() as temp:
+   page=Mock()
+   with patch('worker.verify_austrian_session',return_value={'status':'login_required'}):
+    self.assertEqual(ensure_austrian_session(page,Path(temp))['status'],'login_required')
+   page.goto.assert_not_called()
+ def test_login_skips_credentials_when_session_valid(self):
+  from unittest.mock import Mock
+  with patch('worker.verify_austrian_session',return_value={'status':'account_verified'}), patch('worker.load_login') as load:
+   self.assertEqual(ensure_austrian_session(Mock(),Path('/unused'))['status'],'account_verified')
+   load.assert_not_called()
+ def test_login_rejects_insecure_credential_file(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp)
+   path=root/'westbahn-login.json'
+   path.write_text('{"email":"test@example.org","password":"test-only"}')
+   path.chmod(0o644)
+   with self.assertRaises(Blocked): load_login(root)
+   path.chmod(0o600)
+   self.assertEqual(load_login(root)['email'],'test@example.org')
  def test_authenticated_prepare_stops_on_unverified_login(self):
   from unittest.mock import Mock
   page=Mock()

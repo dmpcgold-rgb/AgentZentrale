@@ -834,10 +834,115 @@ def verify_austrian_session(page):
         pass
     return {'status':'account_unverified','message':'Anmeldung auf westbahn.at nicht eindeutig bestätigt. Keine Buchung.'}
 
-def authenticated_prepare(page, day, inspect_only=False):
+
+LOGIN_URL='https://westbahn.at/anmelden/'
+
+def trusted_login_url(url):
+    u=urlsplit(url)
+    return u.scheme=='https' and u.hostname in ('westbahn.at','www.westbahn.at','westbahn.de','www.westbahn.de') and not u.username and not u.password and u.port in (None,443)
+
+def credential_path(root):
+    return root/'westbahn-login.json'
+
+def configure_login(root):
+    import getpass
+    if not sys.stdin.isatty(): raise Blocked('Zugangsdaten nur interaktiv am privaten SSH-Terminal hinterlegen.')
+    email=input('WESTbahn E-Mail: ').strip()
+    password=getpass.getpass('WESTbahn Passwort (unsichtbar): ')
+    if not email or '@' not in email or not password: raise Blocked('E-Mail oder Passwort fehlt.')
+    fd,name=tempfile.mkstemp(prefix='.login-',dir=root)
+    try:
+        with os.fdopen(fd,'w') as f:
+            json.dump({'email':email,'password':password},f)
+            f.flush(); os.fsync(f.fileno())
+        os.chmod(name,0o600)
+        os.replace(name,credential_path(root))
+        (root/'.login-attempt').unlink(missing_ok=True)
+    finally:
+        if os.path.exists(name): os.unlink(name)
+    return {'status':'credentials_saved','message':'WESTbahn-Zugangsdaten privat auf dem Server gespeichert. Nicht in GitHub oder Browserprofilkopien.'}
+
+def load_login(root):
+    path=credential_path(root)
+    if not path.exists(): return None
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_uid!=os.getuid():
+        raise Blocked('Unsichere Berechtigungen der WESTbahn-Zugangsdaten.')
+    data=json.loads(path.read_text())
+    if not isinstance(data,dict) or not isinstance(data.get('email'),str) or not isinstance(data.get('password'),str) or not data['email'] or not data['password']:
+        raise Blocked('WESTbahn-Zugangsdaten fehlen oder sind ungültig.')
+    return data
+
+def login_fields(page):
+    """Require a single visible password form and a single email and login button."""
+    def visible(loc):
+        return [loc.nth(i) for i in range(loc.count()) if loc.nth(i).is_visible()]
+    passwords=visible(page.locator('input[type="password"]'))
+    if len(passwords)!=1: return None
+    password=passwords[0]
+    form=password.locator('xpath=ancestor::form[1]')
+    scope=form if form.count()==1 else page
+    if form.count()==1:
+        action=form.evaluate('(f) => f.action')
+        if not trusted_login_url(action): return None
+    emails=visible(scope.locator('input[type="email"],input[autocomplete="username"],input[name="email"],input[name="username"],input[autocomplete="email"]'))
+    buttons=visible(scope.get_by_role('button',name=re.compile(r'^\s*(Anmelden|Einloggen|Login|Log in|Sign in)\s*$',re.I)))
+    if len(emails)!=1 or len(buttons)!=1: return None
+    if not buttons[0].is_enabled() and not emails[0].is_editable(): return None
+    return emails[0],password,buttons[0]
+
+def ensure_austrian_session(page, root=None):
+    session=verify_austrian_session(page)
+    if session['status']=='account_verified' or root is None: return session
+    data=load_login(root)
+    if not data:
+        return {'status':'login_required','message':'Automatische Anmeldung noch nicht eingerichtet. credentials-set ausführen. Keine Buchung.'}
+    import time
+    attempt=root/'.login-attempt'
+    if attempt.exists() and time.time()-attempt.stat().st_mtime<600:
+        return {'status':'login_required','message':'Erneute automatische Anmeldung vorübergehend gesperrt (10 Minuten). Konto manuell prüfen. Keine Buchung.'}
+    try:
+        response=page.goto(LOGIN_URL,wait_until='domcontentloaded',timeout=25000)
+        if response is None or response.status>=400 or not trusted_login_url(page.url):
+            return {'status':'account_unverified','message':'Offizielle WESTbahn-Anmeldeseite nicht erreichbar. Keine Buchung.'}
+        # Do not submit anything if the account is already authenticated.
+        if '/ticketshop/dashboard/' in urlsplit(page.url).path:
+            return verify_austrian_session(page)
+        for _ in range(8):
+            fields=login_fields(page)
+            if fields: break
+            page.wait_for_timeout(750)
+        else:
+            return {'status':'login_required','message':'Loginformular nicht eindeutig erkannt. Manuelle Anmeldung erforderlich. Keine Buchung.'}
+        email,password,button=fields
+        # A separate challenge must never be solved or bypassed automatically.
+        if page.locator('iframe[src*="captcha"],iframe[src*="recaptcha"],iframe[src*="turnstile"]').count() or page.locator('input[autocomplete="one-time-code"]').count():
+            return {'status':'login_required','message':'Zusätzliche Sicherheitsprüfung erforderlich. Manuell anmelden. Keine Buchung.'}
+        if not trusted_login_url(page.url): raise Blocked('Anmeldeseite gewechselt.')
+        email.fill(data['email'])
+        password.fill(data['password'])
+        if not trusted_login_url(page.url): raise Blocked('Anmeldeseite gewechselt.')
+        if not button.is_enabled(): return {'status':'login_required','message':'Anmeldebutton nicht aktiv. Keine Buchung.'}
+        # One attempt per cooldown; do not retry a failed password repeatedly.
+        attempt.touch(mode=0o600)
+        button.click(timeout=8000)
+        try:
+            page.wait_for_function("""() => location.pathname.includes('/ticketshop/dashboard/') || document.body.innerText.includes('Westbahn-Konto')""",timeout=15000)
+        except PWTimeout:
+            pass
+        verified=verify_austrian_session(page)
+        if verified['status']=='account_verified':
+            attempt.unlink(missing_ok=True)
+            verified['autoLogin']=True
+            return verified
+    except Exception:
+        pass
+    return {'status':'login_required','message':'Automatische Anmeldung nicht bestätigt. Passwort oder zusätzliche Sicherheitsprüfung manuell prüfen. Keine Buchung.'}
+
+
+def authenticated_prepare(page, day, inspect_only=False, root=None):
     day=date.fromisoformat(day).isoformat()
     if day<'2026-11-17': raise Blocked('Reisedatum vor dem ersten unreservierten Tag.')
-    session=verify_austrian_session(page)
+    session=ensure_austrian_session(page,root)
     if session['status']!='account_verified': return session
     page.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
     if not official(page.url): raise Blocked('Nicht erlaubte Browserseite.')
@@ -846,11 +951,11 @@ def authenticated_prepare(page, day, inspect_only=False):
     result['bookingAuthorized']=False
     return result
 
-def manual_seat_review(page, day):
+def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
     while True:
-        result=authenticated_prepare(page,day)
+        result=authenticated_prepare(page,day,root=root)
         print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
         if result.get('status') in ('login_required','account_unverified'):
             print('Bitte im privaten Browser auf westbahn.at anmelden bzw. das Konto öffnen. Danach hier Enter drücken; q beendet.',file=sys.stderr,flush=True)
@@ -868,13 +973,18 @@ def manual_seat_review(page, day):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
     with (root/'.agent.lock').open('a') as lock:
         try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError: raise Blocked('Browserprofil ist gerade in Benutzung.')
+        if args.mode=='credentials-set': return configure_login(root)
+        if args.mode=='credentials-remove':
+            credential_path(root).unlink(missing_ok=True)
+            (root/'.login-attempt').unlink(missing_ok=True)
+            return {'status':'credentials_removed','message':'Gespeicherte Zugangsdaten entfernt; Browseranmeldung separat.'}
         with sync_playwright() as p:
             kwargs={'headless':args.mode not in ('login','seat-review'),'timeout':20000,'accept_downloads':False}
             if os.environ.get('WESTBAHN_CHROMIUM_PATH'): kwargs['executable_path']=os.environ['WESTBAHN_CHROMIUM_PATH']
@@ -894,19 +1004,23 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('account','account-audit') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
                     context.route('**/*',guard)
-                if args.mode=='account': return account_inventory(context,args.page)
+                if args.mode=='login-check': return ensure_austrian_session(page,root)
+                if args.mode=='account':
+                    session=ensure_austrian_session(page,root)
+                    if session['status']!='account_verified': return session
+                    return account_inventory(context,args.page)
                 if args.mode=='account-audit':
                     if not args.date: raise Blocked('Reisedatum für Kontovergleich fehlt.')
                     return account_audit(context,args.date)
                 if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
-                if args.mode=='seat-review': return manual_seat_review(page,args.date)
+                if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
-                    return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect')
+                    return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect',root=root)
                 target=URL
                 page.goto(target,wait_until='domcontentloaded',timeout=25000)
                 if args.mode=='login':
