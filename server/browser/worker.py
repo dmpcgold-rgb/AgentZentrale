@@ -431,15 +431,28 @@ def offline_seat_preview(page, day, network_diagnostic=False):
                 'blockReason':'connection_not_verified',
                 'bookingAuthorized':False,'liveAvailabilityVerified':False}
     conn=result['connection']
-    details=comfort_control_details(page,conn)
-    # Require a fresh, unambiguous zero on the exact control in this context.
-    # Do not reuse an old price from the main browser.
+    # Match the price-audit's repeated observations: the live DOM can update
+    # the Comfort price asynchronously after results are first rendered.
+    # Every observation is from this disposable browser, never another profile.
     original=conn
-    fresh={**conn,'displayedPriceCents':None,'priceSource':None,'priceStatus':'not_displayed'}
-    conn=apply_comfort_control_price(fresh,details)
-    zero_price=(original.get('displayedPriceCents') in (None,0) and conn.get('displayedPriceCents')==0 and conn.get('priceSource')=='comfort_control' and conn.get('priceStatus')=='displayed')
+    price_samples=[]
+    for attempt in range(4):
+        details=comfort_control_details(page,original)
+        fresh={**original,'displayedPriceCents':None,'priceSource':None,'priceStatus':'not_displayed'}
+        conn=apply_comfort_control_price(fresh,details)
+        price_samples.append(conn.get('displayedPriceCents'))
+        zero_price=(original.get('displayedPriceCents') in (None,0)
+                    and conn.get('displayedPriceCents')==0
+                    and conn.get('priceSource')=='comfort_control'
+                    and conn.get('priceStatus')=='displayed')
+        if zero_price: break
+        if attempt<3: page.wait_for_timeout(2000)
     if not network_diagnostic and not zero_price:
         return {'status':'seat_preview_blocked','blockReason':'zero_price_not_reconfirmed',
+                'connectionPriceCents':original.get('displayedPriceCents'),
+                'priceSamplesCents':price_samples,
+                'targetClassLabels':details.get('targetClassLabels'),
+                'controlCount':len(details.get('controls',[])),
                 'bookingAuthorized':False,'liveAvailabilityVerified':False}
     controls=details.get('controls',[])
     if details.get('targetClassLabels')!=1 or len(controls)!=1 or controls[0].get('controlTag')!='button' or controls[0].get('disabled') is not False:
@@ -745,8 +758,19 @@ def run_seat_preview(p, root, kwargs, day, network_diagnostic=False):
             preview.route_web_socket('**/*',lambda ws: ws.close())
             q=preview.pages[0] if preview.pages else preview.new_page()
             q.set_default_timeout(5000)
+            # Unlike the old preview, verify the Austrian account in this
+            # exact cloned browser BEFORE opening the fare search. Do not
+            # reuse credentials or an auth result from the main profile.
+            session=verify_austrian_session(q)
+            if session.get('status')!='account_verified':
+                return {'status':'seat_preview_blocked',
+                        'blockReason':'preview_account_unverified',
+                        'accountVerifiedBeforeSearch':False,
+                        'bookingAuthorized':False,'liveAvailabilityVerified':False}
             q.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
-            return offline_seat_preview(q,day,network_diagnostic=network_diagnostic)
+            result=offline_seat_preview(q,day,network_diagnostic=network_diagnostic)
+            result['accountVerifiedBeforeSearch']=True
+            return result
         finally: preview.close()
 
 
