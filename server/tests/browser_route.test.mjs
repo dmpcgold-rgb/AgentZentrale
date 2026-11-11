@@ -152,6 +152,26 @@ test('unverified or conflicting weekly ticket never modifies protected ledger',a
  assert.equal(res.body.bookingAuthorized,false);
 });
 
+test('uncertain checkout remains manual review despite matching visible ticket',async()=>{
+ const days=['2026-11-17'];
+ const batch={status:'inventory_batch_read',inventoryComplete:false,
+    safeToBook:false,bookingAuthorized:false,days:[
+    {date:days[0],status:'detail_verified',seats:['191D'],
+      dateVerified:true,detailVerified:true,potentialDuplicate:true,safeToBook:false}
+ ]};
+ const westbahn={recordVerifiedExisting(date,seat){
+    return {rows:[{date,seat,status:'uncertain'}]};
+ },run(){throw Error('must not book')}};
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+    now:()=>Date.parse('2026-11-11T12:00:00Z'),
+    browser:{async run(){return batch;}},westbahn});
+ const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
+ assert.equal(res.status,200);
+ assert.deepEqual(res.body.ledgerProtectedDates,[]);
+ assert.deepEqual(res.body.ledgerReviewDates,[days[0]]);
+ assert.equal(res.body.bookingAuthorized,false);
+});
+
 test('falsified positive data without fail-closed flags never locks ticket',async()=>{
  const calls=[];
  const batch={status:'inventory_batch_read',inventoryComplete:true,
