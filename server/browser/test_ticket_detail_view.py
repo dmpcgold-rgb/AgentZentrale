@@ -252,6 +252,31 @@ class TicketDetailBrowserTests(unittest.TestCase):
         finally:
             context.close()
 
+    def test_short_unknown_ticket_path_is_not_navigated_but_diagnosed(self):
+        context=self.browser.new_context()
+        visits=[]
+        try:
+            target='/ticketshop/dashboard/ticket/SHORT99/SECRET-LONG-123456789'
+            account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+                <article><h2>Reservierung Comfort Class</h2>
+                <p>Abfahrt 18:22 Wien Meidling DI 17 NOV</p>
+                <p>Ankunft 18:49 Wiener Neustadt Sitzplatz 191D</p>
+                <a href="'''+target+'''">Details</a></article>''')
+            def serve(route):
+                visits.append(route.request.url)
+                html=account if 'westbahn.at' in route.request.url else '<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+                route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html)
+            context.route('https://westbahn.at/**',serve)
+            context.route('https://westbahn.de/**',serve)
+            result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
+            self.assertEqual(result['detailStatus'],'no_unique_safe_detail_link')
+            self.assertEqual(result['candidatePathPatterns'][0]['ticketRouteShape'],'4-7|12-90;token_ascii')
+            self.assertFalse(any(target in url for url in visits))
+            self.assertNotIn('SECRET-LONG',str(result))
+            self.assertFalse(result['bookingAuthorized'])
+        finally:
+            context.close()
+
     def test_opaque_button_never_clicked(self):
         context=self.browser.new_context()
         try:
