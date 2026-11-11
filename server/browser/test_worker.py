@@ -47,6 +47,17 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_editor_javascript_syntax_with_node(self):
+  # Catch broken inline Playwright scripts before deploying to the live server.
+  import inspect, re, shutil, subprocess
+  if not shutil.which('node'):
+   self.skipTest('Node.js unavailable')
+  source=inspect.getsource(find_seat_change_control)
+  match=re.search(r'script=r"""(.*?)"""',source,re.S)
+  self.assertIsNotNone(match)
+  result=subprocess.run(['node','--check'],input='const seatEditor = '+match.group(1)+';',text=True,capture_output=True,timeout=15)
+  self.assertEqual(result.returncode,0,result.stderr[:2000])
+
  def test_safe_failure_excludes_sensitive_browser_exception_text(self):
   try:
    raise RuntimeError("https://westbahn.at/account?token=secret value password=mysecret")

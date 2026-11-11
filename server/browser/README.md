@@ -76,3 +76,6 @@ Die Live-Diagnose ergab `seatHeadingCount=1`, `changeLabelCount=0`, `seatLinkCan
 
 ## Fehlersuche ohne Preis-/Buchungsrisiko
 Unerwartete Playwright-/JavaScript-Fehler während `a` und `b` werden nicht mehr zu einer allgemeinen Meldung zusammengefasst. Das JSON enthält unter `failure` die Phase (`open_comfort_and_seat_map`, `select_preferred_seat` usw.), eine sichere Fehlerkategorie, die Python-Exceptionklasse und Programmstelle im Worker. Die Ausgabe enthält bewusst weder den rohen Fehlertext noch URLs, Tokens, Cookies, Namen, Passwörter oder Seiten-HTML. Es werden dadurch keine zusätzlichen Klicks, Bestätigungen oder Käufe durchgeführt.
+
+## Korrigierter JavaScript-Syntaxfehler
+Der GitHub-Browser-Test zeigte `Page.evaluate: SyntaxError: Unexpected token ')'` im Editor-Suchskript. Eine überzählige schließende Klammer in der `leafSeats`-Filterbedingung wurde entfernt. Ein neuer automatisierter Node.js-Syntaxcheck prüft das eingebettete Playwright-JavaScript vor dem Einsatz am Server. Die Sitzplatz- und Kauf-Sicherheitsregeln bleiben unverändert.

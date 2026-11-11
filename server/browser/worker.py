@@ -1391,7 +1391,7 @@ def find_seat_change_control(page, diagnostic=False):
             sectionFacts.seatColumnLabels++;
             const descendants=[...section.querySelectorAll('*')].filter(e=>visible(e)&&raw(e).length<=75);
             sectionFacts.interactiveElements+=descendants.filter(e=>e.matches(controls)||getComputedStyle(e).cursor==='pointer').length;
-            const leafSeats=descendants.filter(e=>names(e).some(n=>seat.test(n))&&!Array.from(e.children).some(c=>visible(c)&&names(c).some(n=>seat.test(n)))));
+            const leafSeats=descendants.filter(e=>names(e).some(n=>seat.test(n))&&!Array.from(e.children).some(c=>visible(c)&&names(c).some(n=>seat.test(n))));
             sectionFacts.seatCodes+=leafSeats.length;
             sectionFacts.editorAria+=descendants.filter(e=>names(e).some(n=>editor.test(n))).length;
             for(const e of leafSeats){
