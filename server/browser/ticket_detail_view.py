@@ -38,6 +38,9 @@ def safe_detail_url(base, href, caption):
             return None
         if dest.username or dest.password or dest.fragment or not ROUTE.fullmatch(dest.path):
             return None
+        last_segment=dest.path.rstrip('/').rsplit('/',1)[-1]
+        if BAD_LABEL.search(last_segment) or re.search(r'cancel|delete|refund|change|edit|purchase|pay',last_segment,re.I):
+            return None
         query=parse_qsl(dest.query,keep_blank_values=True)
         if len(query)>2 or any(k.lower() not in ALLOWED_KEYS or not v for k,v in query):
             return None
@@ -126,7 +129,7 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
         return {**blocked,'detailStatus':'invalid_seat'}
     reports=[]
     matched=0
-    safe_links=set()
+    safe_links={'westbahn.at':set(),'westbahn.de':set()}
     suspicious=0
     for host in ('westbahn.at','westbahn.de'):
         for number in range(1,min(max_pages,5)+1):
@@ -168,7 +171,7 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
                         href=anchor.get('href')
                         caption=anchor.get('caption')
                         resolved=safe_detail_url(page.url,href,caption)
-                        if resolved: safe_links.add(resolved)
+                        if resolved: safe_links[host].add(resolved)
                         elif caption and DETAIL_LABEL.search(caption): suspicious+=1
                 reports.append('account_read')
             except Exception:
@@ -178,13 +181,18 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2):
     if matched==0:
         return {**blocked,'detailStatus':'ticket_not_visible','accountPagesRead':reports,
                 'message':'Keine eindeutige vorhandene Karte erkannt; das beweist keine fehlende Buchung.'}
-    if not safe_links or len(safe_links)!=1:
+    # A single existing ticket can appear on both .at and .de. Inspect at
+    # most one uniquely safe link on the preferred Austrian domain first.
+    all_link_count=sum(map(len,safe_links.values()))
+    ambiguous=any(len(links)>1 for links in safe_links.values())
+    candidates=safe_links['westbahn.at'] or safe_links['westbahn.de']
+    if ambiguous or len(candidates)!=1:
         return {**blocked,'detailStatus':'no_unique_safe_detail_link',
-                'matchingCards':matched,'safeDetailLinks':len(safe_links),
+                'matchingCards':matched,'safeDetailLinks':all_link_count,
                 'otherDetailControls':suspicious,'accountPagesRead':reports,
                 'message':'Passende Karte vorhanden; kein eindeutig lesbarer Detail-Link. Kein Klick auf andere Bedienelemente.'}
     # Use a fresh page and one GET. No click, download, form submission or checkout.
-    url=next(iter(safe_links))
+    url=next(iter(candidates))
     page=context.new_page()
     try:
         details=read_detail(page,url,day,seat)
