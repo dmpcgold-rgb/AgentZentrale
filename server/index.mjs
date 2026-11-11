@@ -109,6 +109,15 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
       }
+      // Only reads an existing WESTbahn ticket. It never starts checkout,
+      // writes booking state or claims that a missing card proves availability.
+      if (is('POST', '/westbahn/browser/audit-ticket')) {
+        const body = await readJson(req);
+        if (typeof body?.date !== 'string' || typeof body?.seat !== 'string')
+          throw new ApiError(400, 'Für Ticketprüfung sind Datum und Sitzplatz erforderlich.');
+        try {return write(res,200,await browser.run('ticket-detail-check',body.date,body.seat));}
+        catch(e){throw new ApiError(409,e.message);}
+      }
       if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
       if (is('POST', '/westbahn/known-booking')) {
         const body = await readJson(req);
