@@ -41,6 +41,71 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_strict_detail_evidence_upgrades_matching_yearless_ticket(self):
+        rows=[{'dateLabel':'DI 17 NOV','seat':'191D','fullDate':None}]
+        day='2026-11-17'
+        detail={
+            'status':'ticket_detail_check','date':day,'seat':'191D',
+            'detailStatus':'detail_read','yearVerified':True,
+            'seatMatched':True,'tripMatched':True,'referenceVisible':True,
+            'dateExplicit':True,'bookingAuthorized':False,
+            'confirmationVerified':False,'safeToBook':False,
+            'inventoryComplete':False,'privateReference':'MUST_NOT_LEAK'
+        }
+        res=summarize_inventory_batch(rows,[day],[{'status':'account_verified'}],{day:detail})
+        self.assertEqual(res['days'][0]['status'],'detail_verified')
+        self.assertEqual(res['days'][0]['seats'],['191D'])
+        self.assertTrue(res['days'][0]['detailVerified'])
+        self.assertTrue(res['days'][0]['dateVerified'])
+        self.assertFalse(res['inventoryComplete'])
+        self.assertFalse(res['safeToBook'])
+        self.assertFalse(res['bookingAuthorized'])
+        self.assertNotIn('MUST_NOT_LEAK',str(res))
+
+    def test_unverified_wrong_date_or_conflicting_detail_does_not_upgrade(self):
+        rows=[{'dateLabel':'DI 17 NOV','seat':'191D'}]
+        day='2026-11-17'
+        good={
+            'status':'ticket_detail_check','date':day,'seat':'191D',
+            'detailStatus':'detail_read','yearVerified':True,'seatMatched':True,
+            'tripMatched':True,'referenceVisible':True,'dateExplicit':True,
+            'bookingAuthorized':False,'confirmationVerified':False,
+            'safeToBook':False,'inventoryComplete':False
+        }
+        variants=[
+            {'date':'2027-11-17'},
+            {'seat':'233A'},
+            {'yearVerified':False},
+            {'referenceVisible':False},
+            {'inventoryComplete':True},
+            {'safeToBook':True},
+            {'bookingAuthorized':True},
+            {'confirmationVerified':True},
+            {'detailStatus':'detail_unavailable'},
+            {'status':'unknown'}
+        ]
+        for changes in variants:
+            with self.subTest(changes=changes):
+                result=summarize_inventory_batch(
+                    rows,[day],[{'status':'account_verified'}],
+                    {day:{**good,**changes}})
+                self.assertEqual(result['days'][0]['status'],'possible_existing')
+                self.assertFalse(result['days'][0]['detailVerified'])
+                self.assertFalse(result['days'][0]['safeToBook'])
+
+    def test_conflicting_seats_never_upgrade_to_verified(self):
+        rows=[{'dateLabel':'DI 17 NOV','seat':'191D'},
+              {'dateLabel':'DI 17 NOV','seat':'233A'}]
+        day='2026-11-17'
+        detail={'status':'ticket_detail_check','date':day,'seat':'191D',
+                'detailStatus':'detail_read','yearVerified':True,'seatMatched':True,
+                'tripMatched':True,'referenceVisible':True,'dateExplicit':True,
+                'bookingAuthorized':False,'confirmationVerified':False,
+                'safeToBook':False,'inventoryComplete':False}
+        result=summarize_inventory_batch(rows,[day],[{'status':'account_verified'}],{day:detail})
+        self.assertEqual(result['days'][0]['status'],'possible_existing')
+        self.assertFalse(result['days'][0]['detailVerified'])
+
     def test_no_matches_and_no_account_pages_still_require_review(self):
         result=summarize_inventory_batch([],['2026-11-17'],[])
         self.assertEqual(result['days'][0]['status'],'review_required')
