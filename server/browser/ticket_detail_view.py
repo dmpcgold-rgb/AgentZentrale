@@ -84,7 +84,14 @@ def rejection_reason(base, candidate):
         query=parse_qsl(target.query,keep_blank_values=True)
         if len(query)>2 or any(k.lower() not in ALLOWED_KEYS or not v for k,v in query):
             return 'unrecognized_query'
-        if not query and not re.search(r'/[A-Za-z0-9_-]{8,90}/?
+        if not query and not re.search(r'/[A-Za-z0-9_-]{8,90}/?$',target.path):
+            return 'missing_identifier'
+        return 'accepted'
+    except (ValueError,TypeError):
+        return 'invalid_destination'
+
+
+def visible_ticket_cards(page):
     """Return private in-memory card text and link metadata; never log them."""
     return page.evaluate(r"""() => {
         const norm=s=>(s||'').replace(/\s+/g,' ').trim();
@@ -110,6 +117,7 @@ def rejection_reason(base, candidate):
         }
         return records.slice(0,60);
     }""")
+
 
 
 def matching_card(card, day, seat):
