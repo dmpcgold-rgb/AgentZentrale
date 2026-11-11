@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {createBrowser,sanitizeTicketAudit} from '../browser.mjs';
+import {createBrowser,sanitizeTicketAudit,sanitizeBatchInventory} from '../browser.mjs';
 
 const DATE='2026-11-17',SEAT='191D';
 const now=()=>new Date('2026-11-11T07:00:00Z');
@@ -134,4 +134,67 @@ test('invalid or oversized browser response never becomes proof of a ticket',asy
  const r=await browser.run('ticket-detail-check',DATE,SEAT);
  assert.equal(r.status,'review_required');
  assert.equal(r.bookingAuthorized,false);
+});
+
+
+test('batch inventory reports observed cards without ever marking a day bookable',()=>{
+ const dates=['2026-11-17','2026-11-18','2026-11-19'];
+ const raw={status:'inventory_batch_read',accountPageReads:2,inventoryComplete:false,
+  safeToBook:false,bookingAuthorized:false,privateReference:'SECRET-BOOKING',
+  days:[
+   {date:dates[0],status:'visible_year_verified',seats:['191D'],
+     dateVerified:true,potentialDuplicate:true,safeToBook:false},
+   {date:dates[1],status:'possible_existing',seats:['233A'],
+     dateVerified:false,potentialDuplicate:true,safeToBook:false},
+   {date:dates[2],status:'review_required',seats:[],
+     dateVerified:false,potentialDuplicate:false,safeToBook:false}
+  ]};
+ const result=sanitizeBatchInventory(raw,dates);
+ assert.equal(result.status,'inventory_batch_read');
+ assert.equal(result.days.length,3);
+ assert.equal(result.days[0].status,'visible_year_verified');
+ assert.equal(result.days[2].status,'review_required');
+ assert.equal(result.inventoryComplete,false);
+ assert.equal(result.safeToBook,false);
+ assert.equal(result.bookingAuthorized,false);
+ assert.equal(JSON.stringify(result).includes('SECRET-BOOKING'),false);
+});
+
+test('batch inventory rejects forged complete inventory, unknown seat and wrong date',()=>{
+ const dates=['2026-11-17'];
+ const base={status:'inventory_batch_read',accountPageReads:1,
+   inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+   days:[{date:dates[0],status:'visible_year_verified',
+      seats:['191D'],dateVerified:true,potentialDuplicate:true,safeToBook:false}]};
+ for(const bad of [
+    {...base,inventoryComplete:true},
+    {...base,safeToBook:true},
+    {...base,bookingAuthorized:true},
+    {...base,days:[{...base.days[0],seats:['SECRET']}]},
+    {...base,days:[{...base.days[0],date:'2026-11-18'}]},
+    {...base,days:[{...base.days[0],dateVerified:false}]},
+    {...base,accountPageReads:0},
+    {...base,days:[]}
+ ]){
+   const result=sanitizeBatchInventory(bad,dates);
+   assert.equal(result.status,'review_required');
+   assert.equal(result.days[0].status,'review_required');
+   assert.equal(result.bookingAuthorized,false);
+ }
+});
+
+test('inventory worker receives only five validated planned days, no checkout',async()=>{
+ const dates=['2026-11-17','2026-11-18'];
+ const calls=[];
+ const browser=createBrowser({env:{WESTBAHN_BROWSER_ENABLED:'true',
+    WESTBAHN_PYTHON:'/opt/python'},now,execute:runner({
+      status:'inventory_batch_read',accountPageReads:0,inventoryComplete:false,
+      safeToBook:false,bookingAuthorized:false,days:[]
+   },calls)});
+ const result=await browser.run('inventory-batch',null,null,dates);
+ assert.equal(result.status,'review_required');
+ assert.deepEqual(calls[0].args.slice(-3),['inventory-batch','--dates',dates.join(',')]);
+ await assert.rejects(browser.run('inventory-batch',null,null,['2026-11-14']));
+ await assert.rejects(browser.run('inventory-batch',null,null,[...dates,...dates]));
+ assert.equal(calls.length,1);
 });
