@@ -38,12 +38,34 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   return status();
  };
 
+ // This may only be called after a positive, authenticated, read-only
+ // ticket detail audit. It does NOT confirm a newly submitted checkout.
+ const recordVerifiedExisting=(travelDate,seat)=>{
+  if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||
+     Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||
+     new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)
+    throw new Error('Reisedatum ungültig.');
+  if(typeof seat!=='string'||!(/^[0-9]{3}[A-D]$/.test(seat)))
+    throw new Error('Sitzplatz ungültig.');
+  const previous=state.rows[travelDate];
+  if(previous?.seat&&previous.seat!==seat)
+    throw new Error('Widersprüchliche Sitzplätze. Keine automatische Änderung.');
+  if(previous&&['confirmed','booking','uncertain'].includes(previous.status))
+    return status(); // never weaken or overwrite a checkout-related lock
+  if(previous?.status==='existing_verified')
+    return status();
+  record(travelDate,'existing_verified',
+   'Vorhandenes Ticket im Anbieter-Konto mit Datum und Sitzplatz gelesen. Keine neue Buchung.',
+   {seat});
+  return status();
+ };
+
  async function run(){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
    for(const date of planDates(now())){
-    const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported'].includes(existing.status))continue;
+    const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported','existing_verified'].includes(existing.status))continue;
     try{
      const before=await adapter.existing({date,...RULES});
      if(before?.status==='confirmed'){
@@ -94,7 +116,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   return status();
  }
  async function tick(){const c=viennaClock(now());if(!state.enabled||!adapter||running||c.weekday!=='Mon'||c.time<'07:00'||state.lastSchedule===c.date)return false;state.lastSchedule=c.date;save();await run();return true;}
- return {status,setEnabled,run,tick,recordUserReported};
+ return {status,setEnabled,run,tick,recordUserReported,recordVerifiedExisting};
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
