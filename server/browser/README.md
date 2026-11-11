@@ -362,3 +362,14 @@ Die fest formatierte Antwort beschränkt sich auf Datum, Strecke, 18:22, Ankunft
 Die Android-Oberfläche enthält ein Datumsfeld und die Schaltfläche „Verbindung und Comfort-Preis nur prüfen“. Für den Button ist eine aktualisierte APK erforderlich. Die neue Funktion nutzt ausschließlich den vorhandenen Suchmodus `prepare`; sie führt keinen Warenkorb-Schritt aus. Bei einem Browserfehler wird die neutrale Meldung `review_required` zurückgegeben. Eine fehlende Reservierung kann über diese Funktion **nicht** nachgewiesen werden.
 
 Sicherheitstests: `server/tests/trip-preview.test.mjs` und neue Routentests in `server/tests/browser_route.test.mjs`, eingebunden in Docker und GitHub Actions. Kein Live-Kauf-Test und kein automatischer Checkout.
+
+
+## Isolierte Sitzplanvorschau, ohne Live-Verfügbarkeit (11.11.2026)
+
+Die öffentliche Verbindung von **Mittwoch, 18.11.2026**, WB 1009, 18:22–18:49, Wien Meidling → Wiener Neustadt Hbf, Comfort 2+, wurde mit **öffentlich angezeigtem Preis 0,00 €** überprüft. Das ist ausdrücklich **kein bestätigter KlimaTicket-Endpreis**. Der Reservierungsbestand für diesen Tag bleibt ungeklärt.
+
+Neu ist die authentifizierte API `POST /westbahn/browser/seat-preview` für ein Datum aus dem erlaubten Pendelplan. Sie verweigert die Sitzung, wenn für das Datum bereits ein lokaler Buchungsvermerk besteht. Andernfalls ruft sie die vorhandene Worker-Betriebsart `seat-preview` auf: Der Browser kopiert ein vorhandenes Profil in ein privates temporäres Verzeichnis, prüft die 0-Euro-Comfort-Anzeige, **sperrt anschließend das gesamte Netzwerk und WebSockets** und darf erst dann lokal die Comfort-Schaltfläche betätigen. Der temporäre Profilklon wird danach gelöscht. Es wird kein Sitzplatz gewählt, kein echter Warenkorb geöffnet und kein Kauf ausgelöst.
+
+Das Node-Gateway gibt ausschließlich eine streng reduzierte Beobachtung für die vier priorisierten Plätze 233A, 233D, 191D und 182A aus: `visible_in_offline_copy`, `disabled_in_offline_copy` oder `unknown`. Andere Sitzplätze und Anbieterinhalte werden verworfen. Die Offline-Kopie ist **keine** Grundlage für eine Live-Reservierung; bei Zweifel erfolgt `review_required`. Immer: `liveAvailabilityVerified:false`, `seatSelectionConfirmed:false`, `bookingAuthorized:false`, `canPurchase:false`.
+
+Die Android-Testversion 1.4.6 bietet den Button **„Wunschplätze im Offline-Sitzplan ansehen“**. Sie erklärt ausdrücklich, dass offline sichtbare Plätze nicht als tatsächlich frei gelten. Tests `server/tests/browser_audit.test.mjs` und `server/tests/browser_route.test.mjs` prüfen die feste Ausgabe, den Zugriffsschutz und das Überspringen bereits gebuchter Tage. Für echte Sitzplatzverfügbarkeit und den 0-Euro-Warenkorb muss ein separater, verifizierter Live-Adapter entwickelt werden.
