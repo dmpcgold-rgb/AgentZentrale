@@ -46,4 +46,4 @@ jobs:
             server/tests/browser_audit.test.mjs \
             server/tests/browser_route.test.mjs \
             server/tests/weekly-review.test.mjs \
-            server/tests/booking-readiness.test.mjs
+            server/tests/booking-readiness.test.mjs server/tests/trip-preview.test.mjs
