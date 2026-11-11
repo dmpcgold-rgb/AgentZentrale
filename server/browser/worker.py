@@ -1486,6 +1486,34 @@ def open_review_seat_map(page, day):
     raise Blocked('Sitzplan nach Öffnen nicht eindeutig. Keine weitere Aktion.')
 
 
+def safe_review_failure(error, phase):
+    """Diagnostics without exception messages, URLs, credentials or page text."""
+    import traceback
+    source=[f for f in traceback.extract_tb(error.__traceback__) if f.filename.replace('\\\\','/').endswith('/worker.py')]
+    last=source[-1] if source else None
+    kind=type(error).__name__
+    # JavaScript errors surface as Playwright Error, not Python TypeError.
+    detail=str(error)
+    if 'ReferenceError:' in detail:
+        category='browser_reference_error'
+    elif 'SyntaxError:' in detail:
+        category='browser_syntax_error'
+    elif 'TypeError:' in detail:
+        category='browser_type_error'
+    elif 'Timeout' in kind or 'Timeout' in detail:
+        category='timeout'
+    elif 'Target closed' in detail or 'context was destroyed' in detail:
+        category='browser_context_changed'
+    elif 'strict mode violation' in detail:
+        category='ambiguous_locator'
+    else:
+        category='unexpected_browser_error'
+    return {'phase':phase,'category':category,'exceptionClass':kind[:48],
+            'workerFunction':last.name if last else None,
+            'workerLine':last.lineno if last else None,
+            'bookingAuthorized':False}
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -1510,20 +1538,24 @@ def manual_seat_review(page, day, root=None):
             if command not in ('a','b'):
                 print('Browser bleibt geöffnet. a + Enter öffnet/wählt; b + Enter bestätigt; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
                 continue
+            phase='locate_open_review_page'
             try:
                 actual,diagnostic=find_open_review_page(page,day)
                 if actual is None and command=='a':
+                    phase='open_comfort_and_seat_map'
                     actual=open_review_seat_map(page,day)
+                    phase='locate_opened_seat_map'
                     actual,diagnostic=find_open_review_page(actual,day)
                 if actual is None:
                     result={'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':diagnostic,'message':'Keine eindeutige Detailseite mit geöffnetem Sitzplan für das gewünschte Datum gefunden.'}
                 else:
+                    phase='confirm_seat_only' if command=='b' else 'select_preferred_seat'
                     result=confirm_review_selection(actual,day) if command=='b' else select_primary_seat_in_open_modal(actual)
                     result['pageInspection']=diagnostic
             except Blocked as error:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':str(error)}
-            except Exception:
-                result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
+            except Exception as error:
+                result={'status':'seat_selection_blocked','bookingAuthorized':False,'failure':safe_review_failure(error,phase),'message':'Technischer Fehler bei der Sitzplanprüfung; Details unter failure. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
             print('Browser bleibt geöffnet. a + Enter für Auswahl, b + Enter für Sitzplatzbestätigung, q + Enter zum Beenden. Nicht kaufen.',file=sys.stderr,flush=True)
         return {'status':'manual_review_ended','message':'Manuelle Ansicht beendet. Keine automatische Buchung.'}

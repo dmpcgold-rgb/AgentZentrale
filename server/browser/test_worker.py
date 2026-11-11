@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, detail_seat_map_entry_check, confirm_review_selection, open_review_seat_map, find_seat_change_control, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, detail_seat_map_entry_check, confirm_review_selection, open_review_seat_map, find_seat_change_control, safe_review_failure, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,24 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_safe_failure_excludes_sensitive_browser_exception_text(self):
+  try:
+   raise RuntimeError("https://westbahn.at/account?token=secret value password=mysecret")
+  except RuntimeError as exc:
+   diag=safe_review_failure(exc,'open_comfort_and_seat_map')
+  self.assertNotIn('secret',str(diag))
+  self.assertNotIn('westbahn.at',str(diag))
+  self.assertEqual(diag['phase'],'open_comfort_and_seat_map')
+  self.assertFalse(diag['bookingAuthorized'])
+  self.assertEqual(diag['exceptionClass'],'RuntimeError')
+ def test_safe_failure_marks_js_runtime_without_leaking(self):
+  try:
+   raise ValueError("Page.evaluate: ReferenceError: sensitive_name is not defined password=private")
+  except ValueError as exc:
+   diag=safe_review_failure(exc,'select_preferred_seat')
+  self.assertEqual(diag['category'],'browser_reference_error')
+  self.assertNotIn('password',str(diag))
+
  def test_auto_open_rejects_nonzero_without_click(self):
   from unittest.mock import Mock
   page=Mock(); page.is_closed.return_value=False; page.context.pages=[page]

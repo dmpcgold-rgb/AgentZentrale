@@ -73,3 +73,6 @@ Die Live-Seitendiagnose vom 11. November ergab genau eine Überschrift „Sitzpl
 
 ## Verbesserte Erkennung für die Sitzplan-Öffnung
 Die Live-Diagnose ergab `seatHeadingCount=1`, `changeLabelCount=0`, `seatLinkCandidates=0`. Die DOM-Suche berücksichtigt deshalb jetzt unabhängig voneinander sichtbaren Text, ARIA-Beschriftung und Titel. Sie akzeptiert auch „Sitzplatz ändern“, „Platz bearbeiten“ sowie eindeutig klickbare Sitznummern (z. B. als `span` mit Pointer-Cursor), aber ausschließlich in der zugehörigen begrenzten Sitzplatzsektion. Erweiterte Diagnosen zählen die tatsächlich gesehenen Beschriftungen, Sitzcodes und Bedienelemente; es werden keine Zahlungs- oder Buchungsaktionen ausgelöst. Der Live-Test steht noch aus.
+
+## Fehlersuche ohne Preis-/Buchungsrisiko
+Unerwartete Playwright-/JavaScript-Fehler während `a` und `b` werden nicht mehr zu einer allgemeinen Meldung zusammengefasst. Das JSON enthält unter `failure` die Phase (`open_comfort_and_seat_map`, `select_preferred_seat` usw.), eine sichere Fehlerkategorie, die Python-Exceptionklasse und Programmstelle im Worker. Die Ausgabe enthält bewusst weder den rohen Fehlertext noch URLs, Tokens, Cookies, Namen, Passwörter oder Seiten-HTML. Es werden dadurch keine zusätzlichen Klicks, Bestätigungen oder Käufe durchgeführt.
