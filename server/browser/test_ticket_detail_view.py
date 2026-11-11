@@ -85,5 +85,75 @@ class TicketDetailTests(unittest.TestCase):
         ctx.new_page.assert_not_called()
 
 
+class TicketDetailBrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import os
+        from playwright.sync_api import sync_playwright
+        cls.p=sync_playwright().start()
+        kw={'headless':True}
+        executable=os.environ.get('WESTBAHN_CHROMIUM_PATH')
+        if executable:kw['executable_path']=executable
+        cls.browser=cls.p.chromium.launch(**kw)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.p.stop()
+
+    def test_gets_unique_read_only_detail_without_click(self):
+        context=self.browser.new_context()
+        visited=[]
+        try:
+            account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+            <article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div>
+            <div>DI 17 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div>
+            <div>Sitzplatz 191D</div>
+            <a href="/ticketshop/dashboard/tickets/details?id=TESTREF123">Details</a>
+            <button onclick="window.bought=true">Zahlungspflichtig bestellen</button></article>''')
+            details=('''<h1>Reservierung Comfort Class</h1><p>Abfahrt: 17.11.2026 18:22 Wien Meidling</p>
+            <p>Ankunft 18:49 Wiener Neustadt</p><p>Sitzplatz: 191D</p>
+            <p>Buchungsnummer: SECRET-123456</p>''')
+            def route_handler(route):
+                visited.append((route.request.method,route.request.url))
+                if '/tickets/details' in route.request.url:
+                    body=details
+                elif 'westbahn.at' in route.request.url:
+                    body=account
+                else:
+                    body='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+                route.fulfill(status=200,content_type='text/html; charset=utf-8',body=body)
+            context.route('https://westbahn.at/**',route_handler)
+            context.route('https://westbahn.de/**',route_handler)
+            result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
+            self.assertEqual(result['detailStatus'],'detail_read',result)
+            self.assertTrue(result['yearVerified'])
+            self.assertFalse(result['confirmationVerified'])
+            self.assertFalse(result['bookingAuthorized'])
+            self.assertNotIn('SECRET',str(result))
+            self.assertTrue(all(method=='GET' for method,_ in visited))
+            self.assertFalse(any('/checkout' in url for _,url in visited))
+        finally:
+            context.close()
+
+    def test_opaque_button_never_clicked(self):
+        context=self.browser.new_context()
+        try:
+            account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+            <article><h2>Reservierung Comfort Class</h2><p>Abfahrt 18:22 Wien Meidling DI 17 NOV</p>
+            <p>Ankunft 18:49 Wiener Neustadt</p><p>Sitzplatz 191D</p>
+            <button onclick="window.rebooked=true">Details</button></article>''')
+            def route_handler(route):
+                html=account if 'westbahn.at' in route.request.url else '<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+                route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html)
+            context.route('https://westbahn.at/**',route_handler)
+            context.route('https://westbahn.de/**',route_handler)
+            result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
+            self.assertEqual(result['detailStatus'],'no_unique_safe_detail_link',result)
+            self.assertFalse(result['bookingAuthorized'])
+        finally:
+            context.close()
+
+
 if __name__=='__main__':
     unittest.main()
