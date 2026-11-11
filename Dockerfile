@@ -22,6 +22,9 @@ RUN /opt/agent-venv/bin/python -m pip install --no-cache-dir -r /tmp/requirement
 RUN /usr/bin/chromium --version \
     && /opt/agent-venv/bin/python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); p.stop()'
 COPY --chown=node:node server /app/server
+# Fail the Docker build if any Python browser module contains a syntax error.
+# The previous image must never be replaced with code that cannot import.
+RUN /opt/agent-venv/bin/python -m compileall -q /app/server/browser
 COPY --chown=node:node src/core /app/src/core
 COPY --chown=node:node package.json /app/package.json
 RUN mkdir -p /app/server/data && chown -R node:node /app/server/data
