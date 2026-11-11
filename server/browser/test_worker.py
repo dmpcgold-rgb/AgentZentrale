@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, confirm_review_selection, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, confirm_review_selection, open_review_seat_map, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,20 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_auto_open_rejects_nonzero_without_click(self):
+  from unittest.mock import Mock
+  page=Mock(); page.is_closed.return_value=False; page.context.pages=[page]
+  page.evaluate.return_value='https://westbahn.at/reservierung/sitzplatz-upgrade/?do=2026-11-17'
+  with patch('worker.read_loaded_connection',return_value={'connection':{'date':'2026-11-17','trainNumber':'1009','departure':'18:22','arrival':'18:49','displayedPriceCents':790,'priceSource':'comfort_control'}}), patch('worker.comfort_control_details') as control:
+   with self.assertRaises(Blocked): open_review_seat_map(page,'2026-11-17')
+   control.assert_not_called()
+ def test_auto_open_uses_existing_modal_without_click(self):
+  from unittest.mock import Mock
+  page=Mock(); page.is_closed.return_value=False; page.context.pages=[page]
+  page.evaluate.return_value='https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt'
+  with patch('worker.seat_modal_state',return_value={'modalFound':True}), patch('worker.comfort_control_details') as control:
+   self.assertIs(open_review_seat_map(page,'2026-11-17'),page)
+   control.assert_not_called()
  def test_confirmation_blocks_unverified_summary(self):
   from unittest.mock import Mock
   page=Mock()

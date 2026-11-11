@@ -54,3 +54,6 @@ Die Live-Diagnose zeigte `comfortMap:false` und aktivierbare Sitzplatzbuttons oh
 
 ## Sitzplatzbestätigung (noch ohne Warenkorb)
 Im privaten `seat-review` mit offenem Sitzplan prüft `b` + Enter die eindeutige Karte „Meine Auswahl“ (ein Comfort-Produkt, WB 1009, Strecke, Datum, 18:22–18:49, ausschließlich Nullpreise). Nur ein bereits ausdrücklich zugelassener Sitzplatz kann im Dialog bestätigt werden. Anschließend muss die aktualisierte Zusammenfassung exakt den ausgewählten Platz zeigen. Keine automatische Warenkorbänderung und kein Kauf. Der echte Warenkorb muss noch separat untersucht werden; die vollständige Bestands-/Doppelbuchungsprüfung bleibt Voraussetzung für Checkout.
+
+## Sitzplan automatisch öffnen
+`a` in `seat-review` öffnet bei Bedarf den aktuell eindeutig mit 0 EUR angezeigten Comfort-Button der erwarteten Verbindung WB 1009 und anschließend den eindeutig zugeordneten „Ändern“-Button der Sitzplatzreservierung. Vor jedem Übergang werden Datum, Strecke bzw. Detailzusammenfassung geprüft. Der erste Comfort-Klick kann beim Anbieter einen vorläufigen Warenkorb-/Auswahlzustand erzeugen; kein Klick auf „In den Warenkorb“, kein Checkout und kein Kauf. Bei Fehlern kein automatischer Wiederholungsklick. `b` bestätigt weiterhin separat nur den Sitzplatz im geöffneten Dialog. Live-Test steht aus.

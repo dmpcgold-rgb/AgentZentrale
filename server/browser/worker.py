@@ -1260,6 +1260,73 @@ def confirm_review_selection(page,day):
     return {'status':'seat_confirmation_unverified','bookingAuthorized':False,'message':'Auswahl nach Bestätigung nicht eindeutig. Nicht fortfahren.'}
 
 
+
+def open_review_seat_map(page, day):
+    """Open the official zero-price Comfort detail and seat picker, not checkout."""
+    def live_url(p):
+        return p.evaluate('window.location.href')
+    def matching_details():
+        return [p for p in page.context.pages if not p.is_closed() and is_review_detail_url(live_url(p),day)]
+    details=matching_details()
+    if len(details)>1: raise Blocked('Mehrere passende Detailseiten. Keine weitere Auswahl.')
+    if not details:
+        u=urlsplit(live_url(page))
+        if u.scheme!='https' or u.hostname!='westbahn.at' or u.username or u.password or u.port not in (None,443) or u.path.rstrip('/')!='/reservierung/sitzplatz-upgrade' or parse_qs(u.query).get('do')!=[day]:
+            raise Blocked('Suchseite oder Datum nicht eindeutig. Keine Comfort-Auswahl.')
+        # Read the current search again rather than trusting an earlier 0-EUR result.
+        result=read_loaded_connection(page,day)
+        conn=(result or {}).get('connection',{})
+        if (conn.get('date')!=day or conn.get('trainNumber')!='1009' or conn.get('departure')!='18:22' or conn.get('arrival')!='18:49' or conn.get('displayedPriceCents')!=0 or conn.get('priceSource')!='comfort_control'):
+            raise Blocked('Aktuelle Comfort-Verbindung nicht eindeutig 0 EUR. Keine Auswahl.')
+        inspection=comfort_control_details(page,conn)
+        fresh=apply_comfort_control_price(dict(conn,displayedPriceCents=None,priceStatus='not_displayed',priceSource=None),inspection)
+        if fresh.get('displayedPriceCents')!=0 or fresh.get('priceSource')!='comfort_control':
+            raise Blocked('Comfort-Button nicht eindeutig 0 EUR. Keine Auswahl.')
+        control=comfort_control_details(page,conn,return_button=True)
+        if control is None: raise Blocked('Comfort-Button nicht eindeutig.')
+        # The official UI may create a provisional basket/selection on this click.
+        # Never click it again automatically after a timeout.
+        control.click(timeout=5000)
+        for _ in range(24):
+            page.wait_for_timeout(250)
+            details=matching_details()
+            if details: break
+    if len(details)!=1: raise Blocked('Detailseite nach Comfort-Auswahl nicht eindeutig. Nicht erneut klicken.')
+    actual=details[0]
+    if seat_modal_state(actual).get('modalFound'): return actual
+    summary=detail_selection_summary(actual,day)
+    for _ in range(12):
+        if summary.get('verified'): break
+        actual.wait_for_timeout(250)
+        summary=detail_selection_summary(actual,day)
+    if not summary.get('verified'):
+        raise Blocked('Reservierungsdetails nicht eindeutig 0 EUR. Sitzplan nicht geöffnet.')
+    # Scope "Ändern" to the seat reservation section, never a cart action.
+    change=actual.evaluate_handle(r"""() => {
+      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
+      const txt=e=>norm(e.innerText||e.textContent);
+      const headings=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&txt(e)==='Sitzplatzreservierung'&&![...e.children].some(c=>vis(c)&&txt(c)==='Sitzplatzreservierung'));
+      const matches=new Set();
+      for(const h of headings){
+        for(let e=h.parentElement;e&&e!==document.body;e=e.parentElement){
+          const v=txt(e);
+          if(/Meine Auswahl|In den Warenkorb/i.test(v))break;
+          const controls=[...e.querySelectorAll('button,a[href],[role="button"],[role="link"]')].filter(c=>vis(c)&&txt(c)==='Ändern'&&!c.matches(':disabled,[aria-disabled="true"]')&&getComputedStyle(c).pointerEvents!=='none');
+          if(controls.length===1){matches.add(controls[0]);break;}
+          if(controls.length>1)break;
+        }
+      }
+      return matches.size===1?[...matches][0]:null;
+    }""").as_element()
+    if change is None: raise Blocked('Ändern im Sitzplatzbereich nicht eindeutig.')
+    change.click(timeout=5000)
+    for _ in range(16):
+        actual.wait_for_timeout(250)
+        if seat_modal_state(actual).get('modalFound'): return actual
+    raise Blocked('Sitzplan nach Öffnen nicht eindeutig. Keine weitere Aktion.')
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -1276,7 +1343,7 @@ def manual_seat_review(page, day, root=None):
             if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl, b + Enter für Sitzplatzbestätigung und 0-EUR-Detailprüfung. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. a + Enter öffnet bei Bedarf Comfort und Sitzplan und prüft/wählt den Wunschplatz, b + Enter für Sitzplatzbestätigung und 0-EUR-Detailprüfung. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
         while True:
             command=read_review_command(page)
             if command=='q':
@@ -1286,11 +1353,16 @@ def manual_seat_review(page, day, root=None):
                 continue
             try:
                 actual,diagnostic=find_open_review_page(page,day)
+                if actual is None and command=='a':
+                    actual=open_review_seat_map(page,day)
+                    actual,diagnostic=find_open_review_page(actual,day)
                 if actual is None:
                     result={'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':diagnostic,'message':'Keine eindeutige Detailseite mit geöffnetem Sitzplan für das gewünschte Datum gefunden.'}
                 else:
                     result=confirm_review_selection(actual,day) if command=='b' else select_primary_seat_in_open_modal(actual)
                     result['pageInspection']=diagnostic
+            except Blocked as error:
+                result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':str(error)}
             except Exception:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
