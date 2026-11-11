@@ -4,6 +4,16 @@ import {createAgentHandler} from '../index.mjs';
 
 const token='PRIVATE-SINGLE-USER-TEST-TOKEN-123456789';
 const date='2026-11-17',seat='191D';
+const weekDates=['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23'];
+// The real server always requests all five dates, even if a fixture
+// focuses only on one or two candidate tickets.
+const withFiveDates=b=>({
+ accountPageReads:4,...b,
+ days:[...b.days,...weekDates.slice(b.days.length).map(date=>({
+  date,status:'review_required',seats:[],dateVerified:false,
+  detailVerified:false,potentialDuplicate:false,safeToBook:false
+ }))]
+});
 
 async function request(handler, {path='/westbahn/browser/audit-ticket',body={date,seat},
  method='POST',authorization='Bearer '+token}={}){
@@ -118,7 +128,7 @@ test('five-day audit persists only uniquely verified existing tickets',async()=>
  };
  const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
    now:()=>Date.parse('2026-11-11T12:00:00Z'),
-   browser:{async run(){return batch;}},westbahn});
+   browser:{async run(){return withFiveDates(batch);}},westbahn});
  const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
  assert.equal(res.status,200);
  assert.deepEqual(calls,[[days[0],'191D']]);
@@ -143,7 +153,7 @@ test('unverified or conflicting weekly ticket never modifies protected ledger',a
  },run(){throw Error('must not book')}};
  const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
    now:()=>Date.parse('2026-11-11T12:00:00Z'),
-   browser:{async run(){return batch;}},westbahn});
+   browser:{async run(){return withFiveDates(batch);}},westbahn});
  const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
  assert.equal(res.status,200);
  assert.deepEqual(res.body.ledgerProtectedDates,[]);
@@ -164,7 +174,7 @@ test('uncertain checkout remains manual review despite matching visible ticket',
  },run(){throw Error('must not book')}};
  const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
     now:()=>Date.parse('2026-11-11T12:00:00Z'),
-    browser:{async run(){return batch;}},westbahn});
+    browser:{async run(){return withFiveDates(batch);}},westbahn});
  const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
  assert.equal(res.status,200);
  assert.deepEqual(res.body.ledgerProtectedDates,[]);
@@ -181,7 +191,7 @@ test('falsified positive data without fail-closed flags never locks ticket',asyn
  ]};
  const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
     now:()=>Date.parse('2026-11-11T12:00:00Z'),
-    browser:{async run(){return batch;}},
+    browser:{async run(){return withFiveDates(batch);}},
     westbahn:{recordVerifiedExisting(...args){calls.push(args);},
       run(){throw Error('must not book')}}});
  const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
