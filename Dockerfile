@@ -29,7 +29,7 @@ RUN cd /app/server/browser && /opt/agent-venv/bin/python -m unittest -q test_boo
 COPY --chown=node:node src/core /app/src/core
 COPY --chown=node:node package.json /app/package.json
 # Do not deploy checkout changes until the standalone ledger and receipt tests pass.
-RUN node --test server/tests/westbahn.test.mjs
+RUN node --test server/tests/westbahn.test.mjs server/tests/browser_audit.test.mjs server/tests/browser_route.test.mjs
 RUN mkdir -p /app/server/data && chown -R node:node /app/server/data
 WORKDIR /app/server
 USER node
