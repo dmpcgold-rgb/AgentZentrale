@@ -209,3 +209,10 @@ Nach der Live-Prüfung vom 11.11.2026 (`no_unique_safe_detail_link`, zwei Links 
 Weder diese Diagnose noch ein neues URL-Muster autorisiert eine Buchung oder einen unbekannten Detailaufruf. Die bestehende strenge GET-Allowlist und der Doppelbuchungsschutz bleiben unverändert. Die aktuelle Ausgabe entscheidet erst, ob und wie die Navigationsprüfung weiter angepasst werden kann.
 
 Nach Update: `python -m unittest test_detail_route_diagnostics.py test_ticket_detail_view.py`, danach `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`. Bei fehlgeschlagenen Tests wird die Echtprüfung nicht gestartet.
+
+
+## Präzise URL-Grenzen nach Live-Diagnose vom 11.11.2026
+
+Die anonyme Echtprüfung meldete für die vorhandene Ticketkarte `ticketRouteShape: "8-11|4-7;token_ascii"` und einen Link der Struktur `/ticketshop/dashboard/ticket/[opaque]/[opaque]`. Deshalb akzeptiert die bestehende **rein lesende** Ticketdetailprüfung jetzt ausschließlich **8–11** Zeichen im ersten und **4–7** Zeichen im zweiten Pfadbestandteil, jeweils ASCII-Buchstaben/Ziffern/Bindestrich/Unterstrich. Bisherige simulierte 12+-Zeichen-IDs wurden als ungültige Testannahme korrigiert. Tests prüfen die neuen Grenzwerte sowie weiterhin nicht erlaubte längere/kürzere IDs, gefährliche Aktionsnamen, fremde Hosts, Query-Strings und Fragmente. Nur die eindeutig als „Details“ bzw. als reine Ticketansicht bezeichnete URL aus der passenden existierenden Kontokarte darf per GET geöffnet werden; der Browser blockiert schreibende Anfragen.
+
+Die Live-Verifikation dieser aktualisierten Regeln steht noch aus. Der Modus kann niemals eine Bestellung auslösen oder `safeToBook` oder `confirmationVerified` auf `true` setzen. Bei Unklarheiten bleibt die Aktion gesperrt.
