@@ -1,8 +1,9 @@
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from worker import price_audit_view, classify_price_audit
+from worker import price_audit_view, classify_price_audit, run_seat_preview
 
 DAY='2026-11-18'
 CONNECTION={'date':DAY,'trainNumber':'1009','departure':'18:22',
@@ -87,6 +88,62 @@ class PriceAuditLoginTests(unittest.TestCase):
             verified_paid,verified_zero,verified_zero),'normal_browser_zero_not_confirmed')
         self.assertEqual(classify_price_audit(
             verified_zero,verified_zero,verified_zero),'isolated_zero_observed')
+
+
+    def test_preview_login_redirect_uses_audited_host_rules(self):
+        page=Mock()
+        preview=Mock(pages=[page])
+        playwright=Mock()
+        playwright.chromium.launch_persistent_context.return_value=preview
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('worker.copy_preview_profile'), \
+             patch('worker.verify_austrian_session',
+                   return_value={'status':'account_verified'}), \
+             patch('worker.offline_seat_preview',
+                   return_value={'status':'seat_preview_offline'}):
+            result=run_seat_preview(playwright,Path(directory),{},DAY)
+
+        self.assertEqual(result['status'],'seat_preview_offline')
+        self.assertTrue(result['accountVerifiedBeforeSearch'])
+        guard=preview.route.call_args.args[1]
+        request=Mock()
+        request.is_navigation_request.return_value=True
+        request.frame.parent_frame=None
+        route=Mock(request=request)
+
+        for url in ('https://westbahn.at/ticketshop/dashboard/tickets',
+                    'https://westbahn.de/anmelden/',
+                    'https://www.westbahn.de/ticketshop/dashboard/tickets'):
+            route.reset_mock()
+            request.url=url
+            guard(route)
+            route.continue_.assert_called_once_with()
+            route.abort.assert_not_called()
+
+        route.reset_mock()
+        request.url='https://example.invalid/anmelden/'
+        guard(route)
+        route.abort.assert_called_once_with()
+        route.continue_.assert_not_called()
+
+    def test_preview_unverified_account_stops_before_fare_search(self):
+        page=Mock()
+        preview=Mock(pages=[page])
+        playwright=Mock()
+        playwright.chromium.launch_persistent_context.return_value=preview
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('worker.copy_preview_profile'), \
+             patch('worker.verify_austrian_session',
+                   return_value={'status':'login_required'}) as auth, \
+             patch('worker.offline_seat_preview') as seats:
+            result=run_seat_preview(playwright,Path(directory),{},DAY)
+
+        auth.assert_called_once_with(page)
+        seats.assert_not_called()
+        self.assertEqual(result['blockReason'],'preview_account_unverified')
+        self.assertEqual(result['accountCheckStatus'],'login_required')
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertFalse(result['liveAvailabilityVerified'])
 
 
 if __name__=='__main__':
