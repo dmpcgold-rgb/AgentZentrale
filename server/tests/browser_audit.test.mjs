@@ -306,6 +306,51 @@ test('fake live availability or ambiguous offline seat controls fail closed',()=
  }
 });
 
+test('safe offline preview refusal explains why each preferred seat stays unknown',()=>{
+ const date='2026-11-18';
+ for(const reason of ['connection_not_verified','zero_price_not_reconfirmed',
+  'comfort_control_ambiguous','comfort_click_target_ambiguous','offline_click_timeout']){
+  const result=sanitizeOfflineSeatPreview({
+   status:'seat_preview_blocked',blockReason:reason,bookingAuthorized:false,
+   liveAvailabilityVerified:false,privateData:'DO_NOT_ECHO'
+  },date);
+  assert.equal(result.status,'review_required');
+  assert.equal(result.reason,reason);
+  assert.ok(result.preferredSeats.every(p=>p.observation==='unknown'));
+  assert.equal(result.canPurchase,false);
+  assert.equal(JSON.stringify(result).includes('DO_NOT_ECHO'),false);
+ }
+ const unknown=sanitizeOfflineSeatPreview({
+  status:'seat_preview_blocked',blockReason:'ATTACK_<secret>',
+  bookingAuthorized:false,liveAvailabilityVerified:false
+ },date);
+ assert.equal(unknown.reason,'preview_blocked');
+ assert.equal(JSON.stringify(unknown).includes('ATTACK'),false);
+});
+
+test('a missing seat map or no controls is still NOT live seat availability',()=>{
+ const date='2026-11-18';
+ const raw={status:'seat_preview_offline',
+  connection:{date},zeroPriceObserved:true,
+  bookingAuthorized:false,liveAvailabilityVerified:false,
+  inspection:{seatMapLabel:false},
+  preferredControls:[],blockedRequestCount:3,
+  blockedRequests:[{url:'https://private.example/token/DO_NOT_ECHO'}]};
+ const noMap=sanitizeOfflineSeatPreview(raw,date);
+ assert.equal(noMap.status,'review_required');
+ assert.equal(noMap.reason,'seatmap_not_rendered_offline');
+ assert.equal(noMap.blockedRequestCount,3);
+ assert.equal(noMap.canPurchase,false);
+ assert.equal(JSON.stringify(noMap).includes('DO_NOT_ECHO'),false);
+ const noSeats=sanitizeOfflineSeatPreview({
+  ...raw,inspection:{seatMapLabel:true}
+ },date);
+ assert.equal(noSeats.status,'offline_seat_map_observed');
+ assert.equal(noSeats.reason,'preferred_controls_not_detected');
+ assert.ok(noSeats.preferredSeats.every(p=>p.observation==='unknown'));
+ assert.equal(noSeats.liveAvailabilityVerified,false);
+});
+
 test('seat-preview mode routes only to isolated worker and keeps fail-closed results',async()=>{
  const date='2026-11-18',calls=[];
  const browser=createBrowser({env:{WESTBAHN_BROWSER_ENABLED:'true',
