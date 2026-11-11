@@ -1,0 +1,49 @@
+name: AgentZentrale WESTbahn safety checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'src/core/**'
+      - 'package.json'
+      - '.github/workflows/server-ci.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'src/core/**'
+      - 'package.json'
+      - '.github/workflows/server-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: westbahn-server-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  read-only-safety-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check Python browser modules compile
+        run: python -m compileall -q server/browser
+      - name: Test read-only account evidence and coverage
+        working-directory: server/browser
+        run: python -m unittest -q test_booking_reference_match.py test_inventory_batch.py
+      - name: Test no-purchase backend and retry protections
+        run: |
+          node --test \
+            server/tests/westbahn.test.mjs \
+            server/tests/browser_audit.test.mjs \
+            server/tests/browser_route.test.mjs \
+            server/tests/weekly-review.test.mjs \
+            server/tests/booking-readiness.test.mjs
