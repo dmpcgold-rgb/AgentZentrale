@@ -153,6 +153,17 @@ def read_detail(page, url, day, seat):
     if not safe_detail_url(url,url,'Details'):
         return {'detailStatus':'blocked_target','yearVerified':False}
     try:
+        # Only allow GET or HEAD and the exact requested top-level detail URL.
+        # This also rejects JavaScript-initiated POST/PUT/DELETE requests.
+        def read_only_request(route):
+            request=route.request
+            if request.method.upper() not in ('GET','HEAD'):
+                route.abort()
+            elif request.is_navigation_request() and request.url!=url:
+                route.abort()
+            else:
+                route.continue_()
+        page.route('**/*',read_only_request)
         response=page.goto(url,wait_until='domcontentloaded',timeout=20000)
         if response is None or response.status!=200 or not safe_detail_url(page.url,page.url,'Details'):
             return {'detailStatus':'detail_unavailable','yearVerified':False}
