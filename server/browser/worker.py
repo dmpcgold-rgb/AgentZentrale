@@ -1779,7 +1779,7 @@ def main():
                                 'bookingAuthorized':False}
                     inventory=account_inventory(context,max_pages=5)
                     # Existing visible cards are only candidates, never proof
-                    # that another date is free. For up to two unambiguous
+                    # that another date is free. For up to five unambiguous
                     # candidate days, re-read an actual ticket detail page.
                     # This may prove an existing booking, not an absent one.
                     preliminary=summarize_inventory_batch(
@@ -1788,15 +1788,15 @@ def main():
                     detail_checks={}
                     detail_diagnostics={}
                     examined=0
-                    # Prioritize uncertain, yearless cards before already dated
-                    # tickets. The bounded two-detail budget must not be spent
-                    # on confirmed dates while a possible duplicate remains.
+                    # Inspect all five eligible dates in the bounded batch.
+                    # Several yearless cards can all be possible_existing,
+                    # so a two-day limit silently skipped later dates.
                     priority={'possible_existing': 0, 'visible_year_verified': 1}
                     candidates=sorted(
                         preliminary['days'],
                         key=lambda item: priority.get(item['status'], 2))
                     for item in candidates:
-                        if examined>=2: break
+                        if examined>=5: break
                         if not item['potentialDuplicate'] or len(item['seats'])!=1:
                             continue
                         examined+=1
