@@ -38,6 +38,28 @@ class TicketDetailTests(unittest.TestCase):
             with self.subTest(url=url,caption=caption):
                 self.assertIsNone(safe_detail_url(HOME,url,caption))
 
+    def test_actual_two_opaque_segment_ticket_route_is_strictly_read_only(self):
+        # This path SHAPE was observed on the live account; the identifiers below are fake.
+        valid='/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/FAKE-VIEW-987654321'
+        self.assertEqual(safe_detail_url(HOME,valid,'Details'),'https://westbahn.at'+valid)
+        self.assertEqual(safe_detail_url(HOME,valid,'Ticket anzeigen'),'https://westbahn.at'+valid)
+        for href,label in (
+            (valid,'Umbuchen'),
+            (valid,'Bearbeiten'),
+            (valid,'Buchung kaufen'),
+            (valid,'Völlig unbekannte Aktion'),
+            (valid+'?action=view','Details'),
+            (valid+'#details','Details'),
+            ('/ticketshop/dashboard/ticket/cancel/FAKE-VIEW-987654321','Details'),
+            ('/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/rebook-FAKE12345','Details'),
+            ('/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/stornieren1234','Details'),
+            ('/ticketshop/dashboard/ticket/SHORT/FAKE-VIEW-987654321','Details'),
+            ('https://westbahn.de'+valid,'Details'),
+            ('https://evil.example'+valid,'Details'),
+        ):
+            with self.subTest(href=href,label=label):
+                self.assertIsNone(safe_detail_url(HOME,href,label))
+
     def test_rejected_detail_controls_report_only_fixed_categories(self):
         cases=(
             ({'tag':'a','href':'#','caption':'Details'},'no_static_destination'),
@@ -187,6 +209,42 @@ class TicketDetailBrowserTests(unittest.TestCase):
             self.assertEqual(result['candidatePathPatterns'][0]['query'],'includes_other_keys')
             self.assertNotIn('PRIVATE',str(result))
             self.assertFalse(any('/account/orders/' in url for url in visited))
+        finally:
+            context.close()
+
+    def test_observed_detail_route_get_only_no_purchase(self):
+        context=self.browser.new_context()
+        touched=[]
+        fake='/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/FAKE-VIEW-987654321'
+        try:
+            account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
+            <article><h2>Reservierung Comfort Class</h2><p>Abfahrt 18:22 Wien Meidling DI 17 NOV</p>
+            <p>Ankunft 18:49 Wiener Neustadt</p><p>Sitzplatz 191D</p>
+            <a href="'''+fake+'''">Details</a>
+            <button onclick="fetch('/ticketshop/checkout',{method:'POST'})">Zahlungspflichtig bestellen</button></article>''')
+            detail=('''<h1>Reservierung Comfort Class</h1><p>Abfahrt: 17.11.2026 18:22 Wien Meidling</p>
+            <p>Ankunft 18:49 Wiener Neustadt</p><p>Sitzplatz: 191D</p>
+            <p>Buchungsnummer: CONFIDENTIAL-12345</p>
+            <script>fetch('/ticketshop/checkout',{method:'POST'}).catch(()=>{});</script>''')
+            def serve(route):
+                touched.append((route.request.method,route.request.url))
+                if fake in route.request.url:
+                    body=detail
+                elif 'westbahn.at' in route.request.url:
+                    body=account
+                else:
+                    body='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
+                route.fulfill(status=200,content_type='text/html; charset=utf-8',body=body)
+            context.route('https://westbahn.at/**',serve)
+            context.route('https://westbahn.de/**',serve)
+            result=inspect_existing_ticket_details(context,'2026-11-17','191D',max_pages=1)
+            self.assertEqual(result['detailStatus'],'detail_read',result)
+            self.assertTrue(result['yearVerified'])
+            self.assertFalse(result['confirmationVerified'])
+            self.assertFalse(result['bookingAuthorized'])
+            self.assertNotIn('CONFIDENTIAL',str(result))
+            self.assertFalse(any(method=='POST' for method,url in touched))
+            self.assertFalse(any('/ticketshop/checkout' in url for method,url in touched))
         finally:
             context.close()
 
