@@ -1714,9 +1714,30 @@ def main():
                                 'inventoryComplete':False,'safeToBook':False,
                                 'bookingAuthorized':False}
                     inventory=account_inventory(context,max_pages=5)
-                    return summarize_inventory_batch(
+                    # Existing visible cards are only candidates, never proof
+                    # that another date is free. For up to two unambiguous
+                    # candidate days, re-read an actual ticket detail page.
+                    # This may prove an existing booking, not an absent one.
+                    preliminary=summarize_inventory_batch(
                         inventory.get('matchingVisibleCards'),batch_days,
                         inventory.get('reports'))
+                    detail_checks={}
+                    examined=0
+                    for item in preliminary['days']:
+                        if examined>=2: break
+                        if not item['potentialDuplicate'] or len(item['seats'])!=1:
+                            continue
+                        examined+=1
+                        try:
+                            detail_checks[item['date']]=inspect_existing_ticket_details(
+                                context,item['date'],item['seats'][0],max_pages=2)
+                        except Exception:
+                            # Ambiguity, missing year or session problems never
+                            # turn a possible ticket into a booking permission.
+                            pass
+                    return summarize_inventory_batch(
+                        inventory.get('matchingVisibleCards'),batch_days,
+                        inventory.get('reports'),detail_checks)
                 if args.mode=='booking-check':
                     if not args.date: raise Blocked('Reisedatum für Bestandsprüfung fehlt.')
                     session=ensure_austrian_session(page,root)
