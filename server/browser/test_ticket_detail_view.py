@@ -40,10 +40,21 @@ class TicketDetailTests(unittest.TestCase):
 
     def test_actual_two_opaque_segment_ticket_route_is_strictly_read_only(self):
         # This path SHAPE was observed on the live account; the identifiers below are fake.
-        valid='/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/FAKE-VIEW-987654321'
+        valid='/ticketshop/dashboard/ticket/AB12CD34/EF5678'
         self.assertEqual(safe_detail_url(HOME,valid,'Details'),'https://westbahn.at'+valid)
         self.assertEqual(safe_detail_url(HOME,valid,'Ticket anzeigen'),'https://westbahn.at'+valid)
+        # Observed boundaries: first ID 8–11 chars; second ID 4–7 chars.
+        self.assertEqual(safe_detail_url(HOME,
+            '/ticketshop/dashboard/ticket/ZX12YZ34567/A123','Details'),
+            'https://westbahn.at/ticketshop/dashboard/ticket/ZX12YZ34567/A123')
         for href,label in (
+            ('/ticketshop/dashboard/ticket/AB12CD3/EF5678','Details'),
+            ('/ticketshop/dashboard/ticket/AB12CD345678/EF5678','Details'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF5','Details'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF567890','Details'),
+            ('/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/FAKE-VIEW-987654321','Details'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/cancel','Details'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/pay123','Details'),
             (valid,'Umbuchen'),
             (valid,'Bearbeiten'),
             (valid,'Buchung kaufen'),
@@ -217,7 +228,7 @@ class TicketDetailBrowserTests(unittest.TestCase):
     def test_observed_detail_route_get_only_no_purchase(self):
         context=self.browser.new_context()
         touched=[]
-        fake='/ticketshop/dashboard/ticket/FAKE-TICKET-12345678/FAKE-VIEW-987654321'
+        fake='/ticketshop/dashboard/ticket/AB12CD34/EF5678'
         try:
             account=('''<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
             <article><h2>Reservierung Comfort Class</h2><p>Abfahrt 18:22 Wien Meidling DI 17 NOV</p>
