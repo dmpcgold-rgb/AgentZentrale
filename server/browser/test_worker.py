@@ -568,6 +568,16 @@ class BrowserTests(unittest.TestCase):
   self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketReference':False}])
   self.assertFalse(result['inventoryComplete'])
   self.assertNotIn('SECRET123',str(result))
+ def test_account_summary_recognizes_reference_without_exposing_number(self):
+  secret='PRIVATE-9900123'
+  html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt: 17.11.2026 18:22 Wien Meidling</div><div>DI 17 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div><div>Buchungsnummer: '+secret+'</div></article>'
+  self.page.route('https://westbahn.de/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto(ACCOUNT_URL)
+  result=account_summary(self.page)
+  self.assertEqual(result['matchingVisibleCards'][0]['fullDate'],'2026-11-17')
+  self.assertTrue(result['matchingVisibleCards'][0]['bookingReference'])
+  self.assertNotIn(secret,str(result))
+  self.assertFalse(result['inventoryComplete'])
  def test_account_collects_lazy_loaded_cards(self):
   html="""<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>
   <div id="panel" style="height:120px;overflow-y:auto">
