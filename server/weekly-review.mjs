@@ -127,7 +127,10 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
       (state.nextRetryAt && current.getTime()<Date.parse(state.nextRetryAt)))return false;
    // Persist the attempt before opening the provider browser: restart-safe.
    state.attemptsThisWeek+=1;
-   state.nextRetryAt=null;
+   // Record the cooldown before opening Chromium. If the process crashes
+   // mid-read, a restarted instance cannot immediately loop the browser.
+   state.nextRetryAt=state.attemptsThisWeek<2
+     ?new Date(current.getTime()+30*60_000).toISOString():null;
    save();
    try{
      const result=await run();
