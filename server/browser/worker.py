@@ -737,9 +737,25 @@ def copy_preview_profile(source, destination):
     shutil.copytree(source,destination,ignore=ignore)
 
 def run_seat_preview(p, root, kwargs, day, network_diagnostic=False):
-    # The caller holds the profile lock and the real Chromium is not running.
-    # Preserve IndexedDB, cookies, preferences and other local profile state.
-    # The temporary directory is private and removed even after an error.
+    # Match price-audit: first verify/refresh the login in the original
+    # persistent browser, then close it BEFORE cloning the saved profile.
+    # Never auto-login in a disposable copy or expose credentials in results.
+    # The caller holds the exclusive profile lock for both phases.
+    original=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
+    try:
+        main_page=original.pages[0] if original.pages else original.new_page()
+        main_page.set_default_timeout(5000)
+        session=ensure_austrian_session(main_page,root)
+        if session.get('status')!='account_verified':
+            return {'status':'seat_preview_blocked',
+                    'blockReason':'original_account_unverified',
+                    'accountCheckStatus':session.get('status','account_unverified'),
+                    'accountVerifiedBeforeSearch':False,
+                    'bookingAuthorized':False,'liveAvailabilityVerified':False}
+    finally:
+        original.close()
+    # Preserve IndexedDB, cookies and local settings in the temporary copy.
+    # The disposable copy can only verify its already-established session.
     with tempfile.TemporaryDirectory(prefix='.seat-preview-',dir=root) as tmp:
         profile=Path(tmp)/'chromium'
         copy_preview_profile(root/'chromium',profile)
