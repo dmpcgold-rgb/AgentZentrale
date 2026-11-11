@@ -1,0 +1,24 @@
+name: WESTbahn booking evidence regression tests
+on:
+  push:
+    paths:
+      - 'server/browser/booking_evidence.py'
+      - 'server/browser/confirmation_evidence.py'
+      - 'server/browser/inventory_batch.py'
+      - 'server/browser/tests/test_ticket_code_evidence.py'
+      - '.github/workflows/westbahn-evidence-tests.yml'
+  workflow_dispatch:
+jobs:
+  evidence-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile evidence modules
+        run: python -m py_compile server/browser/booking_evidence.py server/browser/confirmation_evidence.py server/browser/inventory_batch.py
+      - name: Run duplicate-prevention regression tests
+        run: python -m unittest discover -s server/browser/tests -p 'test_ticket_code_evidence.py' -v
