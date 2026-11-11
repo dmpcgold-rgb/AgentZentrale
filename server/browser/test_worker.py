@@ -130,6 +130,18 @@ class BrowserTests(unittest.TestCase):
    self.assertEqual(result['preferredControls'],[{'seat':'233A','disabled':False}])
    self.assertFalse(result['liveAvailabilityVerified'])
   finally: context.close()
+ def test_offline_preview_uses_sibling_label_button(self):
+  context=self.b.new_context(service_workers='block')
+  try:
+   q=context.new_page()
+   q.set_content("""<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><span>2+ | Comfort</span><button title="€ 0,00" onclick="document.body.insertAdjacentHTML('beforeend','<button>233 D</button>')">Auswählen</button></div><div><button onclick="window.wrong=true">1 | First € 10,90</button></div></article>""")
+   conn={'trainNumber':'1009','arrival':'18:49','displayedPriceCents':0,'priceSource':'comfort_control'}
+   with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}):
+    result=offline_seat_preview(q,'2026-11-17')
+   self.assertEqual(result['preferredControls'],[{'seat':'233D','disabled':False}])
+   self.assertFalse(q.evaluate('Boolean(window.wrong)'))
+   self.assertFalse(result['liveAvailabilityVerified'])
+  finally: context.close()
  def test_account_summary_read_only(self):
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 233 A</div><div>Ticketcode SECRET123</div></article>'
   self.page.route('https://westbahn.de/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
