@@ -261,3 +261,73 @@ test('manual five-day review uses scheduler runner instead of separate booking p
  assert.equal(response.body.bookingAuthorized,false);
  assert.deepEqual(calls,['review']);
 });
+
+
+test('public trip preview only reads one supported connection and redacts provider fields',async()=>{
+ const calls=[];
+ const browser={async run(...args){
+   calls.push(args);
+   return {status:'connection_found',accountReference:'SECRET-ACCOUNT',
+     connection:{date:'2026-11-18',origin:'Wien Meidling',
+      destination:'Wiener Neustadt Hbf',departure:'18:22',arrival:'18:49',
+      class:'2+',currency:'EUR',trainNumber:'1009',displayedPriceCents:0,
+      priceSource:'comfort_control',priceStatus:'displayed'}};
+ }};
+ const westbahn={status:()=>({rows:[]}),
+   run(){throw Error('never buy')}};
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+   now:()=>Date.parse('2026-11-11T12:00:00Z'),browser,westbahn});
+ const res=await request(handler,{path:'/westbahn/browser/preview-trip',
+   body:{date:'2026-11-18'}});
+ assert.equal(res.status,200);
+ assert.deepEqual(calls,[['prepare','2026-11-18']]);
+ assert.equal(res.body.status,'public_connection_found');
+ assert.equal(res.body.displayedComfortCents,0);
+ assert.equal(res.body.canPurchase,false);
+ assert.equal(res.body.klimaTicketPriceVerified,false);
+ assert.equal(res.body.accountInventoryVerified,false);
+ assert.equal(JSON.stringify(res.body).includes('SECRET-ACCOUNT'),false);
+});
+
+test('recorded day does not open preview browser or claim a free seat',async()=>{
+ const calls=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+   now:()=>Date.parse('2026-11-11T12:00:00Z'),
+   browser:{async run(...args){calls.push(args);return {};}},
+   westbahn:{status:()=>({rows:[{date:'2026-11-17',status:'existing_verified',seat:'191D'}]})}});
+ const res=await request(handler,{path:'/westbahn/browser/preview-trip',
+   body:{date:'2026-11-17'}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.status,'existing_ledger_entry');
+ assert.equal(res.body.canPurchase,false);
+ assert.deepEqual(calls,[]);
+});
+
+test('public preview requires authentication and an allowed planned day',async()=>{
+ const calls=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),
+  westbahn:{status:()=>({rows:[]})},
+  browser:{async run(...args){calls.push(args);return {};}}});
+ const rejected=await request(handler,{path:'/westbahn/browser/preview-trip',
+   body:{date:'2026-11-18'},authorization:'Bearer invalid'});
+ assert.equal(rejected.status,401);
+ const invalid=await request(handler,{path:'/westbahn/browser/preview-trip',
+   body:{date:'2026-11-14'}});
+ assert.equal(invalid.status,400);
+ assert.deepEqual(calls,[]);
+});
+
+test('public preview browser error never implies checkout readiness',async()=>{
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),
+  westbahn:{status:()=>({rows:[]})},
+  browser:{async run(){throw Error('provider unavailable');}}});
+ const res=await request(handler,{path:'/westbahn/browser/preview-trip',
+   body:{date:'2026-11-18'}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.status,'review_required');
+ assert.equal(res.body.displayedComfortCents,null);
+ assert.equal(res.body.canPurchase,false);
+ assert.equal(JSON.stringify(res.body).includes('provider unavailable'),false);
+});
