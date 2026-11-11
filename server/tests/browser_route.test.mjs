@@ -78,3 +78,38 @@ test('read-only browser errors never initiate a booking or claim success',async(
  assert.equal(result.status,409);
  assert.equal(result.body.error,'Ticketdaten nicht eindeutig');
 });
+
+
+test('authenticated five-day audit derives dates on server and cannot call checkout',async()=>{
+ const calls=[];
+ const browser={async run(...args){calls.push(args);
+   return {status:'inventory_batch_read',days:[],inventoryComplete:false,
+      safeToBook:false,bookingAuthorized:false};}};
+ const westbahn={run(){throw Error('must never buy')}};
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T12:00:00Z'),browser,westbahn});
+ const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
+ assert.equal(res.status,200);
+ assert.equal(res.body.bookingAuthorized,false);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0][0],'inventory-batch');
+ assert.equal(calls[0][3].length,5);
+ assert.equal(calls[0][3][0],'2026-11-17');
+});
+
+test('five-day audit rejects unauthenticated request without opening browser',async()=>{
+ const calls=[];
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  browser:{async run(...args){calls.push(args);return {};}}});
+ const res=await request(handler,{path:'/westbahn/browser/audit-week',authorization:'Bearer invalid'});
+ assert.equal(res.status,401);
+ assert.equal(calls.length,0);
+});
+
+test('five-day audit browser error never claims a complete inventory',async()=>{
+ const handler=createAgentHandler({env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  browser:{async run(){throw Error('Browser gesperrt');}}});
+ const res=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
+ assert.equal(res.status,409);
+ assert.equal(res.body.error,'Browser gesperrt');
+});
