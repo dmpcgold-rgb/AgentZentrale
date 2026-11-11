@@ -123,3 +123,8 @@ sudo bash -c 'cd /opt/agentzentrale && docker compose exec -T agentzentrale sh -
 \`\`\`
 
 Die neue Bestandsprüfung ist fail-closed. Sie dient als Voraussetzung für einen späteren vollständig verifizierten Checkout-Adapter, nicht als bereits funktionierender automatischer Kauf.
+
+
+## Visuelle Sitzplatz-Ändern-Erkennung (11.11.2026)
+
+Falls die WESTbahn-Oberfläche den Sitzplatz-Link in einer anderen DOM-Spalte als die Überschrift platziert und beide zusammen mit dem Warenkorb unter demselben Layout-Container liegen, verwendet der Agent einen zusätzlichen, **eng begrenzten visuellen** Fallback. Er verlangt eine sichtbare Sitzplatzüberschrift, eine zugehörige Wagen-/Platz-Zusammenfassung sowie genau ein an derselben Bildschirmzeile ausgerichtetes klickbares „Ändern“-Element. Das weiter oben liegende „Bearbeiten“ der Reisedaten und beliebige Warenkorb-Buttons dürfen nicht gewählt werden. Bei mehreren oder fehlenden Treffern wird abgebrochen. Tests für eine gemischte Grid-Zeile und ein fehlendes Sitzplatzfeld sind ergänzt. Der echte WESTbahn-Live-Test dieser verbesserten Erkennung steht noch aus.
