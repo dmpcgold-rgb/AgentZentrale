@@ -5,6 +5,7 @@ import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
+import { bookingReadiness } from './booking-readiness.mjs';
 import { planDates } from '../src/core/westbahn.js';
 import { ApiError, compareToken, requireName, requirePath, requireText, enforceWritableFile, isAllowedOwner, apiPath, responseText, verifyProposalObject, generateBranch } from './lib.mjs';
 
@@ -111,6 +112,8 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
       }
+      if (is('GET', '/westbahn/readiness')) return write(res,200,
+        bookingReadiness({westbahn,review,now:new Date(now())}));
       if (is('GET', '/westbahn/review-status')) {
         return write(res,200,review?review.status():{
           enabled:false,running:false,lastRun:null,lastSchedule:null,
