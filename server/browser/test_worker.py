@@ -439,6 +439,24 @@ class BrowserTests(unittest.TestCase):
   diag=find_seat_change_control(self.page,diagnostic=True)
   self.assertEqual(diag['matchedControls'],0,diag)
   self.assertIsNone(find_seat_change_control(self.page))
+ def test_editor_can_use_bounded_semantic_section_when_visual_rows_differ(self):
+  self.page.set_content("""<section style="width:500px"><strong>Sitzplatzreservierung</strong><p>Wagen 9 Platz 208A</p><div style="height:280px"></div><button onclick="window.edited=true">Ändern</button></section><aside><h3>Meine Auswahl</h3><button>In den Warenkorb</button></aside>""")
+  diag=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(diag['selectedMode'],'change',diag)
+  self.assertEqual(diag['matchedControls'],1,diag)
+  self.assertGreater(abs(diag['editorEvidence'][0]['distanceY']),85)
+  find_seat_change_control(self.page).click()
+  self.assertTrue(self.page.evaluate('window.edited===true'))
+ def test_editor_semantic_fallback_rejects_cart_or_unrelated_edit(self):
+  self.page.set_content("""<div><section><b>Sitzplatzreservierung</b><p>Wagen 9 Platz 208A</p></section><aside><button>Ändern</button><p>Meine Auswahl</p><button>In den Warenkorb</button></aside></div>""")
+  diag=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(diag['matchedControls'],0,diag)
+  self.assertIsNone(find_seat_change_control(self.page))
+ def test_editor_semantic_fallback_requires_seat_code(self):
+  self.page.set_content("""<section><strong>Sitzplatzreservierung</strong><div>Wagen Platz</div><div style="height:280px"></div><button>Ändern</button></section>""")
+  diag=find_seat_change_control(self.page,diagnostic=True)
+  self.assertIsNone(find_seat_change_control(self.page))
+  self.assertFalse(diag['editorEvidence'][0]['hasSeatSummary'])
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):

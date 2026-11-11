@@ -1354,6 +1354,7 @@ def find_seat_change_control(page, diagnostic=False):
       const changedText=all.filter(e=>isSmall(e)&&editor.test(raw(e)));
       const candidates=[];
       const seatCandidates=[];
+      const editorEvidence=[];
       const headingCenter=headings.length===1?headings[0].getBoundingClientRect():null;
       const nearEditLabels=headingCenter?editLabels.filter(e=>{const b=e.getBoundingClientRect();return b.left>=headingCenter.left-25&&Math.abs((headingCenter.top+headingCenter.bottom-b.top-b.bottom)/2)<=85;}):[];
       const sectionFacts={seatCodes:0,editorAria:0,interactiveElements:0,seatColumnLabels:0};
@@ -1386,9 +1387,27 @@ def find_seat_change_control(page, diagnostic=False):
         for(const c of editLabels){
           if(c===h||c.contains(h))continue;
           const row=commonRow(h,c,380,200,100,9);
-          if(!row)continue;
-          const target=clickOwner(c,row);
-          if(target&&!target.contains(h))candidates.push(target);
+          // The actual WESTbahn "Ändern" may sit lower than the
+          // header on certain viewport widths. A second, structural
+          // verification is allowed only when the common ancestor is a
+          // bounded seat-information region, not the entire page.
+          let shared=h,depth=0;
+          while(shared&&shared!==document.body&&!shared.contains(c)&&depth<14){shared=shared.parentElement;depth++;}
+          const scope=shared&&shared!==document.body?raw(shared):'';
+          const hasSeatSummary=/\bWagen\b/i.test(scope)&&/\bPlatz\b/i.test(scope)&&/\b\d{2,4}\s*[A-D]\b/i.test(scope);
+          const hasCheckout=/Meine Auswahl|In den Warenkorb|Bezahlen|Checkout|Jetzt kaufen|Bestätigen|Abbrechen/i.test(scope);
+          const bounded=!!shared&&shared!==document.body&&scope.length<=4600&&scope.length>=25&&depth<=13;
+          const semantic=bounded&&hasSeatSummary&&!hasCheckout;
+          const target=row?clickOwner(c,row):semantic?clickOwner(c,shared):null;
+          const usable=!!target&&!target.contains(h)&&raw(target).length<120;
+          if(editorEvidence.length<8){
+            const hb=h.getBoundingClientRect(),cb=c.getBoundingClientRect();
+            editorEvidence.push({distanceY:Math.round((cb.top+cb.bottom-hb.top-hb.bottom)/2),
+              commonDepth:shared===document.body?-1:depth,scopeCharacters:scope.length,
+              bounded,hasSeatSummary,hasCheckout,linkedByRow:!!row,
+              targetKind:target?target.tagName.toLowerCase():null,usable});
+          }
+          if(usable)candidates.push(target);
         }
         // Only if there are no matching editor labels in this section:
         // prefer the uniquely clickable selected seat number in Wagen/Platz.
@@ -1426,6 +1445,7 @@ def find_seat_change_control(page, diagnostic=False):
       if(audit)return {
         seatHeadingCount:headings.length,changeLabelCount:changedText.length,
         editorLabelCandidates:editLabels.length,nearbyEditLabels:nearEditLabels.length,matchedControls:editUnique.length,
+        editorEvidence,
         seatLinkCandidates:seatUnique.length,seatCodeCount:sectionFacts.seatCodes,
         seatColumnLabels:sectionFacts.seatColumnLabels,editorAria:sectionFacts.editorAria,
         interactiveElements:sectionFacts.interactiveElements,
