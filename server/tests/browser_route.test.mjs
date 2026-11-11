@@ -216,3 +216,48 @@ test('five-day audit browser error never claims a complete inventory',async()=>{
  assert.equal(res.status,409);
  assert.equal(res.body.error,'Browser gesperrt');
 });
+
+
+test('read-only scheduler status and readiness endpoints require authentication',async()=>{
+ const now=()=>Date.parse('2026-11-11T13:00:00Z');
+ const review={status:()=>({enabled:true,running:false,lastSchedule:'2026-11-09',
+  lastRun:{status:'inventory_batch_read',days:[]},purchaseEnabled:false,
+  inventoryComplete:false})};
+ const westbahn={status:()=>({rows:[
+  {date:'2026-11-17',status:'existing_verified',seat:'191D'}
+ ]})};
+ const handler=createAgentHandler({
+  env:{AGENTZENTRALE_ACCESS_TOKEN:token},now,review,westbahn
+ });
+ const status=await request(handler,{method:'GET',path:'/westbahn/review-status'});
+ assert.equal(status.status,200);
+ assert.equal(status.body.enabled,true);
+ assert.equal(status.body.purchaseEnabled,false);
+ const readiness=await request(handler,{method:'GET',path:'/westbahn/readiness'});
+ assert.equal(readiness.status,200);
+ assert.equal(readiness.body.status,'checkout_not_ready');
+ assert.equal(readiness.body.days[0].status,'protected_existing');
+ assert.deepEqual(readiness.body.preferredSeats,['233A','233D']);
+ assert.equal(readiness.body.canPurchase,false);
+ const unauthorized=await request(handler,{method:'GET',
+   path:'/westbahn/readiness',authorization:'Bearer incorrect'});
+ assert.equal(unauthorized.status,401);
+});
+
+test('manual five-day review uses scheduler runner instead of separate booking path',async()=>{
+ const calls=[];
+ const review={async run(){calls.push('review');
+  return {status:'inventory_batch_read',days:[],inventoryComplete:false,
+    safeToBook:false,bookingAuthorized:false,ledgerProtectedDates:[]};},
+  status:()=>({enabled:true})};
+ const browser={async run(){throw Error('must use scheduler review')}};
+ const westbahn={run(){throw Error('must never initiate checkout')}};
+ const handler=createAgentHandler({
+  env:{AGENTZENTRALE_ACCESS_TOKEN:token},
+  now:()=>Date.parse('2026-11-11T13:00:00Z'),review,browser,westbahn
+ });
+ const response=await request(handler,{path:'/westbahn/browser/audit-week',body:{}});
+ assert.equal(response.status,200);
+ assert.equal(response.body.bookingAuthorized,false);
+ assert.deepEqual(calls,['review']);
+});
