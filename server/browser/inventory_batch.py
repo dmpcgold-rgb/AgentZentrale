@@ -90,12 +90,21 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                 failures_by_reason[status]=failures_by_reason.get(status,0)+1
                 if type(report.get('page')) is int:
                     failed_pages.add(report['page'])
+        hints=[r.get('domHints') for r in page_reports
+               if isinstance(r,dict) and r.get('domain')==domain
+               and r.get('status')=='account_verified'
+               and isinstance(r.get('domHints'),dict)]
+        dynamic_hints={name:max((h.get(name,0) for h in hints
+                                 if type(h.get(name,0)) is int),default=0)
+                       for name in ('navigationControls','enabledNavigationControls',
+                                    'loadingIndicators','scrollContainers')}
         pagination[domain]={'pagesVerified':checked,
                             'linkedPagesObserved':observed,
                             'linkedPagesNotVerified':[n for n in observed if n not in checked],
                             'failedPageNumbers':sorted(failed_pages),
                             'failureReasons':failures_by_reason,
-                            'verifiedPageCount':len(checked)}
+                            'verifiedPageCount':len(checked),
+                            'dynamicPageHints':dynamic_hints}
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)

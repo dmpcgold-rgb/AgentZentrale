@@ -715,6 +715,20 @@ def account_inventory(context, requested_page=None, max_pages=10):
                     # Expose only bounded numeric navigation metadata.
                     # It helps diagnose missing pages without exposing URLs
                     # or claiming an authoritative total ticket count.
+                    # DOM-only indicators: counts/booleans, never text, links,
+                    # ticket identifiers, customer data or network payloads.
+                    # These hints cannot establish authoritative completeness.
+                    hints=page.evaluate("""() => {
+                      const controls=[...document.querySelectorAll('button,[role=button],a')];
+                      const nav=controls.filter(el => /^(next|previous|prev|weiter|zurück|mehr|load more|more|[‹›«»])$/i.test((el.getAttribute('aria-label')||el.textContent||'').trim().slice(0,40)));
+                      const disabled=el => el.disabled===true || el.getAttribute('aria-disabled')==='true';
+                      const loading=document.querySelectorAll('[aria-busy=true],[role=progressbar]').length;
+                      return {navigationControls:Math.min(nav.length,100),
+                        enabledNavigationControls:Math.min(nav.filter(el=>!disabled(el)).length,100),
+                        loadingIndicators:Math.min(loading,100),
+                        scrollContainers:Math.min([...document.querySelectorAll('*')].filter(el=>el.scrollHeight>el.clientHeight+100 && el.clientHeight>100 && ['auto','scroll'].includes(getComputedStyle(el).overflowY)).length,100)};
+                    }""")
+                    reports[-1]['domHints']=hints
                     reports[-1]['paginationLinks']=links[:20]
                     reports[-1]['paginationLinkCount']=len(links)
                     pending.extend(n for n in links if n not in seen and n not in pending)
