@@ -191,3 +191,12 @@ Nach der Live-Prüfung vom 11.11.2026 waren für das Ticket vom 17.11.2026 zwei 
 Die Sicherheitsentscheidung ist unverändert: Ein unbekannter Pfad wird **nicht geöffnet**. Die Diagnose ist ausschließlich dazu gedacht, nach einem echten Test den konkreten Routing-Typ zu erkennen und erst danach die statische Allowlist gezielt zu erweitern. Sie aktiviert keine Bestellungen, Umbuchungen oder Stornierungen.
 
 Testkommando: `python -m unittest test_detail_route_diagnostics.py test_ticket_detail_view.py`.
+
+
+## Live beobachtete Zwei-Token-Detailroute (November 2026)
+
+Der Konto-Test mit 15 erfolgreichen Tests fand für die vorhandene Reservierung vom 17.11.2026 den anonymisierten Linkpfad `/ticketshop/dashboard/ticket/[opaque]/[opaque]` auf zwei Konto-Karten. Die Ticketdetailprüfung erlaubt diese eng begrenzte **GET-Detailansicht** nun nur dann, wenn der Link eindeutig zur passenden Comfort-Ticketkarte gehört, ausdrücklich als `Details`, `Ticketdetails`, `Ticket ansehen`, `Ticket anzeigen` oder `Reservierung ansehen` bezeichnet ist, die beiden URL-Komponenten jeweils mindestens zwölf zulässige Tokenzeichen enthalten, beide von demselben offiziellen WESTbahn-Host stammen, keine Abfrageparameter/Fragmente vorhanden sind und keine bekannten Verwaltungs- oder Kaufbegriffe in den Pfadkomponenten vorkommen.
+
+Beim Öffnen der Detailseite blockiert eine zusätzliche Netzwerksperre sämtliche Methoden außer GET/HEAD und fremde Top-Level-Zieladressen. Bei mehrdeutigen Links oder nicht eindeutig lesbaren Ticketinformationen wird abgebrochen. Keine Schaltflächen werden angeklickt, und es werden keine Buchungen angelegt, bezahlt, storniert oder verändert. **Eine Seitenadresse allein beweist nicht, dass die Detailansicht tatsächlich korrekt ist:** Der Live-Test und die Prüfung der tatsächlichen Ticketdetails stehen noch aus. Die Flags `confirmationVerified:false`, `safeToBook:false`, `bookingAuthorized:false` und `inventoryComplete:false` werden weiterhin nicht freigegeben.
+
+Nach Git-Pull: `cd /app/server/browser && python -m unittest test_ticket_detail_view.py test_detail_route_diagnostics.py`. Nur bei erfolgreichen Tests: `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`.
