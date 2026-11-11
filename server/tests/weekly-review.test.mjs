@@ -135,3 +135,98 @@ test('negative account evidence or claimed purchase authorization fails closed',
  }
  assert.deepEqual(ledger.status().rows,[]);
 });
+
+
+test('failed Monday account read retries only once after 30 minutes, never buys',async()=>{
+ let clock=new Date('2026-11-16T06:00:00Z');
+ const current=()=>clock;
+ let calls=0;
+ const p=createWestbahn({now:current});
+ const browser={async run(){calls++;if(calls===1)throw Error('provider temporarily offline');
+   const days=planDates(current()).slice(0,5);
+   return {status:'inventory_batch_read',accountPageReads:4,
+    inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+    days:days.map(d=>item(d))};
+ }};
+ const review=createWeeklyReview({now:current,browser,westbahn:p});
+ await assert.rejects(review.tick(),/Keine Buchung/);
+ assert.equal(review.status().attemptsThisWeek,1);
+ assert.equal(review.status().lastSuccessWeek,null);
+ assert.ok(review.status().nextRetryAt);
+ assert.equal(await review.tick(),false);
+ clock=new Date('2026-11-16T06:29:00Z');
+ assert.equal(await review.tick(),false);
+ clock=new Date('2026-11-16T06:30:00Z');
+ assert.equal(await review.tick(),true);
+ assert.equal(review.status().lastSuccessWeek,'2026-11-16');
+ assert.equal(review.status().attemptsThisWeek,2);
+ assert.equal(await review.tick(),false);
+ assert.equal(calls,2);
+ assert.deepEqual(p.status().rows,[]);
+});
+
+test('two failed attempts stop retrying for that week',async()=>{
+ let clock=new Date('2026-11-16T06:00:00Z'),calls=0;
+ const current=()=>clock;
+ const review=createWeeklyReview({now:current,westbahn:createWestbahn({now:current}),
+  browser:{async run(){calls++;throw Error('provider unavailable');}}});
+ await assert.rejects(review.tick(),/Keine Buchung/);
+ clock=new Date('2026-11-16T06:31:00Z');
+ await assert.rejects(review.tick(),/Keine Buchung/);
+ assert.equal(review.status().attemptsThisWeek,2);
+ assert.equal(review.status().nextRetryAt,null);
+ clock=new Date('2026-11-20T10:00:00Z');
+ assert.equal(await review.tick(),false);
+ assert.equal(calls,2);
+});
+
+test('server restart after missed Monday catches up Tuesday and retains success',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'wb-catchup-'));
+ try{
+  const file=join(dir,'review.json'),ledger=createWestbahn({now:()=>new Date('2026-11-17T06:15:00Z')});
+  const now=()=>new Date('2026-11-17T06:15:00Z');
+  let runs=0;
+  const browser={async run(mode,day,seat,days){
+   assert.equal(mode,'inventory-batch');
+   assert.equal(days[0],'2026-11-17');
+   runs++;
+   return {status:'inventory_batch_read',accountPageReads:4,
+     inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
+     days:days.map(x=>item(x))};
+  }};
+  const review=createWeeklyReview({now,file,westbahn:ledger,browser});
+  assert.equal(await review.tick(),true);
+  assert.equal(review.status().lastSchedule,'2026-11-16');
+  assert.equal(review.status().lastSuccessWeek,'2026-11-16');
+  const restarted=createWeeklyReview({now,file,westbahn:ledger,browser});
+  assert.equal(await restarted.tick(),false);
+  assert.equal(runs,1);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('weekend does not start catch-up audit, and pre-seven remains disabled',async()=>{
+ const dates=['2026-11-14T06:30:00Z','2026-11-15T07:00:00Z','2026-11-17T05:59:00Z'];
+ let calls=0;
+ for(const date of dates){
+  const review=createWeeklyReview({now:()=>new Date(date),
+    westbahn:createWestbahn({now:()=>new Date(date)}),
+    browser:{async run(){calls++;throw Error('never run');}}});
+  assert.equal(await review.tick(),false);
+ }
+ assert.equal(calls,0);
+});
+
+test('read-only review reports unavailable account without claiming completed scan',async()=>{
+ const now=()=>new Date('2026-11-16T06:00:00Z');
+ const days=planDates(now()).slice(0,5);
+ const review=createWeeklyReview({now,westbahn:createWestbahn({now}),
+   browser:{async run(){
+     return {status:'review_required',inventoryComplete:false,
+       bookingAuthorized:false,safeToBook:false,
+       days:days.map(d=>item(d))};
+   }}});
+ await assert.rejects(review.tick(),/konnte nicht geprüft werden/);
+ assert.equal(review.status().lastRun.status,'review_required');
+ assert.equal(review.status().lastSuccessWeek,null);
+ assert.equal(review.status().attemptsThisWeek,1);
+});
