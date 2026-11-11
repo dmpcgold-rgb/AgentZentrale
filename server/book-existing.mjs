@@ -1,7 +1,7 @@
 // Register a reservation that the user has already obtained from WESTbahn.
 // Sends no payment, creates no reservation and never prints credentials.
 const [travelDate, seat, ack] = process.argv.slice(2);
-if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(travelDate || '') || !/^\\d{3}[A-D]$/.test(seat || '') || ack !== '--confirm-existing') {
+if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate || '') || !/^[0-9]{3}[A-D]$/.test(seat || '') || ack !== '--confirm-existing') {
  console.error('Aufruf: node book-existing.mjs YYYY-MM-DD 191D --confirm-existing');
  process.exitCode=2;
 } else {
