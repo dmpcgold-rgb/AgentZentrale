@@ -242,6 +242,22 @@ class BrowserTests(unittest.TestCase):
   self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>11 191D</div><div>2+ | Comfort</div><button title="233 A frei">233A</button><button>233D</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
   self.assertIsNotNone(seat_modal_state(self.page,{'kind':'seat','value':'233A'}))
   self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'233D'}))
+ def test_known_seat_enabled_without_free_label_and_svg_comfort(self):
+  self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>9 208A</div><svg width="200" height="30"><text x="0" y="20">2+ | Comfort</text></svg><button aria-selected="true">8</button><button title="191D">191D</button><button title="182A" disabled>182A</button><button title="205D">205D</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  state=seat_modal_state(self.page)
+  self.assertTrue(state['comfortMap'])
+  self.assertEqual(state['activeCoach'],'8')
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'191D'}))
+  self.assertIsNotNone(seat_modal_state(self.page,{'kind':'seat','value':'191D','allowKnown':True}))
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'182A','allowKnown':True}))
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'205D','allowKnown':True}))
+ def test_detail_comfort_requires_scoped_zero_summary(self):
+  self.page.set_content("""<section><h2>Meine Auswahl</h2><p>Reservierung Comfort Class</p><p>Wien Meidling - Wiener Neustadt</p><p>1009 18:22</p><p>€ 0,00</p></section><section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>9 208A</div><button aria-selected="true">8</button><button>191D</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  state=seat_modal_state(self.page)
+  self.assertFalse(state['comfortMap'])
+  self.assertTrue(state['detailComfort'])
+  self.page.locator('p').last.evaluate("(e)=>e.textContent='€ 7,90'")
+  self.assertFalse(seat_modal_state(self.page)['detailComfort'])
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):

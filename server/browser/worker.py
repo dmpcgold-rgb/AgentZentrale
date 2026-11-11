@@ -976,12 +976,29 @@ def seat_modal_state(page, target=None):
       const modal=smallest[0];
       // The selected-seat summary precedes the actual seat map. Never use an
       // arbitrary seat label in the map as evidence of the selected seat.
-      const beforeMap=(modal.innerText||'').split(/Legende|2\+\s*\|\s*Comfort|2\+\s*Comfort/i)[0];
+      const beforeMap=(modal.innerText||modal.textContent||'').split(/Legende|2\+\s*\|\s*Comfort|2\+\s*Comfort/i)[0];
       const summary=beforeMap.match(/Wagen\s+Platz\s+(\d{1,2})\s+(?:[♿\s\uFE0F]*)?(\d{2,4})\s*([A-D])\b/i)||beforeMap.match(/Wagen\s+(\d{1,2})\s+Platz\s+(?:[♿\s\uFE0F]*)?(\d{2,4})\s*([A-D])\b/i);
       const selected=summary?{coach:summary[1],seat:summary[2]+summary[3].toUpperCase()}:null;
       const controls=[];
       const elements=[];
       const activeCoaches=[];
+      // The live map may render its class label as SVG text or accessibility
+      // metadata, which innerText alone misses.
+      const isComfort=s=>/2\s*\+\s*[\s|·:–—-]*Comfort/i.test(norm(s));
+      const classLabel=[...modal.querySelectorAll('*')].some(e=>vis(e)&&[e.getAttribute('aria-label'),e.getAttribute('title'),e.textContent].some(v=>v&&isComfort(v)&&norm(v).length<70));
+      const comfortMap=isComfort(modal.innerText)||isComfort(modal.textContent)||classLabel;
+      // For the four explicitly approved seats only, a scoped zero-price
+      // Comfort summary can supplement a missing coach-class label.
+      const headings=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&text(e)==='Meine Auswahl'&&![...e.children].some(c=>vis(c)&&text(c)==='Meine Auswahl'));
+      const summaries=new Set();
+      for(const h of headings){
+        for(let e=h.parentElement;e&&e!==document.body;e=e.parentElement){
+          const v=norm(e.innerText||e.textContent);
+          if(/Reservierung\s+Comfort\s+Class/i.test(v)&&/\b1009\b/.test(v)&&/18:22/.test(v)&&/Wien\s+Meidling/i.test(v)&&/Wiener\s+Neustadt/i.test(v)&&/(?:€\s*0[,.]00|0[,.]00\s*€)/.test(v)&&v.length<1500){summaries.add(e);break;}
+        }
+      }
+      const detailComfort=summaries.size===1;
+      const known=new Set(['233A','233D','191D','182A']);
       for(const e of modal.querySelectorAll('button,[role="button"],[role="option"],[data-seat],[data-seat-number]')){
         if(!vis(e))continue;
         const raw=[text(e),e.getAttribute('aria-label'),e.getAttribute('title'),e.getAttribute('data-seat'),e.getAttribute('data-seat-number')].map(norm);
@@ -1000,12 +1017,16 @@ def seat_modal_state(page, target=None):
           const active=e.matches('[aria-selected="true"],[aria-pressed="true"],[aria-current="true"],[data-active="true"]')||/(?:^|[\s_-])(active|selected)(?:$|[\s_-])/i.test(e.getAttribute('class')||'');
           if(active)activeCoaches.push(coach[1]);
         }
-        controls.push({kind:code?'seat':'coach',value:code?code[1]+code[2].toUpperCase():coach[1],disabled,unavailable,free,
+        const seatId=code?code[1]+code[2].toUpperCase():null;
+        // WESTbahn's enabled seat controls do not necessarily say "frei".
+        // Only use this signal for user-approved seats, not unknown layouts.
+        const selectableKnown=!!code&&known.has(seatId)&&!disabled&&!unavailable&&!fourSeat&&e.matches('button,[role="button"],[role="option"]')&&e.getAttribute('aria-disabled')!=='true';
+        controls.push({kind:code?'seat':'coach',value:code?seatId:coach[1],disabled,unavailable,free,selectableKnown,
           ...(code?{group:group?String(group).slice(0,60):null,layout,fourSeat}:{})});
         elements.push(e);
       }
       if(target){
-        const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||c.free));
+        const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||c.free||(target.allowKnown===true&&c.selectableKnown)));
         return matches.length===1?elements[matches[0].i]:null;
       }
       const active=[...new Set(activeCoaches)];
@@ -1020,7 +1041,7 @@ def seat_modal_state(page, target=None):
         }
       }
       const activeCoach=active.length===1?active[0]:!active.length&&new Set(blue).size===1?blue[0]:null;
-      return {modalFound:true,selected,controls,activeCoach,comfortMap:/2\+\s*\|?\s*Comfort/i.test(modal.innerText||'')};
+      return {modalFound:true,selected,controls,activeCoach,comfortMap,detailComfort};
     }"""
     if target is not None:
         return page.evaluate_handle(script,target).as_element()
@@ -1123,18 +1144,20 @@ def select_primary_seat_in_open_modal(page):
         for _ in range(12):
             page.wait_for_timeout(250)
             current=seat_modal_state(page)
-            if current.get('activeCoach')==coach and current.get('comfortMap'):
+            if current.get('activeCoach')==coach and (current.get('comfortMap') or (coach in ('11','8','7') and current.get('detailComfort'))):
                 return current
         # No arbitrary fallback on a coach whose identity/class is uncertain.
         return None
     def choose(coach,seat,kind):
         before=seat_modal_state(page)
         selected=before.get('selected') or {}
-        if selected=={'coach':coach,'seat':seat} and before.get('activeCoach')==coach and before.get('comfortMap'):
+        known_choice=kind in ('primary','known_alternative') and any(c==coach and seat in seats for c,seats in PREFERRED_SEAT_GROUPS)
+        class_ok=before.get('comfortMap') or (known_choice and before.get('detailComfort'))
+        if selected=={'coach':coach,'seat':seat} and before.get('activeCoach')==coach and class_ok:
             return {'status':'primary_seat_selected' if kind=='primary' else 'alternative_seat_selected','selection':selected,'selectionKind':kind,'bookingAuthorized':False,'coachReports':reports,'message':'Platz bereits ausgewählt; nicht bestätigt oder gebucht.'}
-        if before.get('activeCoach')!=coach or not before.get('comfortMap'):
+        if before.get('activeCoach')!=coach or not class_ok:
             return None
-        control=seat_modal_state(page,{'kind':'seat','value':seat})
+        control=seat_modal_state(page,{'kind':'seat','value':seat,'allowKnown':known_choice})
         if control is None: return None
         control.click(timeout=5000)
         for _ in range(8):
@@ -1144,7 +1167,7 @@ def select_primary_seat_in_open_modal(page):
         # An uncertain click must never be followed by further seat clicks.
         raise Blocked('Sitzplatzauswahl nicht eindeutig bestätigt.')
     selected=state.get('selected') or {}
-    if selected.get('coach')=='11' and selected.get('seat') in PRIMARY_SEATS and state.get('comfortMap'):
+    if selected.get('coach')=='11' and selected.get('seat') in PRIMARY_SEATS and (state.get('comfortMap') or state.get('detailComfort')):
         return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz bereits ausgewählt; nicht bestätigt oder gebucht.'}
     candidates=[]
     scanned=set()
@@ -1152,10 +1175,11 @@ def select_primary_seat_in_open_modal(page):
         current=open_coach(coach)
         scanned.add(coach)
         if current is None:
-            reports.append({'coach':coach,'verified':False})
+            observed=seat_modal_state(page)
+            reports.append({'coach':coach,'verified':False,'activeCoach':observed.get('activeCoach'),'comfortMap':observed.get('comfortMap'),'detailComfort':observed.get('detailComfort')})
             return None
-        eligible=ranked_layout_seats(current)
-        reports.append({'coach':coach,'verified':True,'preferredSeats':[c for c in current['controls'] if c['kind']=='seat' and c['value'] in ('233A','233D','191D','182A')],'verifiedLayoutSeats':len(eligible)})
+        eligible=ranked_layout_seats(current) if current.get('comfortMap') else []
+        reports.append({'coach':coach,'verified':True,'comfortMap':current.get('comfortMap'),'detailComfort':current.get('detailComfort'),'preferredSeats':[c for c in current['controls'] if c['kind']=='seat' and c['value'] in ('233A','233D','191D','182A')],'verifiedLayoutSeats':len(eligible)})
         candidates.extend((rank,coach,seat) for rank,seat in eligible)
         return current
     for coach,seats in PREFERRED_SEAT_GROUPS:
