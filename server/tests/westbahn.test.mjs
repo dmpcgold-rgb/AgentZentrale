@@ -104,6 +104,19 @@ test('missing confirmation and timeout never retried',async()=>{for(const p of [
 test('existing provider booking prevents duplicate',async()=>{const p=provider({already:true});const a=createWestbahn({now,adapter:p});await a.run();assert.equal(p.count,0);assert.equal(a.status().confirmedThrough,day);});
 test('durable ledger and weekly schedule survives restart',async()=>{const dir=mkdtempSync(join(tmpdir(),'az-westbahn-'));try{const file=join(dir,'ledger.json'),p=provider();const a=createWestbahn({now,adapter:p,file});a.setEnabled(true);assert.equal(await a.tick(),true);assert.equal(await a.tick(),false);const b=createWestbahn({now,adapter:p,file});assert.equal(b.status().confirmedThrough,day);assert.equal(await b.tick(),false);assert.equal(p.count,1);}finally{rmSync(dir,{recursive:true,force:true});}});
 
+test('uncertain post-checkout outcome survives server restart without duplicate booking',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'az-post-checkout-'));
+ try{
+  const file=join(dir,'ledger.json'),p=provider({readbackMissing:true});
+  const a=createWestbahn({now,adapter:p,file});
+  await a.run();
+  assert.equal(a.status().rows.find(x=>x.date===day).status,'uncertain');
+  const b=createWestbahn({now,adapter:p,file});
+  await b.run();
+  assert.equal(b.status().rows.find(x=>x.date===day).status,'uncertain');
+  assert.equal(p.count,1);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
 test('user-reported existing reservation persists and prevents any checkout for that date',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'az-existing-'));
  try{
