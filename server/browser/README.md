@@ -182,3 +182,12 @@ Im Terminal können u. a. **detail_read** (eindeutige erlaubte Detailansicht unt
 Wenn `ticket-detail-check` ein bereits gebuchtes Ticket erkennt, aber keine eindeutig erlaubte Detailadresse findet, enthält die Ausgabe jetzt zusätzliche **anonymisierte Kategorien**: `rejectionReasons` (z. B. `no_static_destination`, `non_link_detail_control`, `unrecognized_detail_path`, `unrecognized_query`) und `controlKinds` (`anchor`, `button`, `custom_control`). Diese Felder enthalten lediglich Zähler und feste Bezeichnungen, niemals Ticketlinks, Identifikatoren oder Kundendaten. Ein `button` wird **nicht** automatisch angeklickt. Die bisherigen Sicherheitsregeln bleiben unverändert: keine Umbuchung, Stornierung oder Zahlung; fehlende Treffer erlauben keine neue Buchung.
 
 Auf dem aktualisierten Server: `python -m unittest test_ticket_detail_view.py` und danach `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`. Erst das reale Diagnoseergebnis entscheidet, ob ein Detailaufruf sicher unterstützt werden kann.
+
+
+## Anonymisierte Pfad-Diagnose für bisher unbekannte Detail-Links
+
+Nach der Live-Prüfung vom 11.11.2026 waren für das Ticket vom 17.11.2026 zwei Schaltflächen und zwei Links sichtbar; die Links wurden wegen eines unbekannten Zielpfads abgelehnt. Der neue `ticket-detail-check` ergänzt die Liste `candidatePathPatterns`. Sie besteht nur aus festen technischen Pfadwörtern (z. B. `ticketshop`, `dashboard`, `tickets`) sowie der Maske `[opaque]` für alle anderen Segmente. Abfrageparameter werden ausschließlich als `none`, `known_only` oder `includes_other_keys` klassifiziert. Echte URLs, IDs, Namen, E-Mail-Adressen und Werte werden nicht ausgegeben.
+
+Die Sicherheitsentscheidung ist unverändert: Ein unbekannter Pfad wird **nicht geöffnet**. Die Diagnose ist ausschließlich dazu gedacht, nach einem echten Test den konkreten Routing-Typ zu erkennen und erst danach die statische Allowlist gezielt zu erweitern. Sie aktiviert keine Bestellungen, Umbuchungen oder Stornierungen.
+
+Testkommando: `python -m unittest test_detail_route_diagnostics.py test_ticket_detail_view.py`.
