@@ -44,6 +44,7 @@ class InventoryBatchTests(unittest.TestCase):
     def test_no_matches_and_no_account_pages_still_require_review(self):
         result=summarize_inventory_batch([],['2026-11-17'],[])
         self.assertEqual(result['days'][0]['status'],'review_required')
+        self.assertEqual(result['status'],'account_unavailable')
         self.assertFalse(result['inventoryComplete'])
         self.assertFalse(result['safeToBook'])
 
