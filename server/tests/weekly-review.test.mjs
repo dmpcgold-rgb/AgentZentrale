@@ -85,11 +85,16 @@ test('Monday 7 Vienna scheduler runs only once even after restart',async()=>{
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
 
-test('not Monday or before 07:00 never starts a browser review',async()=>{
+test('before 07:00 Vienna or on weekends never starts a browser review',async()=>{
  const seen=[];
  const ledger=createWestbahn({now});
  const browser=fakeBrowser(batch(),seen);
- for(const at of ['2026-11-16T05:59:00Z','2026-11-17T06:00:00Z']){
+ for(const at of [
+  '2026-11-16T05:59:00Z', // Monday 06:59 Vienna
+  '2026-11-17T05:59:00Z', // Tuesday 06:59 Vienna
+  '2026-11-14T06:00:00Z', // Saturday
+  '2026-11-15T06:00:00Z'  // Sunday
+ ]){
   const review=createWeeklyReview({browser,westbahn:ledger,now:()=>new Date(at)});
   assert.equal(await review.tick(),false);
  }
