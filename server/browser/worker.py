@@ -562,7 +562,19 @@ def account_summary(page):
         # The account tiles may omit the year. Never infer a complete date or
         # absence of a reservation from a partial page or a yearless label.
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
-        rows.append({'dateLabel':label.group(0) if label else None,'seat':seat.group(1).replace(' ','') if seat else None})
+        # Only a travel date explicitly attached to a travel-date label
+        # qualifies. Other dates (purchase date, invoices, validity terms)
+        # must not be misidentified as the journey date.
+        full_dates=set()
+        for match in re.finditer(r'\b(?:Fahrtdatum|Reisedatum|Abfahrt(?:sdatum)?)\s*:?\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\b',t,re.I):
+            try:
+                full_dates.add(date(int(match.group(3)),int(match.group(2)),int(match.group(1))).isoformat())
+            except ValueError:
+                continue
+        full_date=next(iter(full_dates)) if len(full_dates)==1 else None
+        rows.append({'dateLabel':label.group(0) if label else None,
+                     'seat':seat.group(1).replace(' ','') if seat else None,
+                     'fullDate':full_date})
     return {'status':'account_verified','page':parse_qs(parsed.query).get('page',['1'])[0],'visibleComfortCards':max(max_visible,len(cards)),'matchingVisibleCards':rows,'scrollPasses':scroll_passes,'newCardsAfterScroll':len(cards)-first_count,
             'inventoryComplete':False,'message':f'WESTbahn-Konto bestätigt. {max(max_visible,len(cards))} erkannte Comfort-Reservierungen, davon {len(rows)} passende Pendlerfahrten; {len(cards)-first_count} neu beim Scrollen. Keine vollständige Bestandsprüfung; keine Buchung.'}
 
