@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -47,6 +47,29 @@ fährt nach Villach
 1 | First
 € 10,90"""
 class ResultParsingTests(unittest.TestCase):
+ def test_fallback_layout_rejects_four_seat_tables_even_when_two_free(self):
+  def seat(code,group,layout,free=True):
+   return {'kind':'seat','value':code,'group':group,'layout':layout,'free':free,'disabled':not free}
+  controls=[seat('201A','four','single-facing-table'),seat('201B','four','single-facing-table'),seat('202A','four','single-facing-table',False),seat('202B','four','single-facing-table',False),seat('203D','pair','single-facing-table'),seat('204D','pair','single-facing-table',False),seat('205D','offset','single-offset-facing'),seat('206D','offset','single-offset-facing',False),seat('207A','unknown','unknown')]
+  self.assertEqual(ranked_layout_seats({'controls':controls}),[(0,'203D'),(1,'205D')])
+ def test_fallback_moves_to_known_alternative(self):
+  from unittest.mock import Mock
+  page=Mock()
+  page.evaluate.return_value='https://westbahn.at/reservierung/sitzplatz-upgrade/details'
+  coach11=Mock(); coach8=Mock(); seat=Mock()
+  current={'coach':'9','seat':'208A','active':'9'}
+  coach11.click.side_effect=lambda **kw:current.update(active='11')
+  coach8.click.side_effect=lambda **kw:current.update(active='8')
+  seat.click.side_effect=lambda **kw:current.update(coach='8',seat='191D')
+  def inspect(page,target=None):
+   if target:
+    return {('coach','11'):coach11,('coach','8'):coach8,('seat','191D'):seat}.get((target['kind'],target['value']))
+   return {'modalFound':True,'selected':{'coach':current['coach'],'seat':current['seat']},'activeCoach':current['active'],'comfortMap':True,'controls':[]}
+  with patch('worker.seat_modal_state',side_effect=inspect):
+   result=select_primary_seat_in_open_modal(page)
+  self.assertEqual(result['status'],'alternative_seat_selected')
+  self.assertEqual(result['selection'],{'coach':'8','seat':'191D'})
+  self.assertFalse(result['bookingAuthorized'])
  def test_manual_seat_review_empty_input_keeps_session_open(self):
   from unittest.mock import Mock
   page=Mock()

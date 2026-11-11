@@ -981,24 +981,46 @@ def seat_modal_state(page, target=None):
       const selected=summary?{coach:summary[1],seat:summary[2]+summary[3].toUpperCase()}:null;
       const controls=[];
       const elements=[];
+      const activeCoaches=[];
       for(const e of modal.querySelectorAll('button,[role="button"],[role="option"],[data-seat],[data-seat-number]')){
         if(!vis(e))continue;
         const raw=[text(e),e.getAttribute('aria-label'),e.getAttribute('title'),e.getAttribute('data-seat'),e.getAttribute('data-seat-number')].map(norm);
-        const code=raw.map(v=>v.match(/^(?:Sitzplatz\s*)?(233)\s*([AD])(?:\s*(?:[,;:\-–]\s*)?(?:frei|verfügbar|ausgewählt|nicht verfügbar|belegt))?$/i)).find(Boolean);
-        const coach=raw.map(v=>v.match(/^(?:Wagen\s*)?(11)$/i)).find(Boolean);
+        const code=raw.map(v=>v.match(/^(?:Sitzplatz\s*)?(\d{2,4})\s*([A-D])(?:\s*(?:[,;:\-–]\s*)?(?:frei|verfügbar|ausgewählt|nicht verfügbar|belegt))?$/i)).find(Boolean);
+        const coach=raw.map(v=>v.match(/^(?:Wagen\s*)?(\d{1,2})$/i)).find(Boolean);
         if(!code&&!coach)continue;
         const state=[...raw,e.getAttribute('class')||'',e.getAttribute('data-status')||'',e.getAttribute('aria-selected')||''].join(' ');
         const disabled=e.matches(':disabled,[aria-disabled="true"]')||!!e.closest('[aria-disabled="true"],[inert]')||getComputedStyle(e).pointerEvents==='none';
         const unavailable=/nicht verfügbar|nicht reservierbar|belegt|ausgebucht|unavailable|occupied|blocked|disabled/i.test(state);
         const free=!disabled&&!unavailable&&/(?:\bfrei\b|\bverfügbar\b|\bavailable\b|\bfree\b)/i.test(state);
-        controls.push({kind:code?'seat':'coach',value:code?code[1]+code[2].toUpperCase():coach[1],disabled,unavailable,free});
+        const groupNode=code?e.closest('[data-seat-group],[data-table-id]'):null;
+        const group=groupNode?(groupNode.getAttribute('data-seat-group')||groupNode.getAttribute('data-table-id')):null;
+        const layout=groupNode?(groupNode.getAttribute('data-seat-layout')||groupNode.getAttribute('data-layout')||'').toLowerCase():'';
+        const fourSeat=/four|4er|vierer|4-seat/.test(layout);
+        if(coach && !code){
+          const active=e.matches('[aria-selected="true"],[aria-pressed="true"],[aria-current="true"],[data-active="true"]')||/(?:^|[\s_-])(active|selected)(?:$|[\s_-])/i.test(e.getAttribute('class')||'');
+          if(active)activeCoaches.push(coach[1]);
+        }
+        controls.push({kind:code?'seat':'coach',value:code?code[1]+code[2].toUpperCase():coach[1],disabled,unavailable,free,
+          ...(code?{group:group?String(group).slice(0,60):null,layout,fourSeat}:{})});
         elements.push(e);
       }
       if(target){
         const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||c.free));
         return matches.length===1?elements[matches[0].i]:null;
       }
-      return {modalFound:true,selected,controls};
+      const active=[...new Set(activeCoaches)];
+      // WESTbahn's selected coach can also be represented by a blue
+      // control without an aria state. Require unique visual evidence.
+      const blue=[];
+      if(!active.length){
+        for(let i=0;i<controls.length;i++){
+          if(controls[i].kind!=='coach')continue;
+          const rgb=getComputedStyle(elements[i]).backgroundColor.match(/\d+/g);
+          if(rgb&&+rgb[2]>+rgb[0]+35&&+rgb[1]>+rgb[0]+20&&+rgb[0]<120)blue.push(controls[i].value);
+        }
+      }
+      const activeCoach=active.length===1?active[0]:!active.length&&new Set(blue).size===1?blue[0]:null;
+      return {modalFound:true,selected,controls,activeCoach,comfortMap:/2\+\s*\|?\s*Comfort/i.test(modal.innerText||'')};
     }"""
     if target is not None:
         return page.evaluate_handle(script,target).as_element()
@@ -1056,33 +1078,102 @@ def find_open_review_page(original, day):
     return (matches[0] if len(matches)==1 else None,
             {'openPages':reports,'matchingSeatDialogs':len(matches)})
 
+
+# User-approved alternatives observed in the previous reservations.
+PREFERRED_SEAT_GROUPS=(('11',('233A','233D')),('8',('191D',)),('7',('182A',)))
+
+def ranked_layout_seats(state):
+    """Only explicit, complete two-seat groups are eligible for generic fallback."""
+    groups={}
+    for c in state.get('controls',[]):
+        if c.get('kind')=='seat' and c.get('group'):
+            groups.setdefault(c['group'],[]).append(c)
+    result=[]
+    for group in groups.values():
+        # Include unavailable seats in the count; a four-seat table with two
+        # occupied places must never be mistaken for a two-seat group.
+        if len(group)!=2 or len({c['value'] for c in group})!=2: continue
+        layouts={c.get('layout') for c in group}
+        if layouts=={'single-facing-table'}: rank=0
+        elif layouts=={'single-offset-facing'}: rank=1
+        else: continue
+        if any(c.get('fourSeat') for c in group): continue
+        for c in group:
+            if c.get('free') and not c.get('disabled') and not c.get('unavailable'):
+                result.append((rank,c['value']))
+    return sorted(result)
+
 def select_primary_seat_in_open_modal(page):
-    """Select only an explicit preferred seat; never confirm, buy or select a fallback."""
+    """Search preferred and explicitly verified two-seat layouts. Never confirm or buy."""
     if not is_review_detail_url(page.evaluate('window.location.href')):
         return {'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Keine eindeutige WESTbahn-Reservierungsdetailseite.'}
     state=seat_modal_state(page)
     if not state.get('modalFound'):
         return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':state,'message':'Sitzplan nicht eindeutig geöffnet.'}
-    selected=state.get('selected') or {}
-    if selected.get('coach')==PRIMARY_COACH and selected.get('seat') in PRIMARY_SEATS:
-        return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz im Sitzplan bereits ausgewählt; nicht bestätigt oder gebucht.'}
-    if selected.get('coach')!=PRIMARY_COACH:
-        coach=seat_modal_state(page,{'kind':'coach','value':PRIMARY_COACH})
-        if coach is None:
-            return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':state,'message':'Wagen 11 nicht eindeutig auswählbar.'}
-        coach.click(timeout=5000)
-        page.wait_for_timeout(1200)
-    for seat in PRIMARY_SEATS:
-        control=seat_modal_state(page,{'kind':'seat','value':seat})
-        if control is None: continue
+    reports=[]
+    def blocked(message):
+        return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':seat_modal_state(page),'coachReports':reports,'message':message}
+    def open_coach(coach):
+        current=seat_modal_state(page)
+        # The selected-seat summary may still refer to a different coach.
+        control=seat_modal_state(page,{'kind':'coach','value':coach})
+        if control is None:
+            return None
         control.click(timeout=5000)
-        page.wait_for_timeout(750)
-        state=seat_modal_state(page)
-        selected=state.get('selected') or {}
-        if selected=={'coach':PRIMARY_COACH,'seat':seat}:
-            return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz im Sitzplan ausgewählt; nicht bestätigt oder gebucht.'}
-        break
-    return {'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':seat_modal_state(page),'message':'Wunschplatz nicht eindeutig frei oder ausgewählt. Keine automatische Bestätigung.'}
+        for _ in range(12):
+            page.wait_for_timeout(250)
+            current=seat_modal_state(page)
+            if current.get('activeCoach')==coach and current.get('comfortMap'):
+                return current
+        # No arbitrary fallback on a coach whose identity/class is uncertain.
+        return None
+    def choose(coach,seat,kind):
+        before=seat_modal_state(page)
+        selected=before.get('selected') or {}
+        if selected=={'coach':coach,'seat':seat} and before.get('activeCoach')==coach and before.get('comfortMap'):
+            return {'status':'primary_seat_selected' if kind=='primary' else 'alternative_seat_selected','selection':selected,'selectionKind':kind,'bookingAuthorized':False,'coachReports':reports,'message':'Platz bereits ausgewählt; nicht bestätigt oder gebucht.'}
+        if before.get('activeCoach')!=coach or not before.get('comfortMap'):
+            return None
+        control=seat_modal_state(page,{'kind':'seat','value':seat})
+        if control is None: return None
+        control.click(timeout=5000)
+        for _ in range(8):
+            page.wait_for_timeout(250)
+            if seat_modal_state(page).get('selected')=={'coach':coach,'seat':seat}:
+                return {'status':'primary_seat_selected' if kind=='primary' else 'alternative_seat_selected','selection':{'coach':coach,'seat':seat},'selectionKind':kind,'bookingAuthorized':False,'coachReports':reports,'message':'Platz ausgewählt; nicht bestätigt oder gebucht.'}
+        # An uncertain click must never be followed by further seat clicks.
+        raise Blocked('Sitzplatzauswahl nicht eindeutig bestätigt.')
+    selected=state.get('selected') or {}
+    if selected.get('coach')=='11' and selected.get('seat') in PRIMARY_SEATS and state.get('comfortMap'):
+        return {'status':'primary_seat_selected','selection':selected,'bookingAuthorized':False,'message':'Wunschplatz bereits ausgewählt; nicht bestätigt oder gebucht.'}
+    candidates=[]
+    scanned=set()
+    def scan(coach):
+        current=open_coach(coach)
+        scanned.add(coach)
+        if current is None:
+            reports.append({'coach':coach,'verified':False})
+            return None
+        eligible=ranked_layout_seats(current)
+        reports.append({'coach':coach,'verified':True,'preferredSeats':[c for c in current['controls'] if c['kind']=='seat' and c['value'] in ('233A','233D','191D','182A')],'verifiedLayoutSeats':len(eligible)})
+        candidates.extend((rank,coach,seat) for rank,seat in eligible)
+        return current
+    for coach,seats in PREFERRED_SEAT_GROUPS:
+        current=scan(coach)
+        if current is None: continue
+        for seat in seats:
+            result=choose(coach,seat,'primary' if coach=='11' else 'known_alternative')
+            if result is not None: return result
+    # All visible coach controls, but never assume a wagon has Comfort seats.
+    for c in state.get('controls',[]):
+        if c.get('kind')=='coach' and c['value'] not in scanned and not c.get('disabled'):
+            scan(c['value'])
+    for rank,coach,seat in sorted(set(candidates)):
+        current=open_coach(coach)
+        if current is None or (rank,seat) not in ranked_layout_seats(current): continue
+        result=choose(coach,seat,'facing_table' if rank==0 else 'offset_facing')
+        if result is not None: return result
+    return blocked('Kein eindeutig freier Wunsch- oder nachweislich passender Zweierplatz. Viererplätze und unbekannte Anordnungen ausgeschlossen.')
 
 
 def manual_seat_review(page, day, root=None):
