@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {planDates} from '../src/core/westbahn.js';
 
 const script=resolve(dirname(fileURLToPath(import.meta.url)),'browser/worker.py');
-const ALLOWED=new Set(['probe','prepare','booking-check','ticket-detail-check','inventory-batch']);
+const ALLOWED=new Set(['probe','prepare','booking-check','ticket-detail-check','inventory-batch','seat-preview']);
 const CHECK=new Set(['booking-check','ticket-detail-check','inventory-batch']);
 const SEAT=/^[0-9]{3}[A-D]$/;
 
@@ -101,6 +101,40 @@ export function sanitizeBatchInventory(raw,requestedDates){
          coverage:safeCoverage,days};
 }
 
+// Local cloned-browser inspection only. The seat-view click is performed
+// after blocking the entire clone's network, so this is NEVER live inventory.
+// No URLs, account data, or seat-map markup are ever returned.
+export function sanitizeOfflineSeatPreview(raw,date){
+ const base={date,status:'review_required',previewScope:'offline_disposable_clone',
+   preferredSeats:['233A','233D','191D','182A'].map(seat=>({
+     seat,observation:'unknown'
+   })),
+   liveAvailabilityVerified:false,seatSelectionConfirmed:false,
+   klimaTicketPriceVerified:false,checkoutTotalVerified:false,
+   bookingAuthorized:false,canPurchase:false};
+ if(!raw||raw.status!=='seat_preview_offline'||
+    raw.bookingAuthorized!==false||
+    raw.liveAvailabilityVerified!==false||
+    raw.zeroPriceObserved!==true||
+    !raw.inspection||raw.inspection.seatMapLabel!==true||
+    !Array.isArray(raw.preferredControls)||
+    raw.preferredControls.length>12||
+    !Number.isInteger(raw.blockedRequestCount)||raw.blockedRequestCount<0||
+    raw.blockedRequestCount>100||
+    raw.connection?.date!==date)return base;
+ const map=new Map();
+ for(const item of raw.preferredControls){
+   if(!item||typeof item!=='object'||typeof item.seat!=='string'||
+      !['233A','233D','191D','182A'].includes(item.seat)||
+      typeof item.disabled!=='boolean'||map.has(item.seat))return base;
+   map.set(item.seat,item.disabled?'disabled_in_offline_copy':'visible_in_offline_copy');
+ }
+ return {...base,status:'offline_seat_map_observed',
+   preferredSeats:base.preferredSeats.map(x=>({
+     seat:x.seat,observation:map.get(x.seat)||'unknown'
+   }))};
+}
+
 export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}={}){
  let busy=false;
  const enabled=env.WESTBAHN_BROWSER_ENABLED==='true';
@@ -155,6 +189,10 @@ export function createBrowser({env=process.env,execute=spawn,now=()=>new Date()}
     }
     if(mode==='inventory-batch'){
       finish(null,sanitizeBatchInventory(raw,dates));
+      return;
+    }
+    if(mode==='seat-preview'){
+      finish(null,sanitizeOfflineSeatPreview(raw,date));
       return;
     }
     if(CHECK.has(mode)){
