@@ -1,6 +1,6 @@
 import unittest, os, tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from playwright.sync_api import sync_playwright
 from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, detail_seat_map_entry_check, confirm_review_selection, open_review_seat_map, find_seat_change_control, safe_review_failure, ACCOUNT_URL, Blocked
 
@@ -246,16 +246,18 @@ class ResultParsingTests(unittest.TestCase):
   conn={'displayedPriceCents':790,'priceStatus':'displayed','priceSource':'comfort_control'}
   detail={'targetClassLabels':1,'controls':[{'visible':True,'disabled':False,'pointerEvents':'auto','prices':['€ 7,90']}]}
   with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}), patch('worker.comfort_control_details',return_value=detail):
-   result=offline_seat_preview(None,'2026-11-17')
+   result=offline_seat_preview(Mock(),'2026-11-17')
   self.assertEqual(result['status'],'seat_preview_blocked')
-  self.assertEqual(result['connection']['displayedPriceCents'],790)
+  self.assertEqual(result['connectionPriceCents'],790)
+  self.assertEqual(result['priceSamplesCents'],[790]*4)
  def test_preview_rejects_stale_zero_when_control_price_disappears(self):
   conn={'displayedPriceCents':0,'priceStatus':'displayed','priceSource':'comfort_control'}
   detail={'targetClassLabels':1,'controls':[{'visible':True,'disabled':False,'pointerEvents':'auto','prices':[]}]}
   with patch('worker.prepare',return_value={'status':'connection_found','connection':conn}), patch('worker.comfort_control_details',return_value=detail):
-   result=offline_seat_preview(None,'2026-11-17')
+   result=offline_seat_preview(Mock(),'2026-11-17')
   self.assertEqual(result['status'],'seat_preview_blocked')
-  self.assertIsNone(result['connection']['displayedPriceCents'])
+  self.assertEqual(result['connectionPriceCents'],0)
+  self.assertEqual(result['priceSamplesCents'],[None]*4)
  def test_price_audit_distinguishes_context_from_profile(self):
   zero={'accountVerifiedBeforeSearch':True,'priceSamplesCents':[790,0,0]}
   paid={'accountVerifiedBeforeSearch':True,'priceSamplesCents':[790,790]}
@@ -569,7 +571,7 @@ class BrowserTests(unittest.TestCase):
   self.page.goto(ACCOUNT_URL)
   result=account_summary(self.page)
   self.assertEqual(result['status'],'account_verified')
-  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketReference':False}])
+  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketCode':True,'ticketReference':False}])
   self.assertFalse(result['inventoryComplete'])
   self.assertNotIn('SECRET123',str(result))
  def test_account_summary_recognizes_reference_without_exposing_number(self):

@@ -1787,7 +1787,14 @@ def main():
                         inventory.get('reports'))
                     detail_checks={}
                     examined=0
-                    for item in preliminary['days']:
+                    # Prioritize uncertain, yearless cards before already dated
+                    # tickets. The bounded two-detail budget must not be spent
+                    # on confirmed dates while a possible duplicate remains.
+                    priority={'possible_existing': 0, 'visible_year_verified': 1}
+                    candidates=sorted(
+                        preliminary['days'],
+                        key=lambda item: priority.get(item['status'], 2))
+                    for item in candidates:
                         if examined>=2: break
                         if not item['potentialDuplicate'] or len(item['seats'])!=1:
                             continue
