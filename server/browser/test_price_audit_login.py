@@ -91,20 +91,35 @@ class PriceAuditLoginTests(unittest.TestCase):
 
 
     def test_preview_login_redirect_uses_audited_host_rules(self):
-        page=Mock()
-        preview=Mock(pages=[page])
+        main_page=Mock()
+        original=Mock(pages=[main_page])
+        cloned_page=Mock()
+        preview=Mock(pages=[cloned_page])
         playwright=Mock()
-        playwright.chromium.launch_persistent_context.return_value=preview
-        with tempfile.TemporaryDirectory() as directory, \
-             patch('worker.copy_preview_profile'), \
-             patch('worker.verify_austrian_session',
-                   return_value={'status':'account_verified'}), \
-             patch('worker.offline_seat_preview',
-                   return_value={'status':'seat_preview_offline'}):
-            result=run_seat_preview(playwright,Path(directory),{},DAY)
+        playwright.chromium.launch_persistent_context.side_effect=[original,preview]
 
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('worker.copy_preview_profile') as copy, \
+             patch('worker.ensure_austrian_session',
+                   return_value={'status':'account_verified'}) as login, \
+             patch('worker.verify_austrian_session',
+                   return_value={'status':'account_verified'}) as verified, \
+             patch('worker.offline_seat_preview',
+                   return_value={'status':'seat_preview_offline'}) as seats:
+            # The original Chromium must be CLOSED before the clone is copied.
+            copy.side_effect=lambda *_: original.close.assert_called_once_with()
+            root=Path(directory)
+            result=run_seat_preview(playwright,root,{},DAY)
+
+        login.assert_called_once_with(main_page,root)
+        verified.assert_called_once_with(cloned_page)
+        copy.assert_called_once()
+        seats.assert_called_once_with(cloned_page,DAY,network_diagnostic=False)
+        original.close.assert_called_once_with()
+        preview.close.assert_called_once_with()
         self.assertEqual(result['status'],'seat_preview_offline')
         self.assertTrue(result['accountVerifiedBeforeSearch'])
+
         guard=preview.route.call_args.args[1]
         request=Mock()
         request.is_navigation_request.return_value=True
@@ -126,25 +141,54 @@ class PriceAuditLoginTests(unittest.TestCase):
         route.abort.assert_called_once_with()
         route.continue_.assert_not_called()
 
-    def test_preview_unverified_account_stops_before_fare_search(self):
-        page=Mock()
-        preview=Mock(pages=[page])
+    def test_preview_original_login_failure_stops_before_copy(self):
+        main_page=Mock()
+        original=Mock(pages=[main_page])
         playwright=Mock()
-        playwright.chromium.launch_persistent_context.return_value=preview
+        playwright.chromium.launch_persistent_context.return_value=original
+        with tempfile.TemporaryDirectory() as directory, \
+             patch('worker.copy_preview_profile') as copy, \
+             patch('worker.ensure_austrian_session',
+                   return_value={'status':'login_required'}) as login, \
+             patch('worker.verify_austrian_session') as cloned_login, \
+             patch('worker.offline_seat_preview') as seats:
+            root=Path(directory)
+            result=run_seat_preview(playwright,root,{},DAY)
+
+        login.assert_called_once_with(main_page,root)
+        original.close.assert_called_once_with()
+        copy.assert_not_called()
+        cloned_login.assert_not_called()
+        seats.assert_not_called()
+        self.assertEqual(result['blockReason'],'original_account_unverified')
+        self.assertEqual(result['accountCheckStatus'],'login_required')
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertFalse(result['liveAvailabilityVerified'])
+
+    def test_preview_unverified_copy_stops_before_fare_search(self):
+        main_page=Mock()
+        original=Mock(pages=[main_page])
+        cloned_page=Mock()
+        preview=Mock(pages=[cloned_page])
+        playwright=Mock()
+        playwright.chromium.launch_persistent_context.side_effect=[original,preview]
         with tempfile.TemporaryDirectory() as directory, \
              patch('worker.copy_preview_profile'), \
+             patch('worker.ensure_austrian_session',
+                   return_value={'status':'account_verified'}), \
              patch('worker.verify_austrian_session',
                    return_value={'status':'login_required'}) as auth, \
              patch('worker.offline_seat_preview') as seats:
             result=run_seat_preview(playwright,Path(directory),{},DAY)
 
-        auth.assert_called_once_with(page)
+        auth.assert_called_once_with(cloned_page)
+        original.close.assert_called_once_with()
+        preview.close.assert_called_once_with()
         seats.assert_not_called()
         self.assertEqual(result['blockReason'],'preview_account_unverified')
         self.assertEqual(result['accountCheckStatus'],'login_required')
         self.assertFalse(result['bookingAuthorized'])
         self.assertFalse(result['liveAvailabilityVerified'])
-
 
 if __name__=='__main__':
     unittest.main()
