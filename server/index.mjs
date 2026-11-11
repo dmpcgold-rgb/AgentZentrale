@@ -110,6 +110,13 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         try { return write(res, 200, await browser.run(route.pathname.endsWith('/prepare')?'prepare':'probe',body.date)); } catch(e) { throw new ApiError(409,e.message); }
       }
       if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
+      if (is('POST', '/westbahn/known-booking')) {
+        const body = await readJson(req);
+        if (body.confirm !== 'BESTEHENDE-BUCHUNG') throw new ApiError(403, 'Bestätigung einer bereits bestehenden Buchung erforderlich.');
+        if (typeof body.date !== 'string' || typeof body.seat !== 'string') throw new ApiError(400, 'Datum oder Sitzplatz fehlt.');
+        try { return write(res, 200, westbahn.recordUserReported(body.date, body.seat)); }
+        catch (e) { throw new ApiError(409, e.message); }
+      }
       if (is('POST', '/westbahn/settings')) {
         const body = await readJson(req);
         if (typeof body.enabled !== 'boolean' || (body.enabled && body.confirm !== 'NUR-0-EURO')) throw new ApiError(400, 'Ausdrückliche Freigabe für automatische 0-Euro-Buchungen erforderlich.');
