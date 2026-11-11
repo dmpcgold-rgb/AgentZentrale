@@ -334,3 +334,20 @@ Die Tests `server/tests/weekly-review.test.mjs`, `server/tests/booking-readiness
 Für einen künftig angebundenen echten WESTbahn-Checkout akzeptiert die zentrale Validierung nur `productType: "seat_reservation"`, `quantity: 1`, `ticket: "KlimaTicket Österreich"`, `class: "2+"`, `departure: "18:22"`, exakt Wien Meidling → Wiener Neustadt Hbf, übereinstimmendes Reisedatum und den **genau ausgewählten Sitzplatz**. Der vollständige Warenkorb muss `currency: "EUR"` und `totalCents: 0` enthalten. Die Vorgaben werden sowohl am frischen Angebot als auch am danach abgeglichenen Anbieterbeleg geprüft; ein gewöhnliches Zugticket, zwei Plätze, eine falsche Klasse oder positive Gesamtkosten sind keine autorisierte Buchung.
 
 Sitzplatzpriorität bleibt **233A vor 233D**, danach 191D/182A und nur passende Alternativen ohne Vierertisch; ein Platz ohne eindeutig verifizierte 2+-Klasse, Zweiersitzanordnung oder Verfügbarkeit wird nicht automatisch ausgewählt. Wenn die Struktur der echten WESTbahn-Angebotsseite diese Felder nicht zuverlässig belegt, darf der spätere Adapter sie nicht als Fakten erfinden und muss die Buchung blockieren. Der aktuelle Browser hat nach wie vor **keine** freigegebene Kaufaktion; dieser Vertrag ist zunächst mit synthetischen Tests abgesichert.
+
+
+## Zuverlässigere Montag-Lesekontrolle und Kontoseiten-Abdeckung (11.11.2026)
+
+Der geplante **rein lesende** WESTbahn-Bestandsabgleich hat jetzt eine begrenzte Fehlerbehandlung:
+
+- Ab Montag **07:00 Europe/Vienna** läuft maximal ein erster Prüfversuch.
+- Scheitert der Browser- oder Kontonachweis, erfolgt **höchstens ein weiterer Versuch**, frühestens 30 Minuten später. Ein dritter Versuch in derselben Kalenderwoche findet nicht statt.
+- Ist die AgentZentrale am Montag nicht erreichbar, darf sie die **rein lesende Prüfung Dienstag bis Freitag ab 07:00** nachholen. Dabei ermittelt sie jeweils die nächsten fünf zukünftigen Pendeltage – niemals vergangene Fahrten.
+- Wochenschlüssel, Anzahl der Versuche, nächster Wiederholungszeitpunkt und erfolgreich abgeschlossene Woche werden im bestehenden privaten Zustandsfile `westbahn-review.json` gespeichert. Ein Neustart setzt die Sperre oder das Zeitlimit nicht zurück.
+- Ein teilweise lesbarer oder nicht eindeutig überprüfter Kontobestand bleibt `review_required`; aus einer ausbleibenden Buchungskarte entsteht **keine** Kaufberechtigung.
+
+Der Python-Worker gibt pro Konto-Sammelprüfung ausschließlich unkritische Metriken im neuen Feld `coverage` aus: `pagesAttempted`, `pagesVerified`, `pagesFailed`, `domainsRead` sowie `complete:false` und einen vordefinierten Fehlergrund. Das Node-Gateway entfernt private oder unbekannte Felder und lehnt widersprüchliche Abdeckungszahlen ab. Auch **vier erfolgreich gelesene Kontoseiten** reichen nicht als Nachweis für einen vollständigen Bestand. Deshalb bleiben `inventoryComplete:false`, `safeToBook:false` und `bookingAuthorized:false` unverändert.
+
+Die Android-Anzeige stellt die letzte erfolgreiche Woche, gegebenenfalls den nächsten Wiederholungsversuch und die Seitenabdeckung dar. Die Änderung benötigt einen aktualisierten APK-Build; die GitHub-Änderung selbst installiert keine neue App. Neue Regressionstests wurden in `test_inventory_batch.py`, `browser_audit.test.mjs` und `weekly-review.test.mjs` ergänzt und werden über die vorhandenen Docker-Build-Prüfungen ausgeführt.
+
+**Es wurden keine echten Reservierungen ausgelöst oder verändert.** Der Kaufadapter bleibt weiterhin nicht angebunden; fehlende vorhandene Tickets werden nicht als zweifelsfrei ungebucht eingestuft.
