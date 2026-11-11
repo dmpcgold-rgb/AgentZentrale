@@ -706,8 +706,95 @@ def run_seat_preview(p, root, kwargs, day):
         finally: preview.close()
 
 
+
+def price_audit_view(context, day):
+    """Only read price and authenticated account markers; never print account data."""
+    def guard(route):
+        if route.request.is_navigation_request():
+            try: subframe=route.request.frame.parent_frame is not None
+            except Exception: subframe=False
+            if not allowed_navigation(route.request.url,subframe):
+                route.abort()
+                return
+        route.continue_()
+    context.route('**/*',guard)
+    q=context.pages[0] if context.pages else context.new_page()
+    q.set_default_timeout(5000)
+    report={'accountVerified':False,'priceSamplesCents':[]}
+    try:
+        q.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
+        result=prepare(q,day)
+        if result.get('status')=='connection_found':
+            conn=result['connection']
+            for i in range(4):
+                detail=comfort_control_details(q,conn)
+                fresh={**conn,'displayedPriceCents':None,'priceSource':None,'priceStatus':'not_displayed'}
+                observed=apply_comfort_control_price(fresh,detail)
+                report['priceSamplesCents'].append(observed['displayedPriceCents'])
+                if i<3: q.wait_for_timeout(2000)
+            report['connection']={k:conn[k] for k in ('date','trainNumber','departure','arrival','class')}
+            report['status']='price_observed'
+        else: report['status']=result.get('status','unknown')
+    except Blocked as e:
+        report['status']='blocked'
+        report['message']=str(e)
+    except PWTimeout:
+        report['status']='timeout'
+    except Exception:
+        report['status']='unavailable'
+    # Check the Austrian account independently, after reading the price.
+    # Do not serialize ticket cards, cookies, customer number or storage values.
+    try:
+        response=q.goto('https://westbahn.at/ticketshop/dashboard/tickets?page=1&mode=valid',wait_until='domcontentloaded',timeout=20000)
+        u=urlsplit(q.url)
+        if response and response.status<400 and u.scheme=='https' and u.hostname=='westbahn.at' and u.path.rstrip('/')=='/ticketshop/dashboard/tickets' and parse_qs(u.query).get('mode')==['valid']:
+            q.get_by_text('Westbahn-Konto',exact=True).first.wait_for(timeout=10000)
+            q.get_by_text('Gültige Tickets',exact=True).first.wait_for(timeout=5000)
+            report['accountVerified']=True
+    except Exception:
+        pass
+    return report
+
+def classify_price_audit(normal, clone, restricted):
+    def stable_zero(r):
+        samples=r.get('priceSamplesCents',[])
+        return bool(samples) and samples[-1]==0
+    if stable_zero(normal) and stable_zero(clone) and not stable_zero(restricted):
+        return 'restricted_context_price_differs'
+    if stable_zero(normal) and not stable_zero(clone):
+        return 'profile_copy_price_differs'
+    if not stable_zero(normal):
+        return 'normal_browser_zero_not_confirmed'
+    if stable_zero(restricted):
+        return 'isolated_zero_observed'
+    return 'inconclusive'
+
+def run_price_audit(p, root, kwargs, day):
+    day=date.fromisoformat(day).isoformat()
+    if day<'2026-11-17': raise Blocked('Reisedatum vor dem ersten unreservierten Tag.')
+    # All three runs are read-only searches, with no class or seat clicks.
+    # Run with identical profile state copied after closing the original browser.
+    normal=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
+    try: normal_report=price_audit_view(normal,day)
+    finally: normal.close()
+    reports=[]
+    for restricted in (False,True):
+        with tempfile.TemporaryDirectory(prefix='.price-audit-',dir=root) as tmp:
+            profile=Path(tmp)/'chromium'
+            copy_preview_profile(root/'chromium',profile)
+            extra={'service_workers':'block','args':['--no-first-run','--disable-background-networking']} if restricted else {}
+            ctx=p.chromium.launch_persistent_context(str(profile),**kwargs,**extra)
+            try:
+                if restricted: ctx.route_web_socket('**/*',lambda ws: ws.close())
+                reports.append(price_audit_view(ctx,day))
+            finally: ctx.close()
+    return {'status':'price_audit','date':day,'normal':normal_report,'cloned':reports[0],
+            'restricted':reports[1],'diagnosis':classify_price_audit(normal_report,*reports),
+            'message':'Nur Preis- und Anmeldeprüfung. Keine Comfort-Auswahl, Sitzplatzauswahl oder Buchung.'}
+
+
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','price-audit']);parser.add_argument('--date'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -717,6 +804,9 @@ def main():
         with sync_playwright() as p:
             kwargs={'headless':args.mode!='login','timeout':20000,'accept_downloads':False}
             if os.environ.get('WESTBAHN_CHROMIUM_PATH'): kwargs['executable_path']=os.environ['WESTBAHN_CHROMIUM_PATH']
+            if args.mode=='price-audit':
+                if not args.date: raise Blocked('Reisedatum fehlt.')
+                return run_price_audit(p,root,kwargs,args.date)
             if args.mode=='seat-preview':
                 if not args.date: raise Blocked('Reisedatum fehlt.')
                 return run_seat_preview(p,root,kwargs,args.date)

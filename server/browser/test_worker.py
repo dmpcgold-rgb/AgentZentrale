@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -76,6 +76,13 @@ class ResultParsingTests(unittest.TestCase):
    result=offline_seat_preview(None,'2026-11-17')
   self.assertEqual(result['status'],'seat_preview_blocked')
   self.assertIsNone(result['connection']['displayedPriceCents'])
+ def test_price_audit_distinguishes_context_from_profile(self):
+  zero={'priceSamplesCents':[790,0,0]}
+  paid={'priceSamplesCents':[790,790]}
+  self.assertEqual(classify_price_audit(zero,zero,paid),'restricted_context_price_differs')
+  self.assertEqual(classify_price_audit(zero,paid,paid),'profile_copy_price_differs')
+  self.assertEqual(classify_price_audit(paid,paid,paid),'normal_browser_zero_not_confirmed')
+  self.assertEqual(classify_price_audit(zero,zero,zero),'isolated_zero_observed')
  def test_exact_departure_and_price(self):
   result=parse_connection(RESULTS)
   self.assertEqual(result['trainNumber'],'1009')
