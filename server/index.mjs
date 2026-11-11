@@ -115,8 +115,21 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         if (typeof body?.date !== 'string' || typeof body?.seat !== 'string')
           throw new ApiError(400, 'Für Ticketprüfung sind Datum und Sitzplatz erforderlich.');
-        try {return write(res,200,await browser.run('ticket-detail-check',body.date,body.seat));}
-        catch(e){throw new ApiError(409,e.message);}
+        try {
+          const result=await browser.run('ticket-detail-check',body.date,body.seat);
+          const verified=result?.status==='existing_ticket_verified'&&
+            result.date===body.date&&result.seat===body.seat&&
+            result.bookingAuthorized===false&&result.inventoryComplete===false&&
+            result.checks?.detailRead===true&&result.checks?.yearVerified===true&&
+            result.checks?.seatMatched===true&&result.checks?.tripMatched===true&&
+            result.checks?.referenceVisible===true&&result.checks?.dateExplicit===true;
+          if (verified) {
+            // Only an internally verified positive ticket may lock the ledger.
+            // A negative or uncertain page cannot authorize a purchase.
+            westbahn.recordVerifiedExisting(body.date,body.seat);
+          }
+          return write(res,200,{...result,ledgerProtected:verified});
+        } catch(e){throw new ApiError(409,e.message);}
       }
       if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
       if (is('POST', '/westbahn/known-booking')) {
