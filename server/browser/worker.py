@@ -6,7 +6,7 @@ from datetime import date
 from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from checkout_guard import audit_cart
-from booking_evidence import assess_existing_ticket
+from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
 ORIGIN = 'Wien Meidling'
@@ -562,16 +562,7 @@ def account_summary(page):
         # The account tiles may omit the year. Never infer a complete date or
         # absence of a reservation from a partial page or a yearless label.
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
-        # Only a travel date explicitly attached to a travel-date label
-        # qualifies. Other dates (purchase date, invoices, validity terms)
-        # must not be misidentified as the journey date.
-        full_dates=set()
-        for match in re.finditer(r'\b(?:Fahrtdatum|Reisedatum|Abfahrt(?:sdatum)?)\s*:?\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\b',t,re.I):
-            try:
-                full_dates.add(date(int(match.group(3)),int(match.group(2)),int(match.group(1))).isoformat())
-            except ValueError:
-                continue
-        full_date=next(iter(full_dates)) if len(full_dates)==1 else None
+        full_date=extract_explicit_trip_date(t)
         rows.append({'dateLabel':label.group(0) if label else None,
                      'seat':seat.group(1).replace(' ','') if seat else None,
                      'fullDate':full_date})
