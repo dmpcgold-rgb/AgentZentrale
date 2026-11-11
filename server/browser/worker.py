@@ -426,7 +426,10 @@ def safe_request_summary(request):
 def offline_seat_preview(page, day, network_diagnostic=False):
     """Inspect a local-only transition; never transmit a class/seat click."""
     result=prepare(page,day)
-    if result.get('status')!='connection_found': return result
+    if result.get('status')!='connection_found':
+        return {'status':'seat_preview_blocked',
+                'blockReason':'connection_not_verified',
+                'bookingAuthorized':False,'liveAvailabilityVerified':False}
     conn=result['connection']
     details=comfort_control_details(page,conn)
     # Require a fresh, unambiguous zero on the exact control in this context.
@@ -436,11 +439,12 @@ def offline_seat_preview(page, day, network_diagnostic=False):
     conn=apply_comfort_control_price(fresh,details)
     zero_price=(original.get('displayedPriceCents') in (None,0) and conn.get('displayedPriceCents')==0 and conn.get('priceSource')=='comfort_control' and conn.get('priceStatus')=='displayed')
     if not network_diagnostic and not zero_price:
-        return {'status':'seat_preview_blocked','connection':conn,'inspection':details,
-                'message':'Comfort-Preis in der isolierten Vorschau nicht eindeutig 0 EUR. Keine Klicks oder Buchung.'}
+        return {'status':'seat_preview_blocked','blockReason':'zero_price_not_reconfirmed',
+                'bookingAuthorized':False,'liveAvailabilityVerified':False}
     controls=details.get('controls',[])
     if details.get('targetClassLabels')!=1 or len(controls)!=1 or controls[0].get('controlTag')!='button' or controls[0].get('disabled') is not False:
-        raise Blocked('Comfort-Schaltfläche nicht eindeutig aktiv. Keine Sitzplatzvorschau.')
+        return {'status':'seat_preview_blocked','blockReason':'comfort_control_ambiguous',
+                'bookingAuthorized':False,'liveAvailabilityVerified':False}
     # Network diagnostic may examine a nonzero/unknown price ONLY offline.
     # It must not be reused as a live availability or booking authorization.
     # The caller uses a disposable context with service workers and websockets
@@ -456,12 +460,14 @@ def offline_seat_preview(page, day, network_diagnostic=False):
     # of a button rather than text inside it. Never select by a second heuristic.
     button=comfort_control_details(page,conn,return_button=True)
     if button is None:
-        raise Blocked('Comfort-Klickziel nicht eindeutig. Keine Sitzplatzvorschau.')
+        return {'status':'seat_preview_blocked','blockReason':'comfort_click_target_ambiguous',
+                'bookingAuthorized':False,'liveAvailabilityVerified':False}
     try:
         button.click(timeout=5000,no_wait_after=True)
         page.wait_for_timeout(2500)
     except PWTimeout:
-        return {'status':'seat_preview_blocked','connection':conn,'message':'Offline-Vorschau konnte nicht geöffnet werden. Keine Buchung.'}
+        return {'status':'seat_preview_blocked','blockReason':'offline_click_timeout',
+                'bookingAuthorized':False,'liveAvailabilityVerified':False}
     observations=page.evaluate(r"""() => {
       const visible=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
       const norm=s=>(s||'').replace(/\s+/g,' ').trim();
