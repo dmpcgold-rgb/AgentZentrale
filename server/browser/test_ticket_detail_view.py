@@ -93,6 +93,21 @@ class TicketDetailTests(unittest.TestCase):
             'href':'/ticketshop/dashboard/tickets/details?id=PRIVATE-9199',
             'caption':'Details'}),'accepted')
 
+    def test_opaque_ticket_rejections_have_private_safe_diagnostic_reasons(self):
+        cases=(
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF5678','Details', 'accepted'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF5678','Mehr Details','ticket_view_caption_not_allowlisted'),
+            ('/ticketshop/dashboard/ticket/AB12CD34/EF5678?mode=valid','Details','ticket_view_query_not_allowed'),
+            ('/ticketshop/dashboard/ticket/PAY12345/EF5678','Details','ticket_view_token_safety_filter'),
+        )
+        for href,caption,reason in cases:
+            with self.subTest(reason=reason):
+                result=rejection_reason(HOME,{'tag':'a','href':href,'caption':caption})
+                self.assertEqual(result,reason)
+                self.assertNotIn('AB12CD34',result)
+                self.assertNotIn('PAY12345',result)
+                self.assertNotIn('EF5678',result)
+
     def test_card_match_requires_trip_date_seat_route_and_time(self):
         self.assertTrue(matching_card(CARD,'2026-11-17','191D'))
         self.assertFalse(matching_card(CARD,'2026-11-18','191D'))
