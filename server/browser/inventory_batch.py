@@ -66,6 +66,22 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'complete':False,
         'reason':'page_error_or_login' if failures else 'pagination_not_authoritative'
     }
+    # Diagnostic only: observed links do not prove that all pages exist or
+    # were visited. Never convert pagination observations into booking rights.
+    pagination={}
+    for domain in ('westbahn.at','westbahn.de'):
+        observed=sorted({n for r in page_reports
+                         if isinstance(r,dict) and r.get('domain')==domain
+                         and r.get('status')=='account_verified'
+                         for n in (r.get('paginationLinks') or [])
+                         if type(n) is int and 1<=n<=100})
+        checked=sorted({r.get('page') for r in page_reports
+                        if isinstance(r,dict) and r.get('domain')==domain
+                        and r.get('status')=='account_verified'
+                        and type(r.get('page')) is int})
+        pagination[domain]={'pagesVerified':checked,
+                            'linkedPagesObserved':observed,
+                            'linkedPagesNotVerified':[n for n in observed if n not in checked]}
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)
@@ -94,6 +110,7 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'days':output,
         'accountPageReads':successful,
         'coverage':coverage,
+        'paginationDiagnostics':pagination,
         'inventoryComplete':False,
         'safeToBook':False,
         'bookingAuthorized':False,
