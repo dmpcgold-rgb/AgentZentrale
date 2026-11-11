@@ -13,12 +13,25 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
  const status=()=>({providerConnected:!!adapter,automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:planDates(now()),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
  const setEnabled=enabled=>{if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');state.enabled=!!enabled;save();return status();};
  const record=(date,status,detail,extra={})=>{state.rows[date]={date,status,detail,updatedAt:now().toISOString(),...extra};save();};
+ const recordUserReported=(travelDate,seat)=>{
+  if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)throw new Error('Reisedatum ungültig.');
+  if(typeof seat!=='string'||!/^\\d{3}[A-D]$/.test(seat))throw new Error('Sitzplatz ungültig.');
+  const previous=state.rows[travelDate];
+  if(previous&&['booking','confirmed','uncertain'].includes(previous.status))throw new Error('Buchungsstatus bereits geschützt. Keine Änderung ohne Abgleich.');
+  if(previous?.status==='user_reported'){
+   if(previous.seat!==seat)throw new Error('Bereits gemeldete Buchung hat anderen Sitzplatz. Manuell prüfen.');
+   return status();
+  }
+  record(travelDate,'user_reported','Bestehende Reservierung vom Nutzer angegeben; nicht extern verifiziert. Nicht automatisch erneut buchen.',{seat});
+  return status();
+ };
+
  async function run(){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
    for(const date of planDates(now())){
-    const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking'].includes(existing.status))continue;
+    const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported'].includes(existing.status))continue;
     try{
      const before=await adapter.existing({date,...RULES});
      if(before?.status==='confirmed'){
@@ -44,7 +57,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   return status();
  }
  async function tick(){const c=viennaClock(now());if(!state.enabled||!adapter||running||c.weekday!=='Mon'||c.time<'07:00'||state.lastSchedule===c.date)return false;state.lastSchedule=c.date;save();await run();return true;}
- return {status,setEnabled,run,tick};
+ return {status,setEnabled,run,tick,recordUserReported};
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
