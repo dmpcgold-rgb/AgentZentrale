@@ -67,3 +67,6 @@ Wenn die Produktkarte nicht eindeutig lesbar ist, darf `a` die Sitzplatzübersic
 
 ## Sitzplatzbearbeitung im Detailbildschirm
 Die Erkennung der „Ändern“-Schaltfläche erfasst jetzt auch `a` ohne `href`, Text-Spans mit Framework-Handler und Buttons. Es wird nur ein einziges, kompaktes gemeinsames Überschriftsfeld „Sitzplatzreservierung / Ändern“ akzeptiert. Andere „Ändern“-Links auf derselben Seite, Warenkorb und Kaufaktionen werden nicht angeklickt. Bei Mehrdeutigkeit liefert der Agent eine kleine Diagnose mit Anzahlen und Elementtypen, keine sensiblen Seitendaten.
+
+### Zweiter Einstieg in den Sitzplan bei fehlendem „Ändern“
+Die Live-Seitendiagnose vom 11. November ergab genau eine Überschrift „Sitzplatzreservierung“ aber **keinen** sichtbaren Textknoten „Ändern“ (`changeLabelCount=0`). Deshalb gibt es einen gezielten Fallback: Nur wenn „Ändern“ vollständig fehlt, öffnet der Agent den eindeutigen klickbaren **bereits angezeigten Sitzplatzcode** (z. B. `208A`) unter „Wagen / Platz“ innerhalb desselben kompakten Reservierungsabschnitts. Mehrere Sitzplatzlinks, nicht klickbare Texte, fremde Domains oder unklare Abschnitte blockieren den Klick. Er öffnet damit höchstens den Sitzplandialog; keine Bestätigung oder Warenkorbaktion. Die nächste Live-Prüfung wird mit `seatLinkCandidates` und `selectedMode` diagnostiziert.

@@ -351,6 +351,22 @@ class BrowserTests(unittest.TestCase):
   self.assertIsNone(find_seat_change_control(self.page))
   self.page.set_content("""<section><b>Sitzplatzreservierung</b></section><aside><a>Ändern</a></aside>""")
   self.assertIsNone(find_seat_change_control(self.page))
+ def test_seat_editor_uses_only_unique_selected_seat_link_if_change_absent(self):
+  self.page.set_content("""<section><div><strong>Sitzplatzreservierung</strong></div><div>Wagen Platz</div><div>9 <a href="#" onclick="window.opened=true">208A</a></div></section><aside><h2>Meine Auswahl</h2><span>208A</span><button>In den Warenkorb</button></aside>""")
+  detail=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(detail['selectedMode'],'seat_link',detail)
+  control=find_seat_change_control(self.page)
+  self.assertIsNotNone(control)
+  control.click()
+  self.assertTrue(self.page.evaluate('Boolean(window.opened)'))
+ def test_seat_editor_refuses_noninteractive_or_ambiguous_seat_links(self):
+  self.page.set_content("""<section><b>Sitzplatzreservierung</b><div>Wagen Platz</div><p>9 <span>208A</span></p></section>""")
+  self.assertIsNone(find_seat_change_control(self.page))
+  self.page.set_content("""<section><b>Sitzplatzreservierung</b><div>Wagen Platz</div><a>208A</a><a>191D</a></section>""")
+  self.assertIsNone(find_seat_change_control(self.page))
+ def test_seat_editor_does_not_use_external_or_unrelated_seat_link(self):
+  self.page.set_content("""<section><b>Sitzplatzreservierung</b><p>Wagen Platz</p><a href="https://other.example/">208A</a></section><aside><a>191D</a></aside>""")
+  self.assertIsNone(find_seat_change_control(self.page))
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):

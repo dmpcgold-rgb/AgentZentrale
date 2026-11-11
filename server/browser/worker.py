@@ -1328,51 +1328,82 @@ def confirm_review_selection(page,day):
 
 
 def find_seat_change_control(page, diagnostic=False):
-    """Find the unique 'Ändern' label beside the seat-reservation heading.
+    """Choose only a unique seat-editor control in the reservation section.
 
-    WESTbahn may render the label as an anchor without href, a span with a
-    framework click handler, or a button. Require a compact common header row
-    rather than querying arbitrary links or buttons elsewhere on the page.
+    Preferred: the 'Ändern' label in the compact section heading row.
+    Fallback: the selected seat-number link (e.g. 208A) inside the same
+    section. WESTbahn may omit 'Ändern' from the DOM altogether.
     """
     script=r"""(audit) => {
-      const norm=s=>(s||'').replace(/\s+/g,' ').trim();
+      const norm=s=>(s||'').normalize('NFKC').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g,'').replace(/\s+/g,' ').trim();
       const visible=e=>!!e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';
-      const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent||'');
-      const leaf=(value)=>[...document.querySelectorAll('body *')].filter(e=>visible(e)&&label(e)===value&&![...e.children].some(c=>visible(c)&&label(c)===value));
+      const label=e=>norm(e.getAttribute('aria-label')||e.innerText||e.textContent||e.getAttribute('title')||'');
+      const isDisabled=e=>e.matches(':disabled,[aria-disabled="true"]')||!!e.closest('[inert],[aria-disabled="true"]')||getComputedStyle(e).pointerEvents==='none';
+      const leaf=value=>[...document.querySelectorAll('body *')].filter(e=>visible(e)&&label(e).toLocaleLowerCase('de')===value.toLocaleLowerCase('de')&&![...e.children].some(c=>visible(c)&&label(c).toLocaleLowerCase('de')===value.toLocaleLowerCase('de')));
       const headings=leaf('Sitzplatzreservierung');
       const changes=leaf('Ändern');
       const matches=[];
       for(const h of headings){
         for(const change of changes){
-          // Find the smallest common ancestor; it must be a short header row.
           let row=h,level=0;
           while(row&&row!==document.body&&!row.contains(change)&&level<8){row=row.parentElement;level++;}
           if(!row||row===document.body||!row.contains(change))continue;
           const content=norm(row.innerText||row.textContent||'');
           const hr=h.getBoundingClientRect(),cr=change.getBoundingClientRect(),rr=row.getBoundingClientRect();
           if(content.length>280||rr.height>190||Math.abs((hr.top+hr.bottom-cr.top-cr.bottom)/2)>85)continue;
-          if(cr.left<hr.left-20)continue;
-          if(/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))continue;
+          if(cr.left<hr.left-20||/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))continue;
           let target=change;
           for(let e=change;e&&e!==row.parentElement;e=e.parentElement){
             if(e.matches('button,a,[role="button"],[role="link"],[tabindex]')||getComputedStyle(e).cursor==='pointer'||e.hasAttribute('onclick')){target=e;break;}
           }
-          if(target.matches(':disabled,[aria-disabled="true"]')||target.closest('[inert],[aria-disabled="true"]')||getComputedStyle(target).pointerEvents==='none')continue;
-          // Do not accept a large clickable container enclosing the whole row:
-          // clicking the exact 'Ändern' text reliably bubbles to its handler.
+          if(isDisabled(target))continue;
           if(target.contains(h))target=change;
-          matches.push({element:target,level,kind:target.tagName.toLowerCase()});
+          matches.push(target);
         }
       }
-      const distinct=[...new Set(matches.map(m=>m.element))];
-      if(audit)return {seatHeadingCount:headings.length,changeLabelCount:changes.length,
-                       matchedControls:distinct.length,matchKinds:matches.map(m=>m.kind),
-                       reason:distinct.length===1?'unique_change_control':'not_unique_or_not_in_header'};
-      return distinct.length===1?distinct[0]:null;
+      const uniqueChange=[...new Set(matches)];
+      // Never bypass an ambiguous 'Ändern' control by using a seat link.
+      let seatLinkCandidates=[];
+      let seatCodeCount=0;
+      if(uniqueChange.length===0&&changes.length===0&&headings.length===1){
+        const h=headings[0];
+        for(let row=h.parentElement,depth=0;row&&row!==document.body&&depth<7;row=row.parentElement,depth++){
+          const content=norm(row.innerText||row.textContent||'');
+          if(content.length>650||/Meine Auswahl|In den Warenkorb|Abbrechen|Bestätigen/.test(content))break;
+          if(!/\bWagen\b/i.test(content)||!/\bPlatz\b/i.test(content))continue;
+          // A selected seat number is shown as a blue, underlined clickable
+          // control under "Wagen / Platz". Only a uniquely matching seat code
+          // in this compact reservation section may open its modal.
+          const all=[...row.querySelectorAll('a,button,[role="button"],[role="link"],[tabindex]')].filter(e=>visible(e)&&!isDisabled(e));
+          const seats=all.filter(e=>{
+            const value=label(e);
+            if(!/^(?:Sitzplatz\s*:?\s*)?\d{2,4}\s*[A-D]$/i.test(value))return false;
+            const href=e.getAttribute('href');
+            if(href&&href!=='#'){
+              let u;
+              try{u=new URL(href,document.baseURI);}catch{return false;}
+              if(u.origin!==location.origin||!u.pathname.startsWith('/reservierung/sitzplatz-upgrade/'))return false;
+            }
+            return true;
+          });
+          seatCodeCount+=seats.length;
+          if(seats.length>0){seatLinkCandidates=seats;break;}
+        }
+      }
+      const uniqueSeat=[...new Set(seatLinkCandidates)];
+      const selected=uniqueChange.length===1?uniqueChange[0]:(uniqueChange.length===0&&changes.length===0&&uniqueSeat.length===1?uniqueSeat[0]:null);
+      if(audit)return {
+        seatHeadingCount:headings.length,changeLabelCount:changes.length,
+        matchedControls:uniqueChange.length,seatLinkCandidates:uniqueSeat.length,seatCodeCount,
+        selectedMode:selected?(selected===uniqueChange[0]?'change':'seat_link'):null,
+        reason:selected?'unique_editor_control':'editor_not_unique_or_not_in_section'
+      };
+      return selected;
     }"""
     if diagnostic:
         return page.evaluate(script,True)
     return page.evaluate_handle(script,False).as_element()
+
 
 def open_review_seat_map(page, day):
     """Open the official zero-price Comfort detail and seat picker, not checkout."""
