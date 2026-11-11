@@ -28,7 +28,8 @@ EXACT_VIEW_LABELS=frozenset((
     'details öffnen','details zur fahrt','details zur reservierung','details zum ticket',
     'ticketdetails','ticketdetails ansehen','ticketdetails anzeigen','ticket details',
     'reservierungsdetails','reservierungsdetails ansehen','reservierungsdetails anzeigen',
-    'ticket ansehen','ticket anzeigen','ticket öffnen','reservierung ansehen',
+    'ticket','ansehen','anzeigen','zum ticket','ticket ansehen',
+    'ticket anzeigen','ticket öffnen','reservierung ansehen',
     'reservierung anzeigen','zur ticketansicht','zur detailansicht'
 ))
 
