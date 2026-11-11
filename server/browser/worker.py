@@ -750,7 +750,10 @@ def run_seat_preview(p, root, kwargs, day, network_diagnostic=False):
                 if route.request.is_navigation_request():
                     try: subframe=route.request.frame.parent_frame is not None
                     except Exception: subframe=False
-                    if not allowed_navigation(route.request.url,subframe):
+                    # Match the working restricted price-audit: WESTbahn's
+                    # own login redirect may use a different official host.
+                    # No other top-level navigation is allowed.
+                    if not allowed_navigation(route.request.url,subframe) and not trusted_login_url(route.request.url):
                         route.abort()
                         return
                 route.continue_()
@@ -765,6 +768,7 @@ def run_seat_preview(p, root, kwargs, day, network_diagnostic=False):
             if session.get('status')!='account_verified':
                 return {'status':'seat_preview_blocked',
                         'blockReason':'preview_account_unverified',
+                        'accountCheckStatus':session.get('status','account_unverified'),
                         'accountVerifiedBeforeSearch':False,
                         'bookingAuthorized':False,'liveAvailabilityVerified':False}
             q.goto(date_url(day),wait_until='domcontentloaded',timeout=25000)
