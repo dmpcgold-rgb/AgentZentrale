@@ -22,6 +22,24 @@ class RouteSignatureTests(unittest.TestCase):
         self.assertNotIn('PRIVATE',str(result))
         self.assertNotIn('secret_email',str(result))
 
+    def test_live_ticket_route_reports_only_coarse_lengths_and_character_class(self):
+        short='/ticketshop/dashboard/ticket/ABC123/SECRET-987654321'
+        x=route_signature(BASE,short)
+        self.assertEqual(x['route'],'/ticketshop/dashboard/ticket/[opaque]/[opaque]')
+        self.assertEqual(x['ticketRouteShape'],'4-7|12-90;token_ascii')
+        self.assertNotIn('ABC123',str(x))
+        self.assertNotIn('SECRET',str(x))
+        encoded='/ticketshop/dashboard/ticket/ABC%2F123/SECRET-987654321'
+        y=route_signature(BASE,encoded)
+        self.assertEqual(y['ticketRouteShape'],'8-11|12-90;other_or_encoded')
+        self.assertNotIn('ABC%2F123',str(y))
+
+    def test_only_existing_ticket_two_token_path_has_length_diagnostic(self):
+        self.assertNotIn('ticketRouteShape',route_signature(
+            BASE,'/account/orders/SECRET123?ticketid=PRIVATE'))
+        self.assertNotIn('ticketRouteShape',route_signature(
+            BASE,'https://evil.example/ticketshop/dashboard/ticket/SHORT/LONGTOKEN-1234567'))
+
     def test_different_host_redacted(self):
         result=route_signature(BASE,'https://evil.test/ticketshop/tickets/SECRET')
         self.assertEqual(result['route'],'outside_same_official_host')
