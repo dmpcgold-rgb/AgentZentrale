@@ -98,13 +98,27 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                                  if type(h.get(name,0)) is int),default=0)
                        for name in ('navigationControls','enabledNavigationControls',
                                     'loadingIndicators','scrollContainers')}
+        scroll_reports=[r for r in page_reports
+                        if isinstance(r,dict) and r.get('domain')==domain
+                        and r.get('status')=='account_verified']
+        scroll_observation={
+            'pagesWithNewCards':sum(1 for r in scroll_reports
+                                     if type(r.get('newCardsAfterScroll')) is int
+                                     and r['newCardsAfterScroll']>0),
+            'newCardsAfterScroll':sum(max(0,r.get('newCardsAfterScroll',0))
+                                       for r in scroll_reports
+                                       if type(r.get('newCardsAfterScroll',0)) is int),
+            'scrollPasses':sum(max(0,r.get('scrollPasses',0))
+                               for r in scroll_reports
+                               if type(r.get('scrollPasses',0)) is int)}
         pagination[domain]={'pagesVerified':checked,
                             'linkedPagesObserved':observed,
                             'linkedPagesNotVerified':[n for n in observed if n not in checked],
                             'failedPageNumbers':sorted(failed_pages),
                             'failureReasons':failures_by_reason,
                             'verifiedPageCount':len(checked),
-                            'dynamicPageHints':dynamic_hints}
+                            'dynamicPageHints':dynamic_hints,
+                            'scrollObservation':scroll_observation}
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)

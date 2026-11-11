@@ -685,7 +685,9 @@ def account_inventory(context, requested_page=None, max_pages=10):
                 seen.add(number)
                 reports.append({'domain':domain,'page':number,'status':'account_verified',
                                 'comfortCards':result['visibleComfortCards'],
-                                'matchingCards':len(result['matchingVisibleCards'])})
+                                'matchingCards':len(result['matchingVisibleCards']),
+                                'scrollPasses':result['scrollPasses'],
+                                'newCardsAfterScroll':result['newCardsAfterScroll']})
                 for row in result['matchingVisibleCards']:
                     label=' '.join((row.get('dateLabel') or '').split()).upper()
                     seat=(row.get('seat') or '').replace(' ','').upper()
