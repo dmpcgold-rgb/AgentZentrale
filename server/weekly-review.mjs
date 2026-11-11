@@ -73,7 +73,7 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
  const status=()=>({enabled,running,lastSchedule:state.lastSchedule,lastRun:state.lastRun,
   purchaseEnabled:false,inventoryComplete:false});
  async function run(){
-  if(!enabled)throw Error('Automatische Lesekontrolle nicht aktiviert.');
+  // A deliberate manual read is allowed even if Monday automation is disabled.
   if(running)throw Error('Sammelprüfung läuft bereits.');
   const days=planDates(now()).slice(0,5);
   if(days.length===0)throw Error('Keine Pendeltage im Prüfzeitraum.');
