@@ -1357,6 +1357,7 @@ def find_seat_change_control(page, diagnostic=False):
       const candidates=[];
       const seatCandidates=[];
       const editorEvidence=[];
+      const visualEditCandidates=[];
       const headingCenter=headings.length===1?headings[0].getBoundingClientRect():null;
       const nearEditLabels=headingCenter?editLabels.filter(e=>{const b=e.getBoundingClientRect();return b.left>=headingCenter.left-25&&Math.abs((headingCenter.top+headingCenter.bottom-b.top-b.bottom)/2)<=85;}):[];
       const sectionFacts={seatCodes:0,editorAria:0,interactiveElements:0,seatColumnLabels:0};
@@ -1411,6 +1412,25 @@ def find_seat_change_control(page, diagnostic=False):
           }
           if(usable)candidates.push(target);
         }
+        // The real WESTbahn grid can place the seat-edit link in a separate
+        // DOM column sharing an ancestor with the basket. In that case, use
+        // *only* a visible leaf 'Ändern' on the same on-screen heading row.
+        // Never use the unrelated travel-data editor higher up the page.
+        if(new Set(candidates).size===0){
+          const hb=h.getBoundingClientRect();
+          const visualLeaves=changedText.filter(e=>
+            /^Ändern$/i.test(raw(e)) &&
+            ![...e.children].some(child=>visible(child)&&/^Ändern$/i.test(raw(child))));
+          for(const c of visualLeaves){
+            const cb=c.getBoundingClientRect();
+            const dy=Math.abs((cb.top+cb.bottom-hb.top-hb.bottom)/2);
+            if(dy>56||cb.left<hb.right-25||cb.left>hb.right+650)continue;
+            const target=clickOwner(c,document.body);
+            if(!target||target.contains(h)||raw(target).length>90||!/Ändern/i.test(raw(target)))continue;
+            visualEditCandidates.push(target);
+          }
+          if(new Set(visualEditCandidates).size===1)candidates.push(visualEditCandidates[0]);
+        }
         // Only if there are no matching editor labels in this section:
         // prefer the uniquely clickable selected seat number in Wagen/Platz.
         if(new Set(candidates).size===0){
@@ -1447,7 +1467,7 @@ def find_seat_change_control(page, diagnostic=False):
       if(audit)return {
         seatHeadingCount:headings.length,changeLabelCount:changedText.length,
         editorLabelCandidates:editLabels.length,nearbyEditLabels:nearEditLabels.length,matchedControls:editUnique.length,
-        editorEvidence,
+        editorEvidence,visualEditCandidates:[...new Set(visualEditCandidates)].length,
         seatLinkCandidates:seatUnique.length,seatCodeCount:sectionFacts.seatCodes,
         seatColumnLabels:sectionFacts.seatColumnLabels,editorAria:sectionFacts.editorAria,
         interactiveElements:sectionFacts.interactiveElements,
