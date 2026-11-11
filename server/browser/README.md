@@ -228,3 +228,10 @@ Der Live-Test mit den jetzt passenden URL-Längen (8–11 / 4–7 Zeichen) ergab
 - `ticket_view_other_policy_block`: eine andere Regel verweigert den Link
 
 **Diese Änderung schaltet keine neuen Links oder Kaufaktionen frei.** Sie benennt nur die Blockadeursache und ist daher auch bei unerwarteten Anbieterdaten sicher. Die bestehenden `safeToBook:false`, `bookingAuthorized:false` und `confirmationVerified:false` bleiben unverändert. Im nächsten Echtlauf ist nur `rejectionReasons` nötig, um den nächsten sicheren Schritt zu bestimmen.
+
+
+## Freigegebene reine Ansicht-Beschriftungen
+
+Nach dem echten Kontotest mit `ticket_view_caption_not_allowlisted` wurde die **enge** Liste bekannter Lesefunktionen erweitert: beispielsweise `Mehr Details`, `Details ansehen`, `Weitere Details`, `Ticketdetails anzeigen`, `Reservierungsdetails ansehen` und `Zur Ticketansicht`. Mehrere Leerzeichen und dekorative Pfeile am Ende werden normalisiert. Nur eine **passende Konto-Ticketkarte** mit genau der beobachteten URL-Struktur (8–11 / 4–7 ASCII-Zeichen), gleichem offiziellen WESTbahn-Host und ohne Query/Fragment darf mit einer dieser Beschriftungen gelesen werden. Mutierende Aktionen (z. B. `Umbuchen`, `Stornieren`, `Zahlungspflichtig bestellen`) bleiben explizit verboten. Unbekannte Beschriftungen bleiben gesperrt.
+
+Die Änderung ist noch nicht live verifiziert. Selbst bei `detail_read` bleiben `bookingAuthorized:false`, `safeToBook:false`, `confirmationVerified:false` und `inventoryComplete:false`. Eine rein lesende Detailprüfung ist keine automatische Buchung.
