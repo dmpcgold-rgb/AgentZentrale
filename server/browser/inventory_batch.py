@@ -79,9 +79,23 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                         if isinstance(r,dict) and r.get('domain')==domain
                         and r.get('status')=='account_verified'
                         and type(r.get('page')) is int})
+        failures_by_reason={}
+        failed_pages=set()
+        for report in page_reports:
+            if not isinstance(report,dict) or report.get('domain')!=domain:
+                continue
+            status=report.get('status')
+            if status in ('http_error','unexpected_redirect','account_not_verified',
+                          'timeout','unavailable'):
+                failures_by_reason[status]=failures_by_reason.get(status,0)+1
+                if type(report.get('page')) is int:
+                    failed_pages.add(report['page'])
         pagination[domain]={'pagesVerified':checked,
                             'linkedPagesObserved':observed,
-                            'linkedPagesNotVerified':[n for n in observed if n not in checked]}
+                            'linkedPagesNotVerified':[n for n in observed if n not in checked],
+                            'failedPageNumbers':sorted(failed_pages),
+                            'failureReasons':failures_by_reason,
+                            'verifiedPageCount':len(checked)}
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)
