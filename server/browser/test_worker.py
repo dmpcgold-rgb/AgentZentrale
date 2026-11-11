@@ -465,6 +465,19 @@ class BrowserTests(unittest.TestCase):
   self.assertGreater(abs(diag['editorEvidence'][0]['distanceY']),85)
   find_seat_change_control(self.page).click()
   self.assertTrue(self.page.evaluate('window.edited===true'))
+ def test_editor_visual_row_fallback_without_clicking_checkout(self):
+  self.page.set_content("""<main><section><div style="display:flex;align-items:center;gap:60px"><strong>Sitzplatzreservierung</strong><button onclick="window.seatEditor=1">Ändern</button><aside>Meine Auswahl <button onclick="window.cart=1">In den Warenkorb</button></aside></div><p>Wagen 8 Platz 191D</p></section></main>""")
+  diag=find_seat_change_control(self.page,diagnostic=True)
+  self.assertEqual(diag['matchedControls'],1,diag)
+  self.assertEqual(diag['selectedMode'],'change',diag)
+  self.assertEqual(diag['visualEditCandidates'],1,diag)
+  find_seat_change_control(self.page).click()
+  self.assertEqual(self.page.evaluate('window.seatEditor'),1)
+  self.assertIsNone(self.page.evaluate('window.cart'))
+ def test_editor_visual_row_requires_real_seat_summary(self):
+  self.page.set_content("""<div style="display:flex;align-items:center;gap:60px"><strong>Sitzplatzreservierung</strong><button>Ändern</button><aside>Meine Auswahl</aside></div>""")
+  self.assertIsNone(find_seat_change_control(self.page))
+  self.assertEqual(find_seat_change_control(self.page,diagnostic=True)['visualEditCandidates'],0)
  def test_editor_semantic_fallback_rejects_cart_or_unrelated_edit(self):
   self.page.set_content("""<div><section><b>Sitzplatzreservierung</b><p>Wagen 9 Platz 208A</p></section><aside><button>Ändern</button><p>Meine Auswahl</p><button>In den Warenkorb</button></aside></div>""")
   diag=find_seat_change_control(self.page,diagnostic=True)
