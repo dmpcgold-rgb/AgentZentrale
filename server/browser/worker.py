@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from checkout_guard import audit_cart
 from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 from confirmation_evidence import reference_indicators, summarize_confirmation_candidates
+from ticket_detail_view import inspect_existing_ticket_details
 
 URL = 'https://westbahn.at/reservierung/sitzplatz-upgrade/'
 ORIGIN = 'Wien Meidling'
@@ -1656,7 +1657,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check','confirmation-check']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     root=Path(os.environ.get('WESTBAHN_BROWSER_PROFILE','./data/westbahn-browser')).resolve(); root.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(root,0o700)
     os.umask(0o077)
@@ -1687,7 +1688,7 @@ def main():
                         if route.request.is_navigation_request():
                             try: subframe=route.request.frame.parent_frame is not None
                             except Exception: subframe=False
-                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account','booking-check','confirmation-check') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit','booking-check','confirmation-check') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
+                            if not allowed_navigation(route.request.url, subframe) and not (args.mode in ('login-check','prepare','comfort-inspect','account','booking-check','confirmation-check','ticket-detail-check') and trusted_login_url(route.request.url)) and not (args.mode in ('account','account-audit','booking-check','confirmation-check','ticket-detail-check') and urlsplit(route.request.url).scheme=='https' and urlsplit(route.request.url).hostname=='westbahn.de' and not urlsplit(route.request.url).username and not urlsplit(route.request.url).password): 
                                 route.abort()
                                 return
                         route.continue_()
@@ -1708,6 +1709,15 @@ def main():
                     inventory=account_inventory(context)
                     evidence=assess_existing_ticket(inventory.get('matchingVisibleCards'),args.date,args.seat)
                     return {'status':'booking_check','date':args.date,'inventoryComplete':False,**evidence}
+                if args.mode=='ticket-detail-check':
+                    if not args.date or not args.seat:
+                        raise Blocked('Datum und Sitzplatz für Ticketdetailprüfung fehlen.')
+                    session=ensure_austrian_session(page,root)
+                    if session['status']!='account_verified':
+                        return {'status':'account_not_verified','confirmationVerified':False,
+                                'bookingAuthorized':False,'safeToBook':False,
+                                'message':'Konto nicht bestätigt; keine Ticketdetailprüfung.'}
+                    return inspect_existing_ticket_details(context,args.date,args.seat)
                 if args.mode=='confirmation-check':
                     if not args.date or not args.seat: raise Blocked('Datum und Sitzplatz für Bestätigungsprüfung fehlen.')
                     session=ensure_austrian_session(page,root)
