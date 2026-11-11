@@ -94,3 +94,32 @@ Nach \`b\` (Sitzplatzbestätigung) kann der Benutzer im privaten Chrome-Fenster 
 Diese Funktion ist **noch keine vollautomatische Buchung**: Der heutige Browser-Worker kann nicht vollständig und belastbar nachweisen, dass keine vorhandene Reservierung zum Datum existiert (Kontobestand liefert \`inventoryComplete:false\`), und die tatsächliche WESTbahn-Bestätigungsseite mit echter Anbieter-Buchungsnummer ist noch nicht live getestet. Der bestehende Wochenlauf mit 0-EUR-Freigabe bleibt deswegen ohne separat geprüften Anbieteradapter gesperrt. Ein sichtbarer Betrag von 0,00 EUR, ein Sitzplatzdialog oder ein Warenkorb sind **kein** bestätigtes Ticket. Für die vollständige Automation fehlen Live-Tests für Dublettenprüfung, einmaliges Absenden, Bestätigung und Wiederanlauf nach Zeitüberschreitungen. Keine Zugangsdaten im GitHub-Repository speichern.
 
 Tests (im Server-Container): \`cd /app/server/browser && /opt/agent-venv/bin/python -m unittest test_checkout_guard.py test_worker.py\`.
+
+
+## Schutz für bereits gekaufte Fahrten (11.11.2026)
+
+Vom Nutzer nachweislich selbst gekaufte Reservierungen können ohne erneuten WESTbahn-Checkout im Server-Ledger als \`user_reported\` eingetragen werden. Dieses Flag ist **keine** vom Anbieter bestätigte Buchungsnummer und erscheint deswegen nicht in \`confirmedThrough\`. Es verhindert jedoch, dass der automatische Wochenlauf für denselben Tag nochmals buchen würde. Die Eintragung erfordert den bestehenden, authentifizierten AgentZentrale-Server und einen gesonderten ausdrücklichen Bestätigungswert.
+
+**Beispiel für die am 17.11.2026 bereits erworbene Reservierung, Sitz 191D:**
+
+\`\`\`bash
+sudo bash -c 'cd /opt/agentzentrale && docker compose exec -T agentzentrale node /app/server/book-existing.mjs 2026-11-17 191D --confirm-existing'
+\`\`\`
+
+Der Befehl ist idempotent für identische Datum-/Platzwerte und verweigert widersprüchliche Änderungen. Er kauft kein Ticket und liest kein Passwort aus dem Terminal. Er nutzt das Serverzugangstoken ausschließlich containerintern.
+
+**Lesende Kontoprüfung auf eine möglicherweise bestehende Reservierung:**
+
+\`\`\`bash
+sudo bash -c 'cd /opt/agentzentrale && docker compose exec -T agentzentrale /opt/agent-venv/bin/python /app/server/browser/worker.py booking-check --date 2026-11-17 --seat 191D'
+\`\`\`
+
+Der Aufruf setzt ein geschlossenes privates \`seat-review\`-Browserfenster voraus und liest die sichtbaren gültigen Tickets über die gespeicherte Anmeldung. Ausgabe \`existing_ticket_visible\` bedeutet eine passende Konto-Karte (bei fehlendem Jahr nur möglicherweise passend). \`not_seen_in_incomplete_account\` bedeutet **niemals**, dass die Strecke frei von Buchungen ist. Beide Ergebnisse führen zu \`safeToBook:false\`. Ohne vollständige Bestandsprüfung und echte Anbieter-Bestätigung bleibt die Live-Buchungsautomatik gesperrt.
+
+**Tests nach dem Server-Update:**
+
+\`\`\`bash
+sudo bash -c 'cd /opt/agentzentrale && docker compose exec -T agentzentrale sh -c "cd /app/server && node --test tests/*.test.mjs && cd browser && python -m unittest test_booking_evidence.py test_checkout_guard.py test_worker.py"'
+\`\`\`
+
+Die neue Bestandsprüfung ist fail-closed. Sie dient als Voraussetzung für einen späteren vollständig verifizierten Checkout-Adapter, nicht als bereits funktionierender automatischer Kauf.
