@@ -41,6 +41,38 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_coverage_reports_partial_pages_without_exposing_identifiers(self):
+        reports=[
+            {'domain':'westbahn.at','page':1,'status':'account_verified'},
+            {'domain':'westbahn.de','page':2,'status':'account_verified'},
+            {'domain':'westbahn.at','page':3,'status':'timeout',
+             'privateToken':'NEVER_EXPOSE_ME'}
+        ]
+        result=summarize_inventory_batch([],['2026-11-17'],reports)
+        self.assertEqual(result['status'],'inventory_batch_read')
+        self.assertEqual(result['coverage'],{
+            'pagesAttempted':3,'pagesVerified':2,'pagesFailed':1,
+            'domainsRead':2,'complete':False,'reason':'page_error_or_login'
+        })
+        self.assertFalse(result['inventoryComplete'])
+        self.assertFalse(result['safeToBook'])
+        self.assertNotIn('NEVER_EXPOSE_ME',str(result))
+
+    def test_successful_scanned_pages_still_never_prove_complete_inventory(self):
+        reports=[
+            {'domain':'westbahn.at','page':1,'status':'account_verified'},
+            {'domain':'westbahn.at','page':2,'status':'account_verified'},
+            {'domain':'westbahn.de','page':1,'status':'account_verified'},
+            {'domain':'westbahn.de','page':2,'status':'account_verified'}
+        ]
+        result=summarize_inventory_batch([],['2026-11-17'],reports)
+        self.assertEqual(result['coverage']['pagesVerified'],4)
+        self.assertEqual(result['coverage']['pagesFailed'],0)
+        self.assertEqual(result['coverage']['reason'],'pagination_not_authoritative')
+        self.assertFalse(result['coverage']['complete'])
+        self.assertEqual(result['days'][0]['status'],'review_required')
+        self.assertFalse(result['bookingAuthorized'])
+
     def test_strict_detail_evidence_upgrades_matching_yearless_ticket(self):
         rows=[{'dateLabel':'DI 17 NOV','seat':'191D','fullDate':None}]
         day='2026-11-17'
