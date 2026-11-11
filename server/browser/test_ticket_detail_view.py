@@ -158,6 +158,33 @@ class TicketDetailTests(unittest.TestCase):
         page.get_by_role.assert_not_called()
         page.locator.return_value.click.assert_not_called()
 
+    def test_private_booking_id_readback_only_when_ticket_fully_matches(self):
+        page=Mock()
+        page.url='about:blank'
+        def go(url,**kw):
+            page.url=url
+            response=Mock()
+            response.status=200
+            return response
+        page.goto.side_effect=go
+        page.locator.return_value.inner_text.return_value=(
+            'Reservierung Comfort Class Abfahrt: 17.11.2026 18:22 Wien Meidling '
+            'Ankunft 18:49 Wiener Neustadt Sitzplatz: 191D '
+            'Buchungsnummer: WB-TEST1234')
+        good=read_detail(page,DETAIL,'2026-11-17','191D','WB-TEST1234')
+        self.assertTrue(good['yearVerified'])
+        self.assertTrue(good['bookingReferenceChecked'])
+        self.assertTrue(good['bookingReferenceMatched'])
+        self.assertNotIn('WB-TEST1234',str(good))
+        wrong=read_detail(page,DETAIL,'2026-11-17','191D','WB-OTHER999')
+        self.assertFalse(wrong['bookingReferenceMatched'])
+        self.assertNotIn('WB-OTHER999',str(wrong))
+        wrong_date=read_detail(page,DETAIL,'2026-11-18','191D','WB-TEST1234')
+        self.assertFalse(wrong_date['bookingReferenceMatched'])
+        wrong_seat=read_detail(page,DETAIL,'2026-11-17','233A','WB-TEST1234')
+        self.assertFalse(wrong_seat['bookingReferenceMatched'])
+        page.locator.return_value.click.assert_not_called()
+
     def test_wrong_year_never_verifies(self):
         page=Mock()
         page.url='about:blank'
