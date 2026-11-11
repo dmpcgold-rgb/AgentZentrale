@@ -1265,6 +1265,43 @@ def detail_selection_summary(page, day, expected=None):
     return {'verified':False,'priceCents':None,'reason':'summary_fields_unverified','checks':data}
 
 
+
+def detail_seat_map_entry_check(page, day):
+    """Read-only entry gate for the seat map; NOT an end-price check or checkout."""
+    if not is_review_detail_url(page.evaluate('window.location.href'),day):
+        return {'verified':False,'reason':'detail_page_mismatch','bookingAuthorized':False}
+    data=page.evaluate(r"""() => {
+      const norm=s=>(s||'').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F]/g,'').replace(/\s+/g,' ').trim();
+      const vis=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden'&&getComputedStyle(e).display!=='none';
+      const text=e=>norm(e.innerText||e.textContent);
+      const titles=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&text(e)==='Meine Auswahl'&&![...e.children].some(c=>vis(c)&&text(c)==='Meine Auswahl'));
+      const carts=[...document.querySelectorAll('button,a[href],[role="button"],[role="link"],input[type="submit"]')].filter(e=>vis(e)&&norm(e.getAttribute('aria-label')||e.innerText||e.textContent||e.value)==='In den Warenkorb');
+      const result={titleCount:titles.length,cartCount:carts.length,footerUnique:false,footerZero:false,route:false,train:false,dates:[],time:false,seatSection:false};
+      if(titles.length!==1||carts.length!==1)return result;
+      let common=titles[0];
+      while(common&&common!==document.body&&!common.contains(carts[0]))common=common.parentElement;
+      if(!common||common===document.body)return result;
+      const footer=text(common);
+      const prices=[...footer.matchAll(/(?:€\s*(\d+(?:[.,]\d{2}))|(\d+(?:[.,]\d{2}))\s*€)/g)].map(m=>m[1]||m[2]);
+      // Only the zero-priced selection footer is used to permit opening the
+      // seat map. A distinct paid offer elsewhere on the page is not a total.
+      result.footerUnique=footer.length<900&&prices.length>=1;
+      result.footerZero=result.footerUnique&&prices.every(v=>v==='0,00'||v==='0.00');
+      const body=text(document.body);
+      result.route=/Wien\s+Meidling/i.test(body)&&/Wiener\s+Neustadt/i.test(body);
+      result.train=/\b1009\b/.test(body);
+      result.time=/18\s*:\s*22\s*[-–—−]\s*18\s*:\s*49/.test(body);
+      result.dates=[...body.matchAll(/\b\d{1,2}\.\s*\d{1,2}\.\s*\d{4}\b/g)].map(m=>m[0].replace(/\s/g,''));
+      result.seatSection=[...document.querySelectorAll('body *')].some(e=>vis(e)&&text(e)==='Sitzplatzreservierung'&&![...e.children].some(c=>vis(c)&&text(c)==='Sitzplatzreservierung'));
+      return result;
+    }""")
+    d=date.fromisoformat(day)
+    expected={d.strftime('%d.%m.%Y'),f'{d.day}.{d.month}.{d.year}'}
+    date_ok=bool(data.get('dates')) and all(x in expected for x in data['dates'])
+    verified=bool(data.get('titleCount')==1 and data.get('cartCount')==1 and data.get('footerUnique') and data.get('footerZero') and data.get('route') and data.get('train') and data.get('time') and data.get('seatSection') and date_ok)
+    return {'verified':verified,'bookingAuthorized':False,'checks':data,'dateVerified':date_ok,
+            'message':'Nur Sitzplanöffnung erlaubt. Endpreis, bestehende Reservierung und Checkout nicht geprüft.'}
+
 def confirm_review_selection(page,day):
     """Confirm the seat within the dialog only; never add to basket or buy."""
     summary=detail_selection_summary(page,day)
@@ -1328,7 +1365,11 @@ def open_review_seat_map(page, day):
         actual.wait_for_timeout(250)
         summary=detail_selection_summary(actual,day)
     if not summary.get('verified'):
-        raise Blocked('Reservierungsdetails nicht eindeutig 0 EUR. Sitzplan nicht geöffnet. Diagnose: '+json.dumps(summary,ensure_ascii=False))
+        # This read-only navigation gate is deliberately weaker than a
+        # booking-price check, and never authorizes a purchase.
+        entry=detail_seat_map_entry_check(actual,day)
+        if not entry.get('verified'):
+            raise Blocked('Sitzplanöffnung gesperrt: '+json.dumps({'entry':entry,'detail':summary},ensure_ascii=False))
     # Scope "Ändern" to the seat reservation section, never a cart action.
     change=actual.evaluate_handle(r"""() => {
       const norm=s=>(s||'').replace(/\s+/g,' ').trim();

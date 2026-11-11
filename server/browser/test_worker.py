@@ -2,7 +2,7 @@ import unittest, os, tempfile
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
-from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, confirm_review_selection, open_review_seat_map, ACCOUNT_URL, Blocked
+from worker import prepare, official, allowed_navigation, date_url, displayed_date_matches, parse_connection, account_summary, account_audit, account_inventory, inspect_comfort, apply_comfort_control_price, offline_seat_preview, copy_preview_profile, classify_price_audit, safe_request_summary, authenticated_prepare, verify_austrian_session, ensure_austrian_session, trusted_login_url, load_login, select_primary_seat_in_open_modal, seat_modal_state, manual_seat_review, find_open_review_page, is_review_detail_url, ranked_layout_seats, detail_selection_summary, detail_seat_map_entry_check, confirm_review_selection, open_review_seat_map, ACCOUNT_URL, Blocked
 
 HTML='''<label>Von<input id="from"></label><div id="opts1"></div>
 <label>Nach<input id="to"></label><div id="opts2"></div>
@@ -316,6 +316,24 @@ class BrowserTests(unittest.TestCase):
   self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
   self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
   self.assertFalse(detail_selection_summary(self.page,'2026-11-17','182A')['verified'])
+ def test_seat_map_entry_accepts_zero_footer_separate_from_paid_offer(self):
+  html='<main><section><div><h2>Meine Auswahl</h2><p>€ 0,00</p><button>In den Warenkorb</button></div></section><aside><h2>Sitzplatzreservierung</h2><p>Reservierung € 7,90 pro Person</p><p>Wien Meidling – Wiener Neustadt</p><p>1009</p><p>17.11.2026, 18:22–18:49</p></aside></main>'
+  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
+  gate=detail_seat_map_entry_check(self.page,'2026-11-17')
+  self.assertTrue(gate['verified'],gate)
+  self.assertFalse(gate['bookingAuthorized'])
+  self.assertFalse(detail_selection_summary(self.page,'2026-11-17')['verified'])
+  self.page.locator('section p').evaluate("(e)=>e.textContent='€ 7,90'")
+  self.assertFalse(detail_seat_map_entry_check(self.page,'2026-11-17')['verified'])
+ def test_seat_map_entry_rejects_mismatching_date_and_duplicate_selection(self):
+  html='<main><section><h2>Meine Auswahl</h2><p>€ 0,00</p><button>In den Warenkorb</button></section><h2>Sitzplatzreservierung</h2><p>Wien Meidling – Wiener Neustadt 1009 17.11.2026, 18:22–18:49</p></main>'
+  self.page.route('https://westbahn.at/**',lambda route:route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+  self.page.goto('https://westbahn.at/reservierung/sitzplatz-upgrade/details?do=2026-11-17&sf=wien-meidling&st=wiener-neustadt')
+  self.assertTrue(detail_seat_map_entry_check(self.page,'2026-11-17')['verified'])
+  self.assertFalse(detail_seat_map_entry_check(self.page,'2026-11-18')['verified'])
+  self.page.locator('main').evaluate("(e)=>e.insertAdjacentHTML('beforeend','<h2>Meine Auswahl</h2>')")
+  self.assertFalse(detail_seat_map_entry_check(self.page,'2026-11-17')['verified'])
  def test_comfort_inspection_is_scoped_and_read_only(self):
   self.page.set_content('<article><div>Abfahrtszeit,</div><div>18:22</div><div>Ankunftszeit,</div><div>18:49</div><div>1009</div><div><button disabled title="ausgebucht">2+ | Comfort</button></div><div><button>1 | First € 10,90</button></div></article><script>window.clicked=0;document.addEventListener("click",()=>window.clicked++)</script>')
   with patch('worker.prepare',return_value={'status':'connection_found','connection':{'trainNumber':'1009'}}):
