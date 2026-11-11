@@ -200,3 +200,12 @@ Der Konto-Test mit 15 erfolgreichen Tests fand für die vorhandene Reservierung 
 Beim Öffnen der Detailseite blockiert eine zusätzliche Netzwerksperre sämtliche Methoden außer GET/HEAD und fremde Top-Level-Zieladressen. Bei mehrdeutigen Links oder nicht eindeutig lesbaren Ticketinformationen wird abgebrochen. Keine Schaltflächen werden angeklickt, und es werden keine Buchungen angelegt, bezahlt, storniert oder verändert. **Eine Seitenadresse allein beweist nicht, dass die Detailansicht tatsächlich korrekt ist:** Der Live-Test und die Prüfung der tatsächlichen Ticketdetails stehen noch aus. Die Flags `confirmationVerified:false`, `safeToBook:false`, `bookingAuthorized:false` und `inventoryComplete:false` werden weiterhin nicht freigegeben.
 
 Nach Git-Pull: `cd /app/server/browser && python -m unittest test_ticket_detail_view.py test_detail_route_diagnostics.py`. Nur bei erfolgreichen Tests: `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`.
+
+
+## Anonymisierte Kennungsstruktur in abgelehnten Ticket-Links
+
+Nach der Live-Prüfung vom 11.11.2026 (`no_unique_safe_detail_link`, zwei Links mit `/ticketshop/dashboard/ticket/[opaque]/[opaque]`) wird nun für **genau diese Linkstruktur** zusätzlich `ticketRouteShape` ausgegeben. Beispiel: `4-7|12-90;token_ascii` bedeutet, dass der erste Pfadbestandteil eine 4- bis 7-stellige und der zweite eine 12- bis 90-stellige Kennung hat, beide aus ASCII-Buchstaben, Ziffern, Bindestrich oder Unterstrich. `other_or_encoded` weist nur auf andere oder kodierte Zeichen hin. Es werden **keine** Kennungen, echten URLs, Abfragewerte, Namen oder exakten Tokenlängen ausgegeben.
+
+Weder diese Diagnose noch ein neues URL-Muster autorisiert eine Buchung oder einen unbekannten Detailaufruf. Die bestehende strenge GET-Allowlist und der Doppelbuchungsschutz bleiben unverändert. Die aktuelle Ausgabe entscheidet erst, ob und wie die Navigationsprüfung weiter angepasst werden kann.
+
+Nach Update: `python -m unittest test_detail_route_diagnostics.py test_ticket_detail_view.py`, danach `python worker.py ticket-detail-check --date 2026-11-17 --seat 191D`. Bei fehlgeschlagenen Tests wird die Echtprüfung nicht gestartet.
