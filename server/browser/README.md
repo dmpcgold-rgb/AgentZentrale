@@ -158,3 +158,20 @@ Tests im Container: cd /app/server/browser && python -m unittest test_confirmati
 
 Read-only Echtprüfung: python worker.py confirmation-check --date 2026-11-17 --seat 191D
 
+
+
+## Bestehende WESTbahn-Ticketdetails nur lesen
+
+Der neue Modus **ticket-detail-check** untersucht eine bereits vorhandene Comfort-Reservierung (z. B. 17.11.2026, Platz 191D). Er durchsucht die ersten beiden Seiten der gültigen Tickets auf den offiziellen WESTbahn-Domains. Bei einer passenden Ticketkarte akzeptiert er nur einen eindeutig bezeichneten, statischen HTTPS-Link zu einer reinen Ticket-Detailansicht innerhalb des gleichen WESTbahn-Hosts. Nur dann öffnet er diese Adresse per **GET** in einer neuen Browserseite. **Es werden keine Buttons angeklickt, keine Formulare versendet, keine Dateien heruntergeladen und keine Buchungen geändert.**
+
+Bei fehlendem oder mehrdeutigem Link stoppt der Modus mit **no_unique_safe_detail_link** und meldet ausschließlich Diagnosemerkmale, niemals private Links oder Ticketnummern. Selbst wenn ein vollständig datierter Beleg gefunden wird, bleiben **confirmationVerified:false**, **bookingAuthorized:false**, **safeToBook:false** und **inventoryComplete:false**. Die Prüfung ersetzt keine verifizierte Checkout-Bestätigung oder vollständige Dublettenprüfung.
+
+Auf dem Server nach Docker-Update zunächst Tests, dann eine lesende Echtprüfung:
+
+```bash
+cd /app/server/browser
+python -m unittest test_ticket_detail_view.py test_confirmation_evidence.py test_booking_evidence.py
+python worker.py ticket-detail-check --date 2026-11-17 --seat 191D
+```
+
+Im Terminal können u. a. **detail_read** (eindeutige erlaubte Detailansicht untersucht), **no_unique_safe_detail_link** (kein sicherer Link), **ticket_not_visible** (keine eindeutig gefundene Karte; keine Aussage zur Verfügbarkeit) oder **detail_unavailable** erscheinen. Das Jahr kann nur bestätigt werden, wenn die Detailansicht einen ausdrücklich genannten Reisetag mit vollständigem Jahr, Strecke, Uhrzeiten, Comfort-Produkt und genau dem gewählten Sitzplatz zeigt. Keine automatischen Ticketkäufe.
