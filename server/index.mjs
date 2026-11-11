@@ -119,7 +119,37 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const days=planDates(new Date(now())).slice(0,5);
         if (!days.length) throw new ApiError(409,'Keine geplanten Pendeltage für die Prüfung.');
         try {
-          return write(res,200,await browser.run('inventory-batch',null,null,days));
+          const result=await browser.run('inventory-batch',null,null,days);
+          const ledgerProtectedDates=[],ledgerReviewDates=[];
+          if(result?.status==='inventory_batch_read' &&
+             result.inventoryComplete===false &&
+             result.safeToBook===false &&
+             result.bookingAuthorized===false && Array.isArray(result.days)){
+            for(const item of result.days){
+              // Only precise, previously sanitized positive detail proofs may
+              // protect a day. A missing ticket or card alone cannot do this.
+              const proven=item?.status==='detail_verified' &&
+                days.includes(item.date) &&
+                item.detailVerified===true && item.dateVerified===true &&
+                item.potentialDuplicate===true && item.safeToBook===false &&
+                Array.isArray(item.seats) && item.seats.length===1 &&
+                typeof item.seats[0]==='string' && /^[0-9]{3}[A-D]$/.test(item.seats[0]);
+              if(!proven)continue;
+              try {
+                const snapshot=westbahn.recordVerifiedExisting(item.date,item.seats[0]);
+                const row=snapshot?.rows?.find(x=>x.date===item.date);
+                if(row?.seat===item.seats[0] &&
+                   ['existing_verified','confirmed','booking','uncertain'].includes(row.status))
+                  ledgerProtectedDates.push(item.date);
+                else ledgerReviewDates.push(item.date);
+              }catch{
+                // A seat disagreement must never be overwritten, including
+                // by an otherwise valid account detail verification.
+                ledgerReviewDates.push(item.date);
+              }
+            }
+          }
+          return write(res,200,{...result,ledgerProtectedDates,ledgerReviewDates});
         } catch(e){throw new ApiError(409,e.message);}
       }
       if (is('POST', '/westbahn/browser/audit-ticket')) {
