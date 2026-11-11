@@ -261,3 +261,12 @@ Ein bereits gekauftes Ticket darf der Anbieteradapter über `status:'confirmed'`
 Beim Docker-Build wird nun automatisch `node --test server/tests/westbahn.test.mjs` ausgeführt. Ein fehlgeschlagener Test lässt den Build scheitern, bevor der neue Container ersetzt wird. Zusätzlich kann im Container mit `node --test /app/server/tests/westbahn.test.mjs` geprüft werden. Die Browser-Evidenztests werden weiterhin gesondert über Python ausgeführt.
 
 **Noch keine Live-Buchung:** Im Repository ist kein verifizierter Provider-Adapter installiert. Die vorhandenen Konto-Leseprüfungen sind nicht mit dem zahlungspflichtigen Bestellbutton verbunden. Es wird durch diese Änderung **kein** Kauf ausgelöst, und die wöchentliche Vollautomatik bleibt deaktiviert.
+
+
+## Privater Abgleich einer erwarteten Buchungsnummer
+
+Zusätzlich zur bereits erfolgreichen Ticketdetailprüfung kann die interne Python-Funktion `inspect_existing_ticket_details(context, day, seat, expected_booking_id=...)` nun optional eine **bereits intern bekannte erwartete Buchungs-ID** vergleichen. Dafür müssen der volle Reisetag mit Jahr, Strecke, Fahrzeiten, Comfort-Produkt und der Sitzplatz passen; auf der Ticketdetailseite muss eine **eindeutig beschriftete** und exakt gleiche Buchungsreferenz stehen. Unter anderem unbeschriftete, zu kurze, abweichende oder widersprüchliche Kennungen werden abgelehnt. Die Rückgabe enthält nur `bookingReferenceChecked` und `bookingReferenceMatched` als boolesche Werte, niemals die Kennungen selbst. Der normale Kommandozeilenmodus `ticket-detail-check` ruft weiterhin **keine** Buchung ab und benötigt keine Buchungsnummer im Terminal.
+
+Dies ist eine **interne Vorarbeit** für einen künftigen verifizierten Adapter, kein installierter WESTbahn-Kaufadapter. Auch ein Treffer allein hebt die Vollständigkeitssperre `inventoryComplete:false` nicht auf und setzt `bookingAuthorized` nicht auf `true`. Die Bestandsprüfung bleibt ohne nachweislich vollständigen Abgleich blockiert. Der Docker-Build prüft die reine Referenzfunktion mit `python -m unittest -q test_booking_reference_match.py`. Vollständige Browserregression: `cd /app/server/browser && python -m unittest test_booking_reference_match.py test_ticket_detail_view.py test_ticket_content_diagnostics.py test_detail_route_diagnostics.py`.
+
+**Wichtig:** Keine Buchungsnummer über eine Kommandozeile als Argument, eine öffentliche API oder in Debug-Ausgaben übermitteln. Ein künftiger Adapter muss den erwarteten Wert ausschließlich intern und vertraulich an die Prüf-Funktion übergeben.
