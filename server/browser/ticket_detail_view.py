@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlsplit, parse_qsl
 from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 from confirmation_evidence import reference_indicators
 from detail_route_diagnostics import route_signature
+from ticket_content_diagnostics import categorize_detail_text
 
 ROUTE=re.compile(
     r'^/ticketshop/dashboard/(?:tickets?|reservations?)/(?:'
@@ -205,6 +206,34 @@ def read_detail(page, url, day, seat):
         text=page.locator('body').inner_text(timeout=6000)
         if len(text)>30000:
             return {'detailStatus':'detail_too_large','yearVerified':False}
+        # Some ticket detail views populate after DOMContentLoaded. Give the
+        # read-only page one bounded opportunity to render before classifying.
+        if not ('Reservierung Comfort Class' in text and 'Sitzplatz' in text):
+            page.wait_for_timeout(1200)
+            updated=page.locator('body').inner_text(timeout=6000)
+            if len(updated)>30000:
+                return {'detailStatus':'detail_too_large','yearVerified':False}
+            text=updated
+        try:
+            dom=page.evaluate("""() => ({
+                login: !!document.querySelector('input[type="password"]'),
+                pdf: !!document.querySelector(
+                    'embed[type="application/pdf"],object[type="application/pdf"]'
+                )
+            })""")
+        except Exception:
+            dom={}
+        if not isinstance(dom,dict):
+            dom={}
+        mime='unknown'
+        try:
+            content_type=response.headers.get('content-type','').lower()
+            mime=('pdf' if 'application/pdf' in content_type else
+                  'html' if 'text/html' in content_type else
+                  'other' if content_type else 'unknown')
+        except Exception:
+            pass
+        diagnostic=categorize_detail_text(text,mime,dom.get('login') is True,dom.get('pdf') is True)
         exact=extract_explicit_trip_date(text)
         seats={f'{m.group(1)}{m.group(2).upper()}' for m in SEAT_LABEL.finditer(text)}
         journey=all(x in text for x in ('Wien Meidling','Wiener Neustadt','18:22','18:49'))
@@ -213,7 +242,8 @@ def read_detail(page, url, day, seat):
         refs=reference_indicators(text)
         return {'detailStatus':'detail_read','yearVerified':year_verified,
                 'seatMatched':seats=={seat},'tripMatched':journey and product,
-                'referenceVisible':any(refs.values()),'dateExplicit':exact is not None}
+                'referenceVisible':any(refs.values()),'dateExplicit':exact is not None,
+                'contentDiagnostics':diagnostic}
     except Exception:
         return {'detailStatus':'detail_unavailable','yearVerified':False}
 
