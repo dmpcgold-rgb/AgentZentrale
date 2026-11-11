@@ -1,6 +1,7 @@
 import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
 import {planDates,viennaClock} from '../src/core/westbahn.js';
+import {sanitizeBatchInventory} from './browser.mjs';
 
 const SINGLE_SEAT=/^[0-9]{3}[A-D]$/;
 const sameIso=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&
@@ -10,22 +11,20 @@ const sameIso=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&
 // Only strictly verified positive read-only ticket evidence can protect a day.
 // A missing or ambiguous ticket NEVER establishes an empty provider inventory.
 export function applyVerifiedBatch(batch,days,westbahn){
+ if(!Array.isArray(days)||days.length<1||days.length>5||
+    days.some(d=>!sameIso(d))||new Set(days).size!==days.length)
+   throw new Error('Invalid review dates');
  const base={status:'review_required',days:days.map(date=>({
   date,status:'review_required',seats:[],dateVerified:false,
   detailVerified:false,potentialDuplicate:false,safeToBook:false
  })),inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
  ledgerProtectedDates:[],ledgerReviewDates:[]};
- if(!Array.isArray(days)||days.length<1||days.length>5||
-    days.some(d=>!sameIso(d))||new Set(days).size!==days.length)
-   throw new Error('Invalid review dates');
- if(batch?.status!=='inventory_batch_read'||batch.inventoryComplete!==false||
-    batch.safeToBook!==false||batch.bookingAuthorized!==false||
-    !Array.isArray(batch.days)||batch.days.length!==days.length)
-   return base;
+ // Validate the *whole* report before changing any persistent booking state.
+ const audited=sanitizeBatchInventory(batch,days);
+ if(audited.status!=='inventory_batch_read')return base;
  const protectedDates=[],reviewDates=[];
  for(let i=0;i<days.length;i++){
-  const item=batch.days[i];
-  if(!item||item.date!==days[i])return base;
+  const item=audited.days[i];
   const proven=item.status==='detail_verified'&&
     item.detailVerified===true&&item.dateVerified===true&&
     item.potentialDuplicate===true&&item.safeToBook===false&&
@@ -43,8 +42,8 @@ export function applyVerifiedBatch(batch,days,westbahn){
   }
  }
  return {
-  status:'inventory_batch_read',days:batch.days,
-  accountPageReads:batch.accountPageReads,
+  status:'inventory_batch_read',days:audited.days,
+  accountPageReads:audited.accountPageReads,
   inventoryComplete:false,safeToBook:false,bookingAuthorized:false,
   ledgerProtectedDates:protectedDates,ledgerReviewDates:reviewDates
  };
