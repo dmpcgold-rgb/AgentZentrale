@@ -712,6 +712,11 @@ def account_inventory(context, requested_page=None, max_pages=10):
                           u.searchParams.get('mode')==='valid' ? [Number(n)] : [];
                       }catch{return []}
                     }))].sort((a,b)=>a-b)""")
+                    # Expose only bounded numeric navigation metadata.
+                    # It helps diagnose missing pages without exposing URLs
+                    # or claiming an authoritative total ticket count.
+                    reports[-1]['paginationLinks']=links[:20]
+                    reports[-1]['paginationLinkCount']=len(links)
                     pending.extend(n for n in links if n not in seen and n not in pending)
             except Blocked:
                 reports.append({'domain':domain,'page':number,'status':'account_not_verified'})
