@@ -6,7 +6,7 @@ import {ActionButton,Body,Card,Heading,Muted,Section,styles} from '../components
 import {T} from '../theme';
 const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)',existing_verified:'Bestehendes Ticket geprüft'};
 export default function WestbahnScreen({navigation}){
- const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
+ const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[previewResult,setPreviewResult]=useState(null),[previewDate,setPreviewDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
  const dates=planDates();
  useEffect(()=>{
    if(!remote.connected)return;
@@ -46,6 +46,15 @@ export default function WestbahnScreen({navigation}){
      }
      const weekly=await remote.request('/westbahn/review-status');
      setWeeklyState(weekly);
+   }catch(e){setError(e.message);}finally{setBusy(false);}
+ }
+ async function previewTrip(){
+   setBusy(true);setError('');setPreviewResult(null);
+   try{
+     const result=await remote.request('/westbahn/browser/preview-trip',{
+       method:'POST',body:{date:previewDate.trim()},timeoutMs:75000
+     });
+     setPreviewResult(result);
    }catch(e){setError(e.message);}finally{setBusy(false);}
  }
  async function auditExistingTicket(){
@@ -94,6 +103,22 @@ export default function WestbahnScreen({navigation}){
    {weekAudit.coverage?<Muted>Kontoseiten: {weekAudit.coverage.pagesVerified} erfolgreich, {weekAudit.coverage.pagesFailed} Fehler. Kein vollständiger Bestandsnachweis.</Muted>:null}
    {(weekAudit.days||[]).map(x=><Muted key={x.date}>{x.date} · {x.status==='detail_verified'?'Ticketdetails vollständig geprüft':x.status==='visible_year_verified'?'Bestehende Karte mit Jahresangabe':x.status==='possible_existing'?'Möglicherweise reserviert':'Nicht sicher geklärt'}{x.seats?.length?' · '+x.seats.join(', '):''}{weekAudit.ledgerProtectedDates?.includes(x.date)?' · Doppelbuchungsschutz aktiv':weekAudit.ledgerReviewDates?.includes(x.date)?' · Protokoll-Konflikt, manuell prüfen':''}</Muted>)}
    <Muted>Kontobestand nicht vollständig bestätigt. Auch bei fehlender Karte kein automatischer Kauf.</Muted>
+ </View>:null}
+ <Muted style={{marginTop:12}}>Öffentliche Verbindung und Comfort-Anzeigepreis unverbindlich prüfen – ohne Buchung</Muted>
+ <View style={{flexDirection:'row',gap:8,marginTop:8}}>
+   <TextInput accessibilityLabel="Datum der unverbindlichen Verbindungsprüfung"
+     style={[styles.input,{flex:1}]} value={previewDate} onChangeText={setPreviewDate}
+     placeholder="JJJJ-MM-TT" placeholderTextColor={T.muted} autoCapitalize="none"/>
+ </View>
+ <View style={{marginTop:8}}>
+  <ActionButton title="Verbindung und Comfort-Preis nur prüfen" secondary
+    disabled={busy||!remote.connected||!browser?.enabled} onPress={previewTrip}/>
+ </View>
+ {previewResult?<View style={{marginTop:10,gap:4}}>
+   <Body>{previewResult.status==='existing_ledger_entry'?'Für diesen Tag existiert bereits ein Buchungsvermerk':previewResult.status==='public_connection_found'?'Öffentliche Verbindung gefunden':'Verbindung nicht eindeutig bestätigt'}</Body>
+   {previewResult.trainNumber?<Muted>WB {previewResult.trainNumber} · {previewResult.departure}–{previewResult.arrival} · Comfort 2+</Muted>:null}
+   <Muted>{previewResult.displayedComfortCents===0?'Angezeigter öffentlicher Comfort-Preis: 0,00 € (nicht verbindlich)':typeof previewResult.displayedComfortCents==='number'?'Angezeigter Comfort-Preis: '+(previewResult.displayedComfortCents/100).toFixed(2)+' € (nicht verbindlich)':'Kein eindeutig geprüfter Comfort-Anzeigepreis'}</Muted>
+   <Muted>KlimaTicket-Warenkorb, konkreter Sitzplatz und fehlende Reservierung NICHT bestätigt. Keine Buchungsfreigabe.</Muted>
  </View>:null}
  <Muted style={{marginTop:12}}>Vorhandenes Ticket im WESTbahn-Konto prüfen – ohne Buchung</Muted>
  <View style={{flexDirection:'row',gap:8,marginTop:8}}>
