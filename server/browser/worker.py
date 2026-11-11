@@ -971,12 +971,13 @@ def seat_modal_state(page, target=None):
           if(buttons.some(b=>text(b)==='Abbrechen')&&buttons.some(b=>text(b)==='Bestätigen')){modals.add(e);break;}
         }
       }
-      if(modals.size!==1)return target?null:{modalFound:false,controls:[]};
-      const modal=[...modals][0];
+      const smallest=[...modals].filter(e=>![...modals].some(other=>other!==e&&e.contains(other)));
+      if(smallest.length!==1)return target?null:{modalFound:false,controls:[]};
+      const modal=smallest[0];
       // The selected-seat summary precedes the actual seat map. Never use an
       // arbitrary seat label in the map as evidence of the selected seat.
       const beforeMap=(modal.innerText||'').split(/Legende|2\+\s*\|\s*Comfort|2\+\s*Comfort/i)[0];
-      const summary=beforeMap.match(/Wagen\s+Platz\s+(\d{1,2})\s+(\d{2,4})\s*([A-D])\b/i);
+      const summary=beforeMap.match(/Wagen\s+Platz\s+(\d{1,2})\s+(?:[♿\s\uFE0F]*)?(\d{2,4})\s*([A-D])\b/i)||beforeMap.match(/Wagen\s+(\d{1,2})\s+Platz\s+(?:[♿\s\uFE0F]*)?(\d{2,4})\s*([A-D])\b/i);
       const selected=summary?{coach:summary[1],seat:summary[2]+summary[3].toUpperCase()}:null;
       const controls=[];
       const elements=[];
@@ -1003,10 +1004,61 @@ def seat_modal_state(page, target=None):
         return page.evaluate_handle(script,target).as_element()
     return page.evaluate(script,None)
 
+
+def read_review_command(page):
+    """Keep Playwright processing browser events while waiting for SSH input."""
+    import queue, threading
+    commands=queue.Queue(maxsize=1)
+    def read():
+        try: commands.put(input().strip().lower())
+        except (EOFError, KeyboardInterrupt): commands.put('q')
+    threading.Thread(target=read,daemon=True).start()
+    context=page.context
+    while True:
+        try: return commands.get_nowait()
+        except queue.Empty: pass
+        # Sync Playwright only dispatches events while its API is running.
+        # A blocking input() leaves page.url and new-tab events stale.
+        active=[p for p in context.pages if not p.is_closed()]
+        if not active: return 'q'
+        try: active[0].wait_for_timeout(100)
+        except Exception:
+            if not any(not p.is_closed() for p in context.pages): return 'q'
+
+def is_review_detail_url(url, day=None):
+    u=urlsplit(url)
+    if u.scheme!='https' or u.hostname!='westbahn.at' or u.username or u.password or u.port not in (None,443) or u.path.rstrip('/')!='/reservierung/sitzplatz-upgrade/details':
+        return False
+    if day is None: return True
+    q=parse_qs(u.query)
+    return q.get('do')==[day] and q.get('sf')==['wien-meidling'] and q.get('st')==['wiener-neustadt']
+
+def find_open_review_page(original, day):
+    """Resolve the actual live tab, not the cached URL of the initial page."""
+    matches=[]
+    reports=[]
+    for p in original.context.pages:
+        if p.is_closed(): continue
+        try:
+            url=p.evaluate('window.location.href')
+            u=urlsplit(url)
+            detail=is_review_detail_url(url)
+            route_matches=is_review_detail_url(url,day)
+            report={'pageKind':'detail' if detail else 'search' if u.hostname=='westbahn.at' and u.path.rstrip('/')=='/reservierung/sitzplatz-upgrade' else 'other',
+                    'routeMatches':route_matches,'modalFound':False}
+            if route_matches:
+                state=seat_modal_state(p)
+                report['modalFound']=bool(state.get('modalFound'))
+                if report['modalFound']: matches.append(p)
+            reports.append(report)
+        except Exception:
+            reports.append({'pageKind':'unavailable','routeMatches':False,'modalFound':False})
+    return (matches[0] if len(matches)==1 else None,
+            {'openPages':reports,'matchingSeatDialogs':len(matches)})
+
 def select_primary_seat_in_open_modal(page):
     """Select only an explicit preferred seat; never confirm, buy or select a fallback."""
-    u=urlsplit(page.url)
-    if u.scheme!='https' or u.hostname!='westbahn.at' or u.path.rstrip('/')!='/reservierung/sitzplatz-upgrade/details':
+    if not is_review_detail_url(page.evaluate('window.location.href')):
         return {'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Keine eindeutige WESTbahn-Reservierungsdetailseite.'}
     state=seat_modal_state(page)
     if not state.get('modalFound'):
@@ -1041,24 +1093,29 @@ def manual_seat_review(page, day, root=None):
         print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
         if result.get('status') in ('login_required','account_unverified'):
             print('Bitte im privaten Browser auf westbahn.at anmelden bzw. das Konto öffnen. Danach hier Enter drücken; q beendet.',file=sys.stderr,flush=True)
-            if input().strip().lower()=='q':
+            if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
         if result.get('connection',{}).get('displayedPriceCents')!=0:
             print('Comfort nicht eindeutig 0 EUR. Nicht fortfahren. Im Browser Anmeldung/KlimaTicket prüfen; danach Enter für erneute Suche oder q zum Beenden.',file=sys.stderr,flush=True)
-            if input().strip().lower()=='q':
+            if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
         print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. Im Browser Comfort und Ändern öffnen. Dann hier a + Enter für Wunschplatzprüfung/-auswahl. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
         while True:
-            command=input().strip().lower()
+            command=read_review_command(page)
             if command=='q':
                 break
             if command!='a':
                 print('Browser bleibt geöffnet. a + Enter für Wunschplatzprüfung; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
                 continue
             try:
-                result=select_primary_seat_in_open_modal(page)
+                actual,diagnostic=find_open_review_page(page,day)
+                if actual is None:
+                    result={'status':'seat_selection_blocked','bookingAuthorized':False,'inspection':diagnostic,'message':'Keine eindeutige Detailseite mit geöffnetem Sitzplan für das gewünschte Datum gefunden.'}
+                else:
+                    result=select_primary_seat_in_open_modal(actual)
+                    result['pageInspection']=diagnostic
             except Exception:
                 result={'status':'seat_selection_blocked','bookingAuthorized':False,'message':'Sitzplan nicht eindeutig bedienbar. Keine automatische Bestätigung.'}
             print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
