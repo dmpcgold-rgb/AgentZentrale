@@ -55,7 +55,9 @@ def assess_existing_ticket(rows, requested_day, expected_seat=None):
                 continue
             if exact!=day.isoformat(): continue
         matches.append({'seat':seat, 'yearExplicit':bool(hit.group(1) or explicit),
-                        'expectedSeat':expected_seat is None or expected_seat==seat})
+                        'expectedSeat':expected_seat is None or expected_seat==seat,
+                        'bookingReference':row.get('bookingReference') is True,
+                        'ticketReference':row.get('ticketReference') is True})
     if not matches:
         return {'status':'not_seen_in_incomplete_account','safeToBook':False,'matches':[],
                 'message':'Keine passende sichtbare Karte; fehlender Treffer beweist keine fehlende Reservierung.'}
