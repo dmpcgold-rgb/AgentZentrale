@@ -144,3 +144,17 @@ python -m unittest test_booking_evidence.py test_checkout_guard.py
 ```
 
 Es erfolgen keine Buchungen, keine Warenkorbänderungen und keine automatischen Käufe. `safeToBook` bleibt bei der Bestandsprüfung absichtlich `false`, solange ein vollständiger Anbieterabgleich fehlt.
+
+
+## Bestätigungsnachweis aus vorhandenen Tickets (11.11.2026)
+
+Der neue rein lesende Modus **confirmation-check --date YYYY-MM-DD --seat 191D** durchsucht im angemeldeten WESTbahn-Konto auf den offiziellen Domains sichtbare Karten bereits gekaufter Comfort-Reservierungen. Er prüft innerhalb der Ticketkarte Datum, Sitzplatz, Strecke und beschriftete Felder wie „Buchungsnummer“, „Bestellnummer“, „Reservierungsnummer“, „Auftragsnummer“ und „Ticketnummer“. Diese Nummern werden **nie ausgegeben**; nur boolesche Merkmale verlassen den Parser.
+
+Die Ergebnisebenen sind **dated_reference_candidate** (Reisejahr und beschriftete Referenz), **visible_ticket_card** (passende Karte ohne vollständigen Jahres-/Referenznachweis) und **not_proven** (keine passende Karte im unvollständigen Bestand, keinesfalls ein Nachweis für Nichtvorhandensein).
+
+**confirmationVerified:false**, **inventoryComplete:false** und **bookingAuthorized:false** bleiben unverändert. Der Modus klickt keine Bestell- oder Kaufbuttons und erklärt keinen Kauf als erfolgreich. Eine belastbare Abschlussprüfung benötigt eine noch nicht implementierte verifizierte Anbieterbeleg-Verarbeitung.
+
+Tests im Container: cd /app/server/browser && python -m unittest test_confirmation_evidence.py test_booking_evidence.py test_checkout_guard.py
+
+Read-only Echtprüfung: python worker.py confirmation-check --date 2026-11-17 --seat 191D
+
