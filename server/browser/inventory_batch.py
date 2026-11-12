@@ -160,3 +160,15 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'bookingPreflight':'blocked',
         'message':'Sichtbare Kontokarten geprüft. Fehlende Treffer erlauben keine Buchung.'
     }
+
+
+def zero_euro_preflight(operator_unbooked, account_absence_verified, exact_trip_verified, seat_verified, final_total_cents):
+    """Read-only decision; user confirmation never overrides account evidence."""
+    blockers=[]
+    if account_absence_verified is not True: blockers.append('reservation_absence_not_verified')
+    if exact_trip_verified is not True: blockers.append('exact_trip_not_verified')
+    if seat_verified is not True: blockers.append('seat_not_verified')
+    if type(final_total_cents) is not int or final_total_cents != 0: blockers.append('final_zero_euro_total_not_verified')
+    return {'operatorReportsUnbooked':operator_unbooked is True,
+            'bookingBlockers':blockers, 'bookingAuthorized':False,
+            'safeToBook':False, 'purchaseExecuted':False}
