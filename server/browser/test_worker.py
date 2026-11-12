@@ -614,7 +614,7 @@ class BrowserTests(unittest.TestCase):
    self.assertFalse(result['inventoryComplete'])
    self.assertNotIn('SECRET123',str(result))
   finally: context.close()
- def test_regular_inventory_merges_both_domains(self):
+ def test_regular_inventory_uses_austrian_domain_only(self):
   context=self.b.new_context()
   try:
    base='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button>'
@@ -625,11 +625,13 @@ class BrowserTests(unittest.TestCase):
    result=account_inventory(context,1)
    self.assertEqual(result['status'],'account_verified')
    self.assertEqual(len(result['matchingVisibleCards']),2)
-   self.assertEqual(result['matchingVisibleCards'][0]['sources'],['westbahn.at','westbahn.de'])
+   self.assertEqual(result['matchingVisibleCards'][0]['sources'],['westbahn.at'])
    self.assertEqual(result['matchingVisibleCards'][1]['sources'],['westbahn.at'])
+   self.assertEqual(len(result['reports']),1)
+   self.assertEqual(result['reports'][0]['domain'],'westbahn.at')
    self.assertFalse(result['inventoryComplete'])
   finally: context.close()
- def test_regular_inventory_retains_positive_evidence_on_error(self):
+ def test_regular_inventory_ignores_unavailable_german_domain(self):
   context=self.b.new_context()
   try:
    card='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div></article>'
@@ -637,7 +639,8 @@ class BrowserTests(unittest.TestCase):
    context.route('https://westbahn.de/**',lambda route: route.fulfill(status=522,body='Timeout'))
    result=account_inventory(context,1)
    self.assertEqual(len(result['matchingVisibleCards']),1)
-   self.assertEqual(result['reports'][1]['status'],'http_error')
+   self.assertEqual(len(result['reports']),1)
+   self.assertEqual(result['reports'][0]['status'],'account_verified')
    self.assertFalse(result['inventoryComplete'])
   finally: context.close()
  def test_account_wrong_page_blocked(self):
