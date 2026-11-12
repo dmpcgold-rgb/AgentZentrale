@@ -732,6 +732,19 @@ def account_inventory(context, requested_page=None, max_pages=10):
                         loadingIndicators:Math.min(loading,100),
                         scrollContainers:Math.min([...document.querySelectorAll('*')].filter(el=>el.scrollHeight>el.clientHeight+100 && el.clientHeight>100 && ['auto','scroll'].includes(getComputedStyle(el).overflowY)).length,100)};
                     }""")
+                    # Read-only metadata about visible pagination totals. A label
+                    # alone is not proof of a complete provider inventory.
+                    total_hints=page.evaluate("""() => {
+                      const selectors=['[aria-label]','[role=status]','nav','[class*=pagination]','[class*=Pagination]'];
+                      const elements=[...new Set(selectors.flatMap(s=>[...document.querySelectorAll(s)]))].slice(0,300);
+                      const labels=elements.map(e=>(e.getAttribute('aria-label')||e.innerText||'').trim().slice(0,100));
+                      const patterns=[/\\b(?:von|of)\\s+(\\d{1,4})\\b/i,/\\b(?:gesamt|total)\\s*:?\\s*(\\d{1,4})\\b/i];
+                      const counts=labels.flatMap(t=>patterns.flatMap(re=>{const m=t.match(re);return m?[Number(m[1])]:[]})).filter(n=>n>=0&&n<=9999);
+                      return {candidateTotalLabels:Math.min(counts.length,100),
+                        candidateTotals:[...new Set(counts)].sort((a,b)=>a-b).slice(0,10),
+                        paginationElements:Math.min(elements.filter(e=>/paginat/i.test(String(e.className)||'')).length,100)};
+                    }""")
+                    reports[-1]['totalHints']=total_hints
                     reports[-1]['domHints']=hints
                     reports[-1]['paginationLinks']=links[:20]
                     reports[-1]['paginationLinkCount']=len(links)
