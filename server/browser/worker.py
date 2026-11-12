@@ -686,6 +686,7 @@ def account_inventory(context, requested_page=None, max_pages=10):
                 reports.append({'domain':domain,'page':number,'status':'account_verified',
                                 'comfortCards':result['visibleComfortCards'],
                                 'matchingCards':len(result['matchingVisibleCards']),
+                                'unmatchedComfortCards':max(0,result['visibleComfortCards']-len(result['matchingVisibleCards'])),
                                 'pageCardSignature':sorted({((row.get('dateLabel') or '').strip().upper(), (row.get('seat') or '').strip().upper()) for row in result['matchingVisibleCards']}),
                                 'scrollPasses':result['scrollPasses'],
                                 'newCardsAfterScroll':result['newCardsAfterScroll']})
