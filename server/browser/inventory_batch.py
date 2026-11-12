@@ -111,6 +111,32 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'scrollPasses':sum(max(0,r.get('scrollPasses',0))
                                for r in scroll_reports
                                if type(r.get('scrollPasses',0)) is int)}
+        # Candidate provider totals are hints only, never authoritative evidence.
+        total_reports=[r.get('totalHints') for r in scroll_reports
+                       if isinstance(r.get('totalHints'),dict)]
+        candidate_totals=sorted({n for h in total_reports
+                                 for n in (h.get('candidateTotals') or [])
+                                 if type(n) is int and 0<=n<=9999})[:10]
+        total_observation={
+            'pagesWithTotalHints':sum(1 for h in total_reports
+                                      if type(h.get('candidateTotalLabels')) is int
+                                      and h['candidateTotalLabels']>0),
+            'candidateTotals':candidate_totals,
+            'conflictingCandidates':len(candidate_totals)>1,
+            'authoritativeTotalVerified':False}
+        # Candidate provider totals are hints only, never authoritative evidence.
+        total_reports=[r.get('totalHints') for r in scroll_reports
+                       if isinstance(r.get('totalHints'),dict)]
+        candidate_totals=sorted({n for h in total_reports
+                                 for n in (h.get('candidateTotals') or [])
+                                 if type(n) is int and 0<=n<=9999})[:10]
+        total_observation={
+            'pagesWithTotalHints':sum(1 for h in total_reports
+                                      if type(h.get('candidateTotalLabels')) is int
+                                      and h['candidateTotalLabels']>0),
+            'candidateTotals':candidate_totals,
+            'conflictingCandidates':len(candidate_totals)>1,
+            'authoritativeTotalVerified':False}
         # Aggregate only bounded card counts. Unmatched cards can represent
         # other routes, layouts or parsing gaps; they never prove absence.
         card_counts=[r for r in scroll_reports if type(r.get('comfortCards')) is int
@@ -145,7 +171,8 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                             'repeatedContentPages':repeated_pages,
                             'dynamicPageHints':dynamic_hints,
                             'scrollObservation':scroll_observation,
-                            'cardCoverage':card_coverage}
+                            'cardCoverage':card_coverage,
+                            'totalObservation':total_observation}
     # Date-specific review evidence is limited to the Austrian account.
     # Page coverage and absence are not an authoritative inventory.
     at_verified=sorted({r.get('page') for r in page_reports
