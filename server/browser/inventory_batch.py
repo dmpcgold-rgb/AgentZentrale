@@ -111,6 +111,17 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'scrollPasses':sum(max(0,r.get('scrollPasses',0))
                                for r in scroll_reports
                                if type(r.get('scrollPasses',0)) is int)}
+        # Aggregate only bounded card counts. Unmatched cards can represent
+        # other routes, layouts or parsing gaps; they never prove absence.
+        card_counts=[r for r in scroll_reports if type(r.get('comfortCards')) is int
+                     and type(r.get('matchingCards')) is int]
+        card_coverage={
+            'pagesWithCardCounts':len(card_counts),
+            'comfortCardsObserved':sum(max(0,r['comfortCards']) for r in card_counts),
+            'commuterCardsParsed':sum(max(0,r['matchingCards']) for r in card_counts),
+            'pagesWithUnmatchedCards':sum(1 for r in card_counts if r['comfortCards']>r['matchingCards']),
+            'unmatchedComfortCards':sum(max(0,r['comfortCards']-r['matchingCards']) for r in card_counts),
+            'parserCoverageComplete':False}
         # Compare redacted per-page journey/seat signatures only. An identical
         # second page may be a server-side alias rather than real pagination.
         # Empty pages cannot prove anything and are excluded.
@@ -133,7 +144,8 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                             'verifiedPageCount':len(checked),
                             'repeatedContentPages':repeated_pages,
                             'dynamicPageHints':dynamic_hints,
-                            'scrollObservation':scroll_observation}
+                            'scrollObservation':scroll_observation,
+                            'cardCoverage':card_coverage}
     # Date-specific review evidence is limited to the Austrian account.
     # Page coverage and absence are not an authoritative inventory.
     at_verified=sorted({r.get('page') for r in page_reports
