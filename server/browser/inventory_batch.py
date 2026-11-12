@@ -124,6 +124,21 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'candidateTotals':candidate_totals,
             'conflictingCandidates':len(candidate_totals)>1,
             'authoritativeTotalVerified':False}
+        # A provider-rendered count is useful for diagnostics, but cannot by
+        # itself prove that the account's complete ticket inventory was loaded.
+        # Report both the comparison and why booking remains blocked.
+        observed_cards=sum(max(0,r.get('comfortCards',0)) for r in scroll_reports
+                           if type(r.get('comfortCards')) is int)
+        if not candidate_totals:
+            total_observation['comparison']='provider_total_not_exposed'
+        elif len(candidate_totals)>1:
+            total_observation['comparison']='conflicting_provider_totals'
+        elif candidate_totals[0]==observed_cards:
+            total_observation['comparison']='visible_count_matches_hint_only'
+        else:
+            total_observation['comparison']='visible_count_differs_from_hint'
+        total_observation['visibleComfortCards']=observed_cards
+        total_observation['inventoryProof']='not_authoritative'
         # Aggregate only bounded card counts. Unmatched cards can represent
         # other routes, layouts or parsing gaps; they never prove absence.
         card_counts=[r for r in scroll_reports if type(r.get('comfortCards')) is int
