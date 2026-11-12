@@ -108,9 +108,23 @@ jobs:
               echo "AgentZentrale failed post-deployment health check"
               sudo docker compose -f /opt/agentzentrale/compose.yaml ps
               echo "Attempting rollback to previous commit: $previous"
-              if sudo git -C /opt/agentzentrale checkout --detach "$previous" && sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
-                echo "Rollback attempted; checking restored container"
+              if sudo git -C /opt/agentzentrale checkout -B main "$previous" && sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
+                restored=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
+                restored_healthy=0
+                if [ -n "$restored" ]; then
+                  for j in $(seq 1 30); do
+                    restored_state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$restored")
+                    if [ "$restored_state" = healthy ]; then restored_healthy=1; break; fi
+                    if [ "$restored_state" = unhealthy ] || [ "$restored_state" = missing ]; then break; fi
+                    sleep 5
+                  done
+                fi
                 sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+                if [ "$restored_healthy" -eq 1 ]; then
+                  echo "Previous version restored and healthy"
+                else
+                  echo "Rollback attempted but previous version is not healthy; manual recovery required"
+                fi
               else
                 echo "Rollback failed; manual recovery required"
               fi
