@@ -25,7 +25,8 @@ jobs:
           test -n "$HOST" && test -n "$KEY" && test -n "$HOST_KEY" || { echo "Missing Oracle SSH secrets"; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/oracle_deploy
+          printf '%s' "$KEY" | base64 --decode > ~/.ssh/oracle_deploy
+          ssh-keygen -y -f ~/.ssh/oracle_deploy > /dev/null
           chmod 600 ~/.ssh/oracle_deploy
           printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
