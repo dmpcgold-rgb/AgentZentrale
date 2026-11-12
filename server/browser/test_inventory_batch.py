@@ -59,6 +59,19 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_total_candidates_do_not_prove_inventory_completeness(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
+                  'totalHints':{'candidateTotalLabels':1,'candidateTotals':[5]}},
+                 {'domain':'westbahn.at','page':2,'status':'account_verified',
+                  'totalHints':{'candidateTotalLabels':1,'candidateTotals':[6]}}]
+        result=summarize_inventory_batch([],['2026-11-19'],reports)
+        observed=result['paginationDiagnostics']['westbahn.at']['totalObservation']
+        self.assertEqual(observed['candidateTotals'],[5,6])
+        self.assertTrue(observed['conflictingCandidates'])
+        self.assertFalse(observed['authoritativeTotalVerified'])
+        self.assertFalse(result['inventoryComplete'])
+        self.assertFalse(result['bookingAuthorized'])
+
     def test_card_coverage_counts_never_authorize_purchase(self):
         reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
                   'comfortCards':5,'matchingCards':3,'privateToken':'DO_NOT_LOG'},
