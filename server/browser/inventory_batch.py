@@ -111,12 +111,27 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'scrollPasses':sum(max(0,r.get('scrollPasses',0))
                                for r in scroll_reports
                                if type(r.get('scrollPasses',0)) is int)}
+        # Compare redacted per-page journey/seat signatures only. An identical
+        # second page may be a server-side alias rather than real pagination.
+        # Empty pages cannot prove anything and are excluded.
+        signatures={}
+        for report in scroll_reports:
+            sig=report.get('pageCardSignature')
+            if not isinstance(sig,list) or not sig or type(report.get('page')) is not int:
+                continue
+            safe=tuple(sorted(tuple(item) for item in sig if isinstance(item,(list,tuple))
+                              and len(item)==2 and all(isinstance(v,str) for v in item)))
+            if safe:
+                signatures[report['page']]=safe
+        repeated_pages=sorted(page for page,sig in signatures.items()
+                              if any(other<page and prior==sig for other,prior in signatures.items()))
         pagination[domain]={'pagesVerified':checked,
                             'linkedPagesObserved':observed,
                             'linkedPagesNotVerified':[n for n in observed if n not in checked],
                             'failedPageNumbers':sorted(failed_pages),
                             'failureReasons':failures_by_reason,
                             'verifiedPageCount':len(checked),
+                            'repeatedContentPages':repeated_pages,
                             'dynamicPageHints':dynamic_hints,
                             'scrollObservation':scroll_observation}
     output=[]
