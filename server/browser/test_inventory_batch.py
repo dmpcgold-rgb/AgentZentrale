@@ -59,6 +59,22 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_card_coverage_counts_never_authorize_purchase(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
+                  'comfortCards':5,'matchingCards':3,'privateToken':'DO_NOT_LOG'},
+                 {'domain':'westbahn.at','page':2,'status':'account_verified',
+                  'comfortCards':2,'matchingCards':2}]
+        result=summarize_inventory_batch([],['2026-11-19'],reports)
+        coverage=result['paginationDiagnostics']['westbahn.at']['cardCoverage']
+        self.assertEqual(coverage['pagesWithCardCounts'],2)
+        self.assertEqual(coverage['comfortCardsObserved'],7)
+        self.assertEqual(coverage['commuterCardsParsed'],5)
+        self.assertEqual(coverage['unmatchedComfortCards'],2)
+        self.assertEqual(coverage['pagesWithUnmatchedCards'],1)
+        self.assertFalse(coverage['parserCoverageComplete'])
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertNotIn('DO_NOT_LOG',str(result))
+
     def test_targeted_austrian_review_does_not_claim_absence(self):
         reports=[{'domain':'westbahn.at','page':1,'status':'account_verified'},
                  {'domain':'westbahn.at','page':2,'status':'account_verified'}]
