@@ -124,19 +124,6 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'candidateTotals':candidate_totals,
             'conflictingCandidates':len(candidate_totals)>1,
             'authoritativeTotalVerified':False}
-        # Candidate provider totals are hints only, never authoritative evidence.
-        total_reports=[r.get('totalHints') for r in scroll_reports
-                       if isinstance(r.get('totalHints'),dict)]
-        candidate_totals=sorted({n for h in total_reports
-                                 for n in (h.get('candidateTotals') or [])
-                                 if type(n) is int and 0<=n<=9999})[:10]
-        total_observation={
-            'pagesWithTotalHints':sum(1 for h in total_reports
-                                      if type(h.get('candidateTotalLabels')) is int
-                                      and h['candidateTotalLabels']>0),
-            'candidateTotals':candidate_totals,
-            'conflictingCandidates':len(candidate_totals)>1,
-            'authoritativeTotalVerified':False}
         # Aggregate only bounded card counts. Unmatched cards can represent
         # other routes, layouts or parsing gaps; they never prove absence.
         card_counts=[r for r in scroll_reports if type(r.get('comfortCards')) is int
@@ -148,6 +135,20 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'pagesWithUnmatchedCards':sum(1 for r in card_counts if r['comfortCards']>r['matchingCards']),
             'unmatchedComfortCards':sum(max(0,r['comfortCards']-r['matchingCards']) for r in card_counts),
             'parserCoverageComplete':False}
+        # Decision support, not purchase authorization. A clean parser is
+        # distinct from a complete, provider-authoritative account inventory.
+        parser_consistent=(len(card_counts)==len(scroll_reports) and
+                           bool(card_counts) and
+                           card_coverage['unmatchedComfortCards']==0 and
+                           all(r['matchingCards']<=r['comfortCards'] for r in card_counts))
+        page_scan_clean=(bool(checked) and not failed_pages and
+                         not any(n not in checked for n in observed))
+        confidence='partial_scan' if page_scan_clean else 'scan_error'
+        if parser_consistent and page_scan_clean:
+            confidence='visible_cards_consistent'
+        card_coverage['visibleParserConsistent']=parser_consistent
+        card_coverage['accountInventoryAuthoritative']=False
+        card_coverage['assessment']=confidence
         # Compare redacted per-page journey/seat signatures only. An identical
         # second page may be a server-side alias rather than real pagination.
         # Empty pages cannot prove anything and are excluded.
@@ -231,6 +232,12 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'inventoryComplete':False,
         'safeToBook':False,
         'bookingAuthorized':False,
+        'decisionSupport':{
+            'existingReservations':'verify_ticket_details',
+            'unmatchedDates':'manual_review_required',
+            'absenceProof':'not_available_from_visible_cards',
+            'nextSafeAction':'review_missing_dates_without_purchase',
+            'purchaseEnabled':False},
         'bookingPreflight':'blocked',
         'message':'Sichtbare Kontokarten geprüft. Fehlende Treffer erlauben keine Buchung.'
     }
