@@ -69,7 +69,7 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
     # Diagnostic only: observed links do not prove that all pages exist or
     # were visited. Never convert pagination observations into booking rights.
     pagination={}
-    for domain in ('westbahn.at','westbahn.de'):
+    for domain in ('westbahn.at',):
         observed=sorted({n for r in page_reports
                          if isinstance(r,dict) and r.get('domain')==domain
                          and r.get('status')=='account_verified'
@@ -134,6 +134,15 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                             'repeatedContentPages':repeated_pages,
                             'dynamicPageHints':dynamic_hints,
                             'scrollObservation':scroll_observation}
+    # Date-specific review evidence is limited to the Austrian account.
+    # Page coverage and absence are not an authoritative inventory.
+    at_verified=sorted({r.get('page') for r in page_reports
+                        if isinstance(r,dict) and r.get('domain')=='westbahn.at'
+                        and r.get('status')=='account_verified'
+                        and type(r.get('page')) is int})
+    at_failures=sum(1 for r in page_reports if isinstance(r,dict)
+                    and r.get('domain')=='westbahn.at'
+                    and r.get('status')!='account_verified')
     output=[]
     for day in days:
         result=assess_existing_ticket(rows,day)
@@ -161,7 +170,12 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'detailVerified':bool(verified),
             'potentialDuplicate':bool(seen),
             'safeToBook':False,
-            'bookingBlockers':blockers
+            'bookingBlockers':blockers,
+            'austrianPagesChecked':len(at_verified),
+            'absenceEvidence':('existing_ticket_verified' if verified else
+                               'possible_reservation_visible' if seen else
+                               'partial_scan_with_errors' if at_failures else
+                               'not_authoritatively_verified')
         })
     return {
         'status':'inventory_batch_read' if successful else 'account_unavailable',
@@ -169,6 +183,12 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'accountPageReads':successful,
         'coverage':coverage,
         'paginationDiagnostics':pagination,
+        'targetedReview':{'domain':'westbahn.at',
+                          'datesNeedingReview':[r['date'] for r in output
+                                                if r['status']=='review_required'],
+                          'verifiedPageNumbers':at_verified,
+                          'failedPageCount':at_failures,
+                          'absenceVerified':False},
         'inventoryComplete':False,
         'safeToBook':False,
         'bookingAuthorized':False,
