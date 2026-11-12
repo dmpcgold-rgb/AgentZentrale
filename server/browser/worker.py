@@ -604,7 +604,7 @@ def account_audit(context, expected):
     label=re.compile(r'\b'+weekdays[day.weekday()]+r'\s+0?'+str(day.day)+r'\s+'+month+r'\b',re.I)
     numeric=re.compile(r'(?<!\d)0?'+str(day.day)+r'\.0?'+str(day.month)+r'\.(?:'+str(day.year)+r')?(?!\d)')
     reports=[]
-    for domain in ('westbahn.de','westbahn.at'):
+    for domain in ('westbahn.at',):
         for number in (1,2):
             page=context.new_page()
             try:
@@ -653,11 +653,11 @@ def account_audit(context, expected):
 
 
 def account_inventory(context, requested_page=None, max_pages=10):
-    """Read both storefronts; retain positive evidence even if one fails.
+    """Read only the Austrian storefront; retain positive evidence if a page fails.
     Yearless labels and limited pagination must not authorize purchases."""
     reports=[]
     merged={}
-    for domain in ('westbahn.at','westbahn.de'):
+    for domain in ('westbahn.at',):
         pending=[requested_page] if requested_page is not None else [1,2]
         seen=set()
         retries=set()
