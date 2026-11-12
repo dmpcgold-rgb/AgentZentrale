@@ -131,6 +131,11 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         exact=seen and all(x.get('yearExplicit') is True for x in matching)
         verified=(len(seats)==1 and
                   verify_detail_evidence(detail_checks.get(day),day,seats[0]))
+        # Explain precisely why the unattended booking flow must stop.
+        # Account-page absence is never sufficient evidence to purchase.
+        blockers=(['existing_reservation_verified'] if verified else
+                  ['possible_existing_reservation'] if seen else
+                  ['reservation_absence_not_verified'])
         output.append({
             'date':day,
             'status':('detail_verified' if verified else
@@ -140,7 +145,8 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'dateVerified':bool(exact or verified),
             'detailVerified':bool(verified),
             'potentialDuplicate':bool(seen),
-            'safeToBook':False
+            'safeToBook':False,
+            'bookingBlockers':blockers
         })
     return {
         'status':'inventory_batch_read' if successful else 'account_unavailable',
@@ -151,5 +157,6 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'inventoryComplete':False,
         'safeToBook':False,
         'bookingAuthorized':False,
+        'bookingPreflight':'blocked',
         'message':'Sichtbare Kontokarten geprüft. Fehlende Treffer erlauben keine Buchung.'
     }

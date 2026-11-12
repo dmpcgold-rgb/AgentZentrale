@@ -41,6 +41,12 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_booking_preflight_blockers_are_fail_closed(self):
+        result=summarize_inventory_batch([],['2026-11-19'],[])
+        self.assertEqual(result['bookingPreflight'],'blocked')
+        self.assertEqual(result['days'][0]['bookingBlockers'],['reservation_absence_not_verified'])
+        self.assertFalse(result['bookingAuthorized'])
+
     def test_coverage_reports_partial_pages_without_exposing_identifiers(self):
         reports=[
             {'domain':'westbahn.at','page':1,'status':'account_verified'},
