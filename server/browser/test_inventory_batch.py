@@ -1,8 +1,26 @@
 import unittest
-from inventory_batch import validate_batch_dates, summarize_inventory_batch
+from inventory_batch import validate_batch_dates, summarize_inventory_batch, zero_euro_preflight
 
 
 class InventoryBatchTests(unittest.TestCase):
+    def test_user_confirmation_never_bypasses_booking_safety(self):
+        result=zero_euro_preflight(True,False,True,True,0)
+        self.assertIn('reservation_absence_not_verified',result['bookingBlockers'])
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertFalse(result['purchaseExecuted'])
+
+    def test_even_complete_preflight_is_not_checkout_authorization(self):
+        result=zero_euro_preflight(True,True,True,True,0)
+        self.assertEqual(result['bookingBlockers'],[])
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertFalse(result['safeToBook'])
+
+    def test_nonzero_or_noninteger_price_is_blocked(self):
+        for price in (None,1,100,False,'0'):
+            with self.subTest(price=price):
+                result=zero_euro_preflight(True,True,True,True,price)
+                self.assertIn('final_zero_euro_total_not_verified',result['bookingBlockers'])
+
     def test_accept_five_unique_weekdays(self):
         dates='2026-11-16,2026-11-17,2026-11-18,2026-11-19,2026-11-20'
         self.assertEqual(len(validate_batch_dates(dates)),5)
