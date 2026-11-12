@@ -2,6 +2,10 @@ name: Deploy AgentZentrale to Oracle
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["AgentZentrale tests"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,6 +16,11 @@ concurrency:
 
 jobs:
   verify:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -39,7 +48,8 @@ jobs:
 
   deploy:
     needs: verify
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'workflow_run' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: oracle-production
     timeout-minutes: 15
@@ -64,6 +74,7 @@ jobs:
           HOST: ${{ secrets.ORACLE_SSH_HOST }}
         run: |
           ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" 'set -eu
+            previous=$(sudo git -C /opt/agentzentrale rev-parse HEAD)
             sudo git -C /opt/agentzentrale fetch origin main
             sudo git -C /opt/agentzentrale checkout main
             sudo git -C /opt/agentzentrale merge --ff-only origin/main
@@ -81,6 +92,13 @@ jobs:
             if [ "$healthy" -ne 1 ]; then
               echo "AgentZentrale failed post-deployment health check"
               sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+              echo "Attempting rollback to previous commit: $previous"
+              if sudo git -C /opt/agentzentrale checkout --detach "$previous" && sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
+                echo "Rollback attempted; checking restored container"
+                sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+              else
+                echo "Rollback failed; manual recovery required"
+              fi
               exit 1
             fi
             echo "AgentZentrale deployment healthy"
