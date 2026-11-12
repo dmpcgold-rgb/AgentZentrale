@@ -16,7 +16,7 @@ jobs:
   health-check:
     runs-on: ubuntu-latest
     environment: oracle-production
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Prepare SSH access
         env:
@@ -33,13 +33,62 @@ jobs:
           ssh-keygen -y -f ~/.ssh/oracle_deploy > /dev/null
           printf '%s\n' "$HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Check Docker and gateway
+      - name: Check health and attempt rate-limited recovery
         env:
           HOST: ${{ secrets.ORACLE_SSH_HOST }}
         run: |
-          ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" 'set -eu
-            sudo docker compose -f /opt/agentzentrale/compose.yaml ps --status running --services | grep -Fx agentzentrale
-            status=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 http://127.0.0.1:8787/)
-            test "$status" = 401 || { echo "Unexpected gateway HTTP status: $status"; exit 1; }
-            echo "Oracle AgentZentrale OK: container running; gateway HTTP 401 (authentication required)"
-          '
+          ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" 'sudo bash -s' <<'REMOTE'
+          set -euo pipefail
+          exec 9>/var/lock/agentzentrale-recovery.lock
+          flock -w 20 9
+          container=$(docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
+          test -n "$container" || { echo "Container missing; manual intervention required"; exit 1; }
+          state=$(docker inspect -f '{{.State.Status}}' "$container")
+          health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")
+          echo "Container state=$state health=$health"
+          if [ "$state" != running ]; then
+            echo "Container not running; Docker restart policy should handle crashes. Manual inspection required."
+            exit 1
+          fi
+          if [ "$health" = healthy ]; then
+            echo "AgentZentrale healthy; no action needed"
+            exit 0
+          fi
+          if [ "$health" != unhealthy ]; then
+            echo "Health state $health; waiting for Docker healthcheck or manual inspection"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            sleep 10
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")
+            echo "Confirmation $attempt/3: $health"
+            if [ "$health" != unhealthy ]; then
+              echo "Health changed; no automatic restart"
+              test "$health" = healthy
+              exit $?
+            fi
+          done
+          stamp=/var/lib/agentzentrale-last-recovery
+          now=$(date +%s)
+          if [ -f "$stamp" ]; then
+            last=$(cat "$stamp")
+            if [[ "$last" =~ ^[0-9]+$ ]] && (( now - last < 1800 )); then
+              echo "Recovery cooldown active; manual inspection required"
+              exit 1
+            fi
+          fi
+          printf '%s\n' "$now" > "$stamp"
+          echo "Restarting unhealthy AgentZentrale container (one attempt)"
+          docker restart "$container"
+          for attempt in $(seq 1 18); do
+            sleep 5
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")
+            echo "Post-restart check $attempt/18: $health"
+            if [ "$health" = healthy ]; then
+              echo "Recovery successful"
+              exit 0
+            fi
+          done
+          echo "Recovery unsuccessful; manual inspection required"
+          exit 1
+          REMOTE
