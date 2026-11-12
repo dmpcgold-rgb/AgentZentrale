@@ -65,6 +65,16 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertEqual(result['days'][0]['bookingBlockers'],['reservation_absence_not_verified'])
         self.assertFalse(result['bookingAuthorized'])
 
+    def test_repeated_page_content_diagnostic_does_not_authorize_booking(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
+                  'pageCardSignature':[('DO 19 NOV','233A')]},
+                 {'domain':'westbahn.at','page':2,'status':'account_verified',
+                  'pageCardSignature':[('DO 19 NOV','233A')]}]
+        result=summarize_inventory_batch([],['2026-11-19'],reports)
+        self.assertEqual(result['paginationDiagnostics']['westbahn.at']['repeatedContentPages'],[2])
+        self.assertFalse(result['inventoryComplete'])
+        self.assertFalse(result['bookingAuthorized'])
+
     def test_coverage_reports_partial_pages_without_exposing_identifiers(self):
         reports=[
             {'domain':'westbahn.at','page':1,'status':'account_verified'},
