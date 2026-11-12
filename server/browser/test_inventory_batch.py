@@ -59,6 +59,26 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_targeted_austrian_review_does_not_claim_absence(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified'},
+                 {'domain':'westbahn.at','page':2,'status':'account_verified'}]
+        result=summarize_inventory_batch([],['2026-11-19','2026-11-20'],reports)
+        self.assertEqual(result['targetedReview']['datesNeedingReview'],['2026-11-19','2026-11-20'])
+        self.assertEqual(result['targetedReview']['verifiedPageNumbers'],[1,2])
+        self.assertFalse(result['targetedReview']['absenceVerified'])
+        self.assertNotIn('westbahn.de',result['paginationDiagnostics'])
+        self.assertEqual(result['days'][0]['austrianPagesChecked'],2)
+        self.assertEqual(result['days'][0]['absenceEvidence'],'not_authoritatively_verified')
+        self.assertFalse(result['bookingAuthorized'])
+
+    def test_targeted_review_reports_austrian_page_errors(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified'},
+                 {'domain':'westbahn.at','page':2,'status':'timeout'}]
+        result=summarize_inventory_batch([],['2026-11-19'],reports)
+        self.assertEqual(result['targetedReview']['failedPageCount'],1)
+        self.assertEqual(result['days'][0]['absenceEvidence'],'partial_scan_with_errors')
+        self.assertFalse(result['days'][0]['safeToBook'])
+
     def test_booking_preflight_blockers_are_fail_closed(self):
         result=summarize_inventory_batch([],['2026-11-19'],[])
         self.assertEqual(result['bookingPreflight'],'blocked')
