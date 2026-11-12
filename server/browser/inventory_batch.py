@@ -224,6 +224,15 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
             'dateVerified':bool(exact or verified),
             'detailVerified':bool(verified),
             'potentialDuplicate':bool(seen),
+            'dateSpecificEvidence':{
+                'matchingVisibleCards':len(matching),
+                'distinctSeatsObserved':len(seats),
+                'explicitYearOnAllMatches':bool(exact),
+                'ticketDetailVerified':bool(verified),
+                'absenceVerified':False,
+                'assessment':('existing_ticket_detail_verified' if verified else
+                              'matching_cards_visible' if seen else
+                              'no_match_in_partial_account_scan')},
             'safeToBook':False,
             'bookingBlockers':blockers,
             'austrianPagesChecked':len(at_verified),
