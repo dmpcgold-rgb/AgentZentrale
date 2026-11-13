@@ -709,7 +709,7 @@ def account_inventory(context, requested_page=None, max_pages=10):
                     if domain not in merged[key]['sources']:
                         merged[key]['sources'].append(domain)
                 if requested_page is None:
-                    links=page.evaluate("""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
+                    links=page.evaluate(r"""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
                       try {const u=new URL(a.href);const n=u.searchParams.get('page');
                         return u.origin===location.origin && u.pathname===location.pathname &&
                           /^\d{1,3}$/.test(n||'') && Number(n)>=1 && Number(n)<=100 &&
@@ -1612,6 +1612,33 @@ def find_seat_change_control(page, diagnostic=False):
         seatLinkCandidates:seatUnique.length,seatCodeCount:sectionFacts.seatCodes,
         seatColumnLabels:sectionFacts.seatColumnLabels,editorAria:sectionFacts.editorAria,
         interactiveElements:sectionFacts.interactiveElements,
+        // Read-only, bounded DOM evidence for the blue proposed seat and its
+        // ancestors. Never export text, hrefs, ticket references or handlers.
+        proposedSeatEvidence:(()=>{
+          if(headings.length!==1)return [];
+          const h=headings[0],hb=h.getBoundingClientRect();
+          const nearby=all.filter(e=>{
+            const t=raw(e),b=e.getBoundingClientRect();
+            return t.length>0&&t.length<90&&
+              (/\b\d{2,4}\s*[A-D]\b/i.test(t)||/^(?:Ändern|Bearbeiten)$/i.test(t))&&
+              Math.abs((b.top+b.bottom-hb.top-hb.bottom)/2)<650;
+          }).filter(e=>![...e.children].some(c=>visible(c)&&raw(c)===raw(e))).slice(0,12);
+          return nearby.map(e=>{
+            const b=e.getBoundingClientRect(),anc=[];
+            for(let p=e,i=0;p&&p!==document.body&&i<5;p=p.parentElement,i++){
+              const st=getComputedStyle(p);
+              anc.push({tag:p.tagName.toLowerCase(),role:p.getAttribute('role')||null,
+                tabIndex:p.getAttribute('tabindex'),cursor:st.cursor,
+                pointerEvents:st.pointerEvents,hasOnclick:p.hasAttribute('onclick'),
+                hasHref:p.hasAttribute('href'),hasAriaLabel:p.hasAttribute('aria-label'),
+                isDisabled:disabled(p),textLength:raw(p).length});
+            }
+            return {kind:/^(?:Ändern|Bearbeiten)$/i.test(raw(e))?'edit':'seat',
+              color:getComputedStyle(e).color,
+              relativeX:Math.round(b.left-hb.left),relativeY:Math.round(b.top-hb.top),
+              ancestors:anc};
+          });
+        })(),
         selectedMode:selected?(editUnique.includes(selected)?'change':'seat_link'):null,
         reason:selected?'unique_editor_control':'editor_not_unique_or_not_in_section'
       };

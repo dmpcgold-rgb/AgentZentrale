@@ -571,7 +571,7 @@ class BrowserTests(unittest.TestCase):
   self.page.goto(ACCOUNT_URL)
   result=account_summary(self.page)
   self.assertEqual(result['status'],'account_verified')
-  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketCode':True,'ticketReference':False}])
+  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketReference':False}])
   self.assertFalse(result['inventoryComplete'])
   self.assertNotIn('SECRET123',str(result))
  def test_account_summary_recognizes_reference_without_exposing_number(self):
