@@ -67,4 +67,19 @@ if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/unsafe.gpg" "$tmp/key" 
   echo 'ERROR: unsafe tar path accepted' >&2
   exit 1
 fi
-echo 'PASS: encrypted archive restored; wrong key, truncated archive, and unsafe tar path rejected'
+# Symlinks are unsafe even when their names are relative and innocuous.
+python3 - "$tmp/link.tar.gz" <<'PY'
+import sys
+import tarfile
+with tarfile.open(sys.argv[1], "w:gz") as archive:
+    entry = tarfile.TarInfo("state-link")
+    entry.type = tarfile.SYMTYPE
+    entry.linkname = "/etc/passwd"
+    archive.addfile(entry)
+PY
+gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --symmetric --cipher-algo AES256 --output "$tmp/link.gpg" "$tmp/link.tar.gz"
+if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/link.gpg" "$tmp/key" >/dev/null 2>&1; then
+  echo 'ERROR: symlink archive accepted' >&2
+  exit 1
+fi
+echo 'PASS: encrypted archive restored; wrong key, truncated archive, unsafe path, and symlink rejected'
