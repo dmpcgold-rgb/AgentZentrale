@@ -14,8 +14,8 @@ test -f "$archive" && test -s "$archive" || { echo "Missing or empty encrypted a
 test -f "$key" && test -s "$key" || { echo "Missing or empty passphrase file" >&2; exit 1; }
 [[ "$(stat -c %a "$key")" == 600 ]] || { echo "Passphrase file must have mode 600" >&2; exit 1; }
 command -v gpg >/dev/null
-command -v tar >/dev/null
+command -v python3 >/dev/null
 # Stream decrypted bytes into gzip/tar validation, never write plaintext to disk.
 gpg --batch --quiet --no-tty --pinentry-mode loopback --passphrase-file "$key" --decrypt "$archive" |
-  tar -tzf - >/dev/null
+  python3 "$(dirname "$0")/check-backup-tar.py"
 echo "PASS: encrypted archive decrypts and its tar/gzip stream validates (no extraction)"
