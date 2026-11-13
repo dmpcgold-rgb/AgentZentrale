@@ -1,7 +1,10 @@
 name: Deploy AgentZentrale to Oracle
 
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["AgentZentrale tests"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,12 +15,24 @@ concurrency:
 
 jobs:
   verify:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Verify selected commit is current main
+        env:
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch origin main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA" || { echo 'Main advanced since successful tests; skipping stale deployment'; exit 1; }
       - name: Build production image
         run: docker build -t agentzentrale-deploy-check .
       - name: Verify authenticated health endpoint
@@ -39,7 +54,7 @@ jobs:
 
   deploy:
     needs: verify
-    if: github.ref == 'refs/heads/main'
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: oracle-production
     timeout-minutes: 15
@@ -62,26 +77,57 @@ jobs:
       - name: Deploy verified main branch and check container health
         env:
           HOST: ${{ secrets.ORACLE_SSH_HOST }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" 'set -eu
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" "bash -s -- $EXPECTED_SHA" <<'REMOTE'
+            set -eu
+            expected="$1"
+            previous=$(sudo git -C /opt/agentzentrale rev-parse HEAD)
             sudo git -C /opt/agentzentrale fetch origin main
+            actual=$(sudo git -C /opt/agentzentrale rev-parse FETCH_HEAD)
+            if [ "$actual" != "$expected" ]; then echo "Main changed since verification; refusing deployment"; exit 1; fi
             sudo git -C /opt/agentzentrale checkout main
-            sudo git -C /opt/agentzentrale merge --ff-only origin/main
-            sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build
-            sudo docker compose -f /opt/agentzentrale/compose.yaml ps
-            cid=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
-            test -n "$cid"
+            sudo git -C /opt/agentzentrale merge --ff-only "$expected"
             healthy=0
-            for i in $(seq 1 30); do
-              state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$cid")
-              if [ "$state" = healthy ]; then healthy=1; break; fi
-              if [ "$state" = unhealthy ] || [ "$state" = missing ]; then break; fi
-              sleep 5
-            done
+            if sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
+              sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+              cid=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
+              if [ -n "$cid" ]; then
+                for i in $(seq 1 30); do
+                  state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$cid" 2>/dev/null || echo missing)
+                  if [ "$state" = healthy ]; then healthy=1; break; fi
+                  if [ "$state" = unhealthy ] || [ "$state" = missing ]; then break; fi
+                  sleep 5
+                done
+              fi
+            fi
             if [ "$healthy" -ne 1 ]; then
               echo "AgentZentrale failed post-deployment health check"
               sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+              echo "Attempting rollback to previous commit: $previous"
+              if sudo git -C /opt/agentzentrale checkout -B main "$previous" && sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
+                restored=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
+                restored_healthy=0
+                if [ -n "$restored" ]; then
+                  for j in $(seq 1 30); do
+                    restored_state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$restored" 2>/dev/null || echo missing)
+                    if [ "$restored_state" = healthy ]; then restored_healthy=1; break; fi
+                    if [ "$restored_state" = unhealthy ] || [ "$restored_state" = missing ]; then break; fi
+                    sleep 5
+                  done
+                fi
+                sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+                if [ "$restored_healthy" -eq 1 ]; then
+                  echo "Previous version restored and healthy"
+                else
+                  echo "Rollback attempted but previous version is not healthy; manual recovery required"
+                fi
+              else
+                echo "Rollback failed; manual recovery required"
+              fi
               exit 1
             fi
             echo "AgentZentrale deployment healthy"
-          '
+          REMOTE
