@@ -43,3 +43,52 @@ docker rm -f "$name" >/dev/null
 docker run -d --name "$name" "$name:healthy" >/dev/null
 wait_health healthy
 echo "PASS: healthy -> unhealthy -> restored healthy (isolated Docker test)"
+
+# Also exercise Git and Docker Compose rollback in a separate temporary repository.
+# No remote, credentials, ports, or production volumes are used.
+compose_tmp="$(mktemp -d)"
+compose_project="az-rollback-$$"
+cleanup_compose() {
+  docker compose -p "$compose_project" -f "$compose_tmp/compose.yaml" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$compose_tmp"
+}
+trap 'cleanup_compose; cleanup' EXIT
+cd "$compose_tmp"
+git init -q -b main
+git config user.name "CI Rollback Test"
+git config user.email "ci@example.invalid"
+cp "$tmp/Dockerfile" ./Dockerfile
+cat > compose.yaml <<'COMPOSE'
+services:
+  agentzentrale:
+    build:
+      context: .
+      args:
+        MODE: ${MODE:-healthy}
+    image: agentzentrale-rollback-integration-test
+COMPOSE
+printf 'MODE=healthy\n' > .env
+git add Dockerfile compose.yaml .env
+git commit -qm "healthy version"
+previous="$(git rev-parse HEAD)"
+docker compose -p "$compose_project" up -d --build --wait --wait-timeout 90
+printf 'MODE=broken\n' > .env
+git add .env
+git commit -qm "broken version"
+docker compose -p "$compose_project" up -d --build --force-recreate
+cid="$(docker compose -p "$compose_project" ps -q agentzentrale)"
+test -n "$cid"
+unhealthy=0
+for i in $(seq 1 30); do
+  state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$cid")"
+  if [[ "$state" == unhealthy ]]; then unhealthy=1; break; fi
+  sleep 1
+done
+test "$unhealthy" -eq 1 || { echo "Broken Compose version never became unhealthy" >&2; exit 1; }
+git checkout -q -B main "$previous"
+docker compose -p "$compose_project" up -d --build --force-recreate --wait --wait-timeout 90
+test "$(git rev-parse HEAD)" = "$previous"
+restored="$(docker compose -p "$compose_project" ps -q agentzentrale)"
+test -n "$restored"
+test "$(docker inspect --format '{{.State.Health.Status}}' "$restored")" = healthy
+echo "PASS: isolated Git and Docker Compose rollback"
