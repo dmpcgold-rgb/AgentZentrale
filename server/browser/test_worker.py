@@ -571,9 +571,10 @@ class BrowserTests(unittest.TestCase):
   self.page.goto(ACCOUNT_URL)
   result=account_summary(self.page)
   self.assertEqual(result['status'],'account_verified')
-  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketCode':True,'ticketReference':False}])
+  self.assertEqual(result['matchingVisibleCards'],[{'dateLabel':'MO 16 NOV','seat':'233A','fullDate':None,'bookingReference':False,'ticketReference':False}])
   self.assertFalse(result['inventoryComplete'])
   self.assertNotIn('SECRET123',str(result))
+  self.assertNotIn('ticketCode',str(result))
  def test_account_summary_recognizes_reference_without_exposing_number(self):
   secret='PRIVATE-9900123'
   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt: 17.11.2026 18:22 Wien Meidling</div><div>DI 17 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div><div>Buchungsnummer: '+secret+'</div></article>'
