@@ -10,9 +10,6 @@ REFERENCE_PATTERNS = {
     'bookingReference': re.compile(
         r'\b(?:Buchungsnummer|Bestellnummer|Reservierungsnummer|Auftragsnummer)\s*:?\s*'
         r'([A-Z0-9][A-Z0-9-]{5,39})\b', re.I),
-    'ticketCode': re.compile(
-        r'\b(?:Ticketcode|Ticket-Code)\s*:?\s*'
-        r'([A-Z0-9][A-Z0-9-]{3,39})\b', re.I),
     'ticketReference': re.compile(
         r'\b(?:Ticketnummer|Ticket[- ]?ID)\s*:?\s*'
         r'([A-Z0-9][A-Z0-9-]{5,39})\b', re.I),
@@ -32,7 +29,7 @@ def summarize_confirmation_candidates(rows, day, seat):
     visible=matching['status']=='existing_ticket_visible'
     with_seat=[m for m in matching.get('matches',[]) if m['expectedSeat']]
     exact_year=any(m['yearExplicit'] for m in with_seat)
-    labeled_reference=any(m.get('bookingReference') or m.get('ticketReference') or m.get('ticketCode') for m in with_seat)
+    labeled_reference=any(m.get('bookingReference') or m.get('ticketReference') for m in with_seat)
     if visible and exact_year and labeled_reference:
         evidence='dated_reference_candidate'
     elif visible:
