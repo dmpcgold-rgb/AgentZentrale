@@ -54,7 +54,9 @@ jobs:
 
   deploy:
     needs: verify
-    if: github.event.workflow_run.conclusion == 'success'
+    # Fail closed: deployments require an explicit repository opt-in and environment approval.
+    # An unset variable is not 'true'; successful CI alone cannot deploy to Oracle.
+    if: github.event.workflow_run.conclusion == 'success' && vars.ORACLE_AUTO_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: oracle-production
     timeout-minutes: 15
