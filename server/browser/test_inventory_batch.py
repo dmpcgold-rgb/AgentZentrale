@@ -229,5 +229,32 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertFalse(result['safeToBook'])
 
 
+    def test_empty_verified_account_is_reported_without_booking_permission(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
+                  'comfortCards':0,'matchingCards':0}]
+        result=summarize_inventory_batch([],['2026-11-20'],reports)
+        self.assertEqual(result['accountDisplayState'],'no_visible_reservations')
+        self.assertFalse(result['emptyDisplayIsAbsenceProof'])
+        self.assertEqual(result['days'][0]['status'],'review_required')
+        self.assertFalse(result['bookingAuthorized'])
+
+    def test_failed_or_unmeasured_account_is_not_called_empty(self):
+        cases=[[],[{'domain':'westbahn.at','page':1,'status':'account_verified'}],
+               [{'domain':'westbahn.at','page':1,'status':'account_verified',
+                 'comfortCards':0},
+                {'domain':'westbahn.at','page':2,'status':'timeout'}]]
+        for reports in cases:
+            with self.subTest(reports=reports):
+                result=summarize_inventory_batch([],['2026-11-20'],reports)
+                self.assertEqual(result['accountDisplayState'],'unknown_or_partial')
+                self.assertFalse(result['bookingAuthorized'])
+
+    def test_visible_cards_are_not_misreported_as_empty(self):
+        reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
+                  'comfortCards':2,'matchingCards':1}]
+        result=summarize_inventory_batch([],['2026-11-20'],reports)
+        self.assertEqual(result['accountDisplayState'],'visible_reservations_present')
+        self.assertFalse(result['emptyDisplayIsAbsenceProof'])
+
 if __name__=='__main__':
     unittest.main()
