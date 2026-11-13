@@ -50,6 +50,8 @@ verify = script.index('bash "$ROOT/scripts/verify-backup-archive.sh" "$temp" "$K
 publish = script.index('mv -- "$temp" "$target"')
 prune = script.index('find "$BACKUP_DIR" -maxdepth 1')
 assert verify < publish < prune, "Backup verification must precede publication and retention cleanup"
+for dependency in ('command -v python3', 'command -v docker', 'test -r "$ROOT/scripts/verify-backup-archive.sh"', 'test -r "$ROOT/scripts/check-backup-tar.py"'):
+    assert dependency in script[:verify], f"Backup dependency preflight missing: {dependency}"
 PY
 # A malicious tar member must be rejected even when encryption is valid.
 python3 - "$tmp/unsafe.tar.gz" <<'PY'
