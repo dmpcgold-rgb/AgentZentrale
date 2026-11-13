@@ -20,8 +20,17 @@ class UnattendedAuditTests(unittest.TestCase):
         dates=["2026-11-18"]
         result=safe_summary({"status":"inventory_batch_read","days":[
             {"date":dates[0],"status":"detail_verified","seats":["233A"],
-             "dateVerified":True,"bookingReferenceChecked":True,"bookingReferenceMatched":True}]},dates)
+             "dateVerified":True,"detailVerified":True}]},dates)
         self.assertEqual(result["days"][0]["seats"],["233A"])
+    def test_visible_reservation_without_detail_is_never_missing(self):
+        dates=["2026-11-18"]
+        result=safe_summary({"status":"inventory_batch_read","days":[
+            {"date":dates[0],"status":"visible_year_verified",
+             "dateVerified":True,"detailVerified":False,
+             "potentialDuplicate":True,"seats":["233A"]}]},dates)
+        self.assertEqual(result["days"][0]["status"],"possible_existing")
+        self.assertEqual(result["days"][0]["seats"],["233A"])
+        self.assertFalse(result["bookingAuthorized"])
     def test_inspection_never_authorizes_purchase(self):
         summary={"status":"audit_completed","days":[
             {"date":"2026-11-20","status":"needs_review","seats":[]}]}
