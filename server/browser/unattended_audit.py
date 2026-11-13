@@ -40,7 +40,7 @@ def safe_summary(payload, requested):
             return {"status":"audit_blocked","dates":requested,"bookingAuthorized":False,
                     "purchaseExecuted":False,"reason":"invalid_inventory_response"}
         seen.add(item["date"])
-        verified = item.get("status") in VERIFIED and item.get("dateVerified") is True
+        verified = item.get("status") in VERIFIED and item.get("dateVerified") is True and item.get("bookingReferenceChecked") is True and item.get("bookingReferenceMatched") is True
         results.append({"date":item["date"],"status":"existing_visible" if verified else "needs_review",
                         "seats":[seat for seat in item.get("seats",[]) if isinstance(seat,str)
                                  and len(seat)<=5][:3] if verified else []})
@@ -63,17 +63,21 @@ def inspect_unbooked_days(summary, worker=WORKER, timeout=90):
                                 timeout=timeout,check=False)
             payload=json.loads(proc.stdout.strip()) if proc.returncode==0 else {}
             connection=payload.get("connection") if isinstance(payload,dict) else None
-            # Only a complete, exact-date, zero-euro read-only result is meaningful.
+            # Zero-euro observation is never a booking authorization.
             verified=(isinstance(connection,dict) and
                       connection.get("displayedPriceCents") == 0 and
                       type(connection.get("displayedPriceCents")) is int and
                       payload.get("accountVerifiedBeforeSearch") is True and
-                      payload.get("bookingAuthorized") is False)
+                      payload.get("bookingAuthorized") is False and
+                      payload.get("date") == item["date"] and
+                      payload.get("status") in ("comfort_inspected","comfort_inspect"))
             inspected.append({**item,"fareInspection":"zero_euro_observed" if verified
                               else "unverified"})
         except (subprocess.TimeoutExpired,ValueError,OSError):
             inspected.append({**item,"fareInspection":"unavailable"})
-    return {**summary,"days":inspected,"bookingAuthorized":False,"purchaseExecuted":False}
+    return {**summary,"days":inspected,"bookingAuthorized":False,"purchaseExecuted":False,
+            "nextAction":"manual_verification_required",
+            "reason":"provider_inventory_and_checkout_not_authoritative"}
 
 def run(start, worker=WORKER, timeout=240, inspect_fares=False):
     dates = weekdays(start)
