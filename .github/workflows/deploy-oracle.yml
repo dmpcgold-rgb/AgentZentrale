@@ -96,7 +96,6 @@ jobs:
             sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build
             sudo docker compose -f /opt/agentzentrale/compose.yaml ps
             cid=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
-            test -n "$cid"
             healthy=0
             for i in $(seq 1 30); do
               state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$cid")
