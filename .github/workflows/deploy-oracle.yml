@@ -93,16 +93,19 @@ jobs:
             if [ "$actual" != "$expected" ]; then echo "Main changed since verification; refusing deployment"; exit 1; fi
             sudo git -C /opt/agentzentrale checkout main
             sudo git -C /opt/agentzentrale merge --ff-only "$expected"
-            sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build
-            sudo docker compose -f /opt/agentzentrale/compose.yaml ps
-            cid=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
             healthy=0
-            for i in $(seq 1 30); do
-              state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$cid")
-              if [ "$state" = healthy ]; then healthy=1; break; fi
-              if [ "$state" = unhealthy ] || [ "$state" = missing ]; then break; fi
-              sleep 5
-            done
+            if sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build; then
+              sudo docker compose -f /opt/agentzentrale/compose.yaml ps
+              cid=$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)
+              if [ -n "$cid" ]; then
+                for i in $(seq 1 30); do
+                  state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$cid" 2>/dev/null || echo missing)
+                  if [ "$state" = healthy ]; then healthy=1; break; fi
+                  if [ "$state" = unhealthy ] || [ "$state" = missing ]; then break; fi
+                  sleep 5
+                done
+              fi
+            fi
             if [ "$healthy" -ne 1 ]; then
               echo "AgentZentrale failed post-deployment health check"
               sudo docker compose -f /opt/agentzentrale/compose.yaml ps
@@ -112,7 +115,7 @@ jobs:
                 restored_healthy=0
                 if [ -n "$restored" ]; then
                   for j in $(seq 1 30); do
-                    restored_state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$restored")
+                    restored_state=$(sudo docker inspect --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}" "$restored" 2>/dev/null || echo missing)
                     if [ "$restored_state" = healthy ]; then restored_healthy=1; break; fi
                     if [ "$restored_state" = unhealthy ] || [ "$restored_state" = missing ]; then break; fi
                     sleep 5
