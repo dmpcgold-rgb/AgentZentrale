@@ -48,7 +48,34 @@ def safe_summary(payload, requested):
             "bookingAuthorized":False,"purchaseExecuted":False,
             "message":"Automatische Bestandsprüfung abgeschlossen. Buchung bleibt gesperrt, solange fehlende Reservierungen nicht autoritativ ausgeschlossen werden können."}
 
-def run(start, worker=WORKER, timeout=240):
+def inspect_unbooked_days(summary, worker=WORKER, timeout=90):
+    """Read-only fare inspection for uncertain days; no seat or checkout clicks."""
+    if summary.get("status")!="audit_completed":
+        return summary
+    inspected=[]
+    for item in summary["days"]:
+        if item["status"]!="needs_review":
+            inspected.append({**item,"fareInspection":"not_needed"})
+            continue
+        try:
+            proc=subprocess.run([sys.executable,str(worker),"comfort-inspect",
+                                 "--date",item["date"]],capture_output=True,text=True,
+                                timeout=timeout,check=False)
+            payload=json.loads(proc.stdout.strip()) if proc.returncode==0 else {}
+            connection=payload.get("connection") if isinstance(payload,dict) else None
+            # Only a complete, exact-date, zero-euro read-only result is meaningful.
+            verified=(isinstance(connection,dict) and
+                      connection.get("displayedPriceCents") == 0 and
+                      type(connection.get("displayedPriceCents")) is int and
+                      payload.get("accountVerifiedBeforeSearch") is True and
+                      payload.get("bookingAuthorized") is False)
+            inspected.append({**item,"fareInspection":"zero_euro_observed" if verified
+                              else "unverified"})
+        except (subprocess.TimeoutExpired,ValueError,OSError):
+            inspected.append({**item,"fareInspection":"unavailable"})
+    return {**summary,"days":inspected,"bookingAuthorized":False,"purchaseExecuted":False}
+
+def run(start, worker=WORKER, timeout=240, inspect_fares=False):
     dates = weekdays(start)
     try:
         result = subprocess.run([sys.executable,str(worker),"inventory-batch","--dates",",".join(dates)],
@@ -57,7 +84,8 @@ def run(start, worker=WORKER, timeout=240):
             return {"status":"audit_blocked","dates":dates,"bookingAuthorized":False,
                     "purchaseExecuted":False,"reason":"worker_failed"}
         payload = json.loads(result.stdout.strip())
-        return safe_summary(payload,dates)
+        summary=safe_summary(payload,dates)
+        return inspect_unbooked_days(summary,worker) if inspect_fares else summary
     except (subprocess.TimeoutExpired,ValueError,OSError):
         return {"status":"audit_blocked","dates":dates,"bookingAuthorized":False,
                 "purchaseExecuted":False,"reason":"worker_unavailable"}
@@ -65,10 +93,11 @@ def run(start, worker=WORKER, timeout=240):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--start",help="ISO start date (default: today)")
+    parser.add_argument("--inspect-fares",action="store_true",help="Read-only Comfort fare inspection for missing dates")
     args=parser.parse_args()
     try:
         start=date.fromisoformat(args.start) if args.start else date.today()
-        result=run(start)
+        result=run(start,inspect_fares=args.inspect_fares)
     except ValueError:
         result={"status":"audit_blocked","reason":"invalid_start_date",
                 "bookingAuthorized":False,"purchaseExecuted":False}
