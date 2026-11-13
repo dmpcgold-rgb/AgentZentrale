@@ -709,7 +709,7 @@ def account_inventory(context, requested_page=None, max_pages=10):
                     if domain not in merged[key]['sources']:
                         merged[key]['sources'].append(domain)
                 if requested_page is None:
-                    links=page.evaluate("""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
+                    links=page.evaluate(r"""() => [...new Set([...document.querySelectorAll('a[href]')].flatMap(a=>{
                       try {const u=new URL(a.href);const n=u.searchParams.get('page');
                         return u.origin===location.origin && u.pathname===location.pathname &&
                           /^\d{1,3}$/.test(n||'') && Number(n)>=1 && Number(n)<=100 &&
