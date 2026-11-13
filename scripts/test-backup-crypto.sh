@@ -41,6 +41,16 @@ if (set -o pipefail; gpg --batch --quiet --no-tty --pinentry-mode loopback --pas
   echo 'ERROR: truncated archive passed verification' >&2
   exit 1
 fi
+# Guard the production backup workflow: verification must precede publishing and pruning.
+python3 - "$(dirname "$0")/backup-agentzentrale.sh" <<'PY'
+from pathlib import Path
+import sys
+script = Path(sys.argv[1]).read_text()
+verify = script.index('bash "$ROOT/scripts/verify-backup-archive.sh" "$temp" "$KEY_FILE"')
+publish = script.index('mv -- "$temp" "$target"')
+prune = script.index('find "$BACKUP_DIR" -maxdepth 1')
+assert verify < publish < prune, "Backup verification must precede publication and retention cleanup"
+PY
 # A malicious tar member must be rejected even when encryption is valid.
 python3 - "$tmp/unsafe.tar.gz" <<'PY'
 import io
