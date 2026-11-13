@@ -1715,10 +1715,10 @@ def inspect_klimaticket_option(page):
     Do not infer eligibility from a zero-euro text label alone.
     """
     return page.evaluate(r"""() => {
-      const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
+      const norm = s => (s || '').replace(/\s+/g, ' ').trim();
       const visible = e => e.getClientRects().length > 0 &&
           getComputedStyle(e).visibility !== 'hidden';
-      const match = s => /Reservierung\\s+KlimaTicket\\s*(?:Ö|Oe|Österreich)/i.test(norm(s));
+      const match = s => /Reservierung\s+KlimaTicket\s*(?:Ö|Oe|Österreich)/i.test(norm(s));
       const labels = [...document.querySelectorAll('body *')]
         .filter(e => visible(e) && match(e.innerText || '') &&
           norm(e.innerText || '').length < 110 &&
