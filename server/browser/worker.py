@@ -1251,6 +1251,10 @@ def ranked_layout_seats(state):
         # Include unavailable seats in the count; a four-seat table with two
         # occupied places must never be mistaken for a two-seat group.
         if len(group)!=2 or len({c['value'] for c in group})!=2: continue
+        # A layout group must not combine seats from different coaches.
+        # If coach metadata is incomplete, fail closed instead of guessing.
+        coaches=[c.get('coach') for c in group]
+        if any(coaches) and (not all(coaches) or len(set(coaches))!=1): continue
         layouts={c.get('layout') for c in group}
         if layouts=={'single-facing-table'}: rank=0
         elif layouts=={'single-offset-facing'}: rank=1
