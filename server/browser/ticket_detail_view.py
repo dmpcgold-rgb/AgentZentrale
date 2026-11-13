@@ -239,13 +239,22 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         # The provider may return the account overview for an otherwise safe
         # ticket URL. Distinguish this from a real detail read, without
         # disclosing the private URL or any account identifiers.
+        # Fixed-category diagnostics: never disclose private URLs or IDs.
+        current=urlsplit(page.url)
+        requested=urlsplit(url)
+        navigation_diagnostic={
+            'finalHostMatches': current.hostname==requested.hostname,
+            'finalPathMatches': current.path==requested.path,
+            'finalQueryMatches': current.query==requested.query,
+        }
         if diagnostic.get('pageKind') == 'account_overview':
             return {'detailStatus':'account_overview_fallback',
                     'yearVerified':False,'seatMatched':False,
                     'tripMatched':False,'referenceVisible':False,
                     'dateExplicit':False,'bookingReferenceChecked':False,
                     'bookingReferenceMatched':False,
-                    'contentDiagnostics':diagnostic}
+                    'contentDiagnostics':diagnostic,
+                    'navigationDiagnostics':navigation_diagnostic}
         exact=extract_explicit_trip_date(text)
         seats={f'{m.group(1)}{m.group(2).upper()}' for m in SEAT_LABEL.finditer(text)}
         journey=all(x in text for x in ('Wien Meidling','Wiener Neustadt','18:22','18:49'))
