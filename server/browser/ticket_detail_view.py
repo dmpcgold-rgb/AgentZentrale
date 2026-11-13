@@ -235,6 +235,17 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         except Exception:
             pass
         diagnostic=categorize_detail_text(text,mime,dom.get('login') is True,dom.get('pdf') is True)
+        # A successful HTTP 200 is not proof that the ticket detail was rendered.
+        # The provider may return the account overview for an otherwise safe
+        # ticket URL. Distinguish this from a real detail read, without
+        # disclosing the private URL or any account identifiers.
+        if diagnostic.get('pageKind') == 'account_overview':
+            return {'detailStatus':'account_overview_fallback',
+                    'yearVerified':False,'seatMatched':False,
+                    'tripMatched':False,'referenceVisible':False,
+                    'dateExplicit':False,'bookingReferenceChecked':False,
+                    'bookingReferenceMatched':False,
+                    'contentDiagnostics':diagnostic}
         exact=extract_explicit_trip_date(text)
         seats={f'{m.group(1)}{m.group(2).upper()}' for m in SEAT_LABEL.finditer(text)}
         journey=all(x in text for x in ('Wien Meidling','Wiener Neustadt','18:22','18:49'))
