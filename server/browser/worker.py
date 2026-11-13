@@ -6,6 +6,7 @@ from datetime import date
 from urllib.parse import urlsplit, parse_qs, urlencode
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from checkout_guard import audit_cart
+from klimaticket_eligibility import eligibility_gate
 from booking_evidence import assess_existing_ticket, extract_explicit_trip_date
 from inventory_batch import validate_batch_dates, summarize_inventory_batch
 from confirmation_evidence import reference_indicators, summarize_confirmation_candidates
@@ -1707,6 +1708,43 @@ def safe_review_failure(error, phase):
             'bookingAuthorized':False}
 
 
+def inspect_klimaticket_option(page):
+    """Read-only inspection of the actual fare option, not the search tile.
+
+    A missing or ambiguous radio/control is never considered selectable.
+    Do not infer eligibility from a zero-euro text label alone.
+    """
+    return page.evaluate(r"""() => {
+      const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
+      const visible = e => e.getClientRects().length > 0 &&
+          getComputedStyle(e).visibility !== 'hidden';
+      const match = s => /Reservierung\\s+KlimaTicket\\s*(?:Ö|Oe|Österreich)/i.test(norm(s));
+      const labels = [...document.querySelectorAll('body *')]
+        .filter(e => visible(e) && match(e.innerText || '') &&
+          norm(e.innerText || '').length < 110 &&
+          ![...e.children].some(c => visible(c) && match(c.innerText || '') &&
+            norm(c.innerText || '').length < 110));
+      if (labels.length !== 1) return {optionVisible: labels.length > 0,
+          optionEnabled: false, reason: 'option_label_not_unique'};
+      let box = labels[0];
+      for (let i = 0; i < 5 && box; i++, box = box.parentElement) {
+        const text = norm(box.innerText || '');
+        if (text.length > 800) break;
+        const controls = [...box.querySelectorAll('input[type="radio"],button,[role="radio"]')]
+          .filter(visible);
+        if (controls.length !== 1) continue;
+        const c = controls[0];
+        const disabled = c.matches(':disabled,[aria-disabled="true"]') ||
+          !!c.closest('[inert],[aria-disabled="true"]') ||
+          getComputedStyle(c).pointerEvents === 'none';
+        return {optionVisible: true, optionEnabled: !disabled,
+            reason: disabled ? 'option_disabled' : 'unique_enabled_control'};
+      }
+      return {optionVisible: true, optionEnabled: false,
+          reason: 'option_control_not_unique'};
+    }""")
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -1724,13 +1762,22 @@ def manual_seat_review(page, day, root=None):
             if read_review_command(page)=='q':
                 return {'status':'manual_review_ended','message':'Keine automatische Buchung.'}
             continue
-        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. a + Enter öffnet bei Bedarf Comfort und Sitzplan und prüft/wählt den Wunschplatz, b + Enter bestätigt den Sitzplatz, c + Enter prüft den Warenkorb nur lesend. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
+        print('Konto vor der Suche bestätigt, angezeigter Preis 0 EUR. a + Enter öffnet bei Bedarf Comfort und Sitzplan und prüft/wählt den Wunschplatz, b + Enter bestätigt den Sitzplatz, c + Enter prüft den Warenkorb nur lesend, e + Enter prüft die KlimaTicket-Auswahl nur lesend. Enter allein lässt den Browser offen; q + Enter beendet. Nicht kaufen.',file=sys.stderr,flush=True)
         while True:
             command=read_review_command(page)
             if command=='q':
                 break
-            if command not in ('a','b','c'):
-                print('Browser bleibt geöffnet. a + Enter öffnet/wählt; b + Enter bestätigt; c + Enter prüft den Warenkorb; q + Enter beendet. Kein automatischer Kauf.',file=sys.stderr,flush=True)
+            if command=='e':
+                try:
+                    observations=[inspect_klimaticket_option(p) for p in page.context.pages if not p.is_closed() and is_review_detail_url(p.url,day)]
+                    observed=observations[0] if len(observations)==1 else {'optionVisible':False,'optionEnabled':False,'reason':'detail_page_not_unique'}
+                    decision=eligibility_gate({'accountVerified':True,'dateAndDirectionVerified':True,'existingReservation':None,'klimaTicketOptionVisible':observed['optionVisible'],'klimaTicketOptionEnabled':observed['optionEnabled'],'klimaTicketOptionPriceCents':None})
+                    print(json.dumps({'status':'klimaticket_option_audit','observation':observed,'eligibility':decision,'bookingAuthorized':False},ensure_ascii=False),file=sys.stderr,flush=True)
+                except Exception:
+                    print(json.dumps({'status':'klimaticket_option_audit_blocked','bookingAuthorized':False},ensure_ascii=False),file=sys.stderr,flush=True)
+                continue
+            if command not in ('a','b','c','e'):
+                print('Browser bleibt geöffnet. a + Enter öffnet/wählt; b + Enter bestätigt; c + Enter prüft den Warenkorb; e + Enter prüft KlimaTicket; q + Enter beendet. Kein automatischer Kauf.',file=sys.stderr,flush=True)
                 continue
             phase='inspect_checkout' if command=='c' else 'locate_open_review_page'
             try:
