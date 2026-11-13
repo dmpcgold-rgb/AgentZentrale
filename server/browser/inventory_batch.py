@@ -66,6 +66,23 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'complete':False,
         'reason':'page_error_or_login' if failures else 'pagination_not_authoritative'
     }
+    # Distinguish a genuinely empty *visible* account from a failed scan.
+    # Zero visible cards is not proof that the provider has no bookings.
+    austrian_reports=[r for r in page_reports if isinstance(r,dict)
+                      and r.get('domain')=='westbahn.at']
+    verified_austrian=[r for r in austrian_reports
+                       if r.get('status')=='account_verified']
+    all_austrian_verified=(bool(austrian_reports) and
+                           len(verified_austrian)==len(austrian_reports))
+    card_counts_available=(bool(verified_austrian) and
+                           all(type(r.get('comfortCards')) is int and
+                               r['comfortCards']>=0 for r in verified_austrian))
+    if not all_austrian_verified or not card_counts_available:
+        account_display_state='unknown_or_partial'
+    elif all(r['comfortCards']==0 for r in verified_austrian):
+        account_display_state='no_visible_reservations'
+    else:
+        account_display_state='visible_reservations_present'
     # Diagnostic only: observed links do not prove that all pages exist or
     # were visited. Never convert pagination observations into booking rights.
     pagination={}
@@ -245,6 +262,8 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
         'status':'inventory_batch_read' if successful else 'account_unavailable',
         'days':output,
         'accountPageReads':successful,
+        'accountDisplayState':account_display_state,
+        'emptyDisplayIsAbsenceProof':False,
         'coverage':coverage,
         'paginationDiagnostics':pagination,
         'targetedReview':{'domain':'westbahn.at',
