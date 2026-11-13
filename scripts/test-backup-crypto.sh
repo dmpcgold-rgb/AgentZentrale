@@ -105,4 +105,20 @@ for kind in hardlink absolute; do
     exit 1
   fi
 done
-echo 'PASS: encrypted archive restored; wrong key, truncation, traversal, symlink, hardlink and absolute paths rejected'
+# Duplicate member names are ambiguous on restore and must be rejected.
+python3 - "$tmp/duplicate.tar.gz" <<'PY'
+import io
+import sys
+import tarfile
+with tarfile.open(sys.argv[1], "w:gz") as archive:
+    for payload in (b"first", b"second"):
+        entry = tarfile.TarInfo("state.json")
+        entry.size = len(payload)
+        archive.addfile(entry, io.BytesIO(payload))
+PY
+gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --symmetric --cipher-algo AES256 --output "$tmp/duplicate.gpg" "$tmp/duplicate.tar.gz"
+if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/duplicate.gpg" "$tmp/key" >/dev/null 2>&1; then
+  echo 'ERROR: duplicate archive paths accepted' >&2
+  exit 1
+fi
+echo 'PASS: encrypted archive restored; wrong key, truncation, traversal, links, absolute and duplicate paths rejected'
