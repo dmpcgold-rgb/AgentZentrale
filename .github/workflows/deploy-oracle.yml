@@ -1,7 +1,6 @@
 name: Deploy AgentZentrale to Oracle
 
 on:
-  workflow_dispatch:
   workflow_run:
     workflows: ["AgentZentrale tests"]
     types: [completed]
@@ -17,19 +16,18 @@ concurrency:
 jobs:
   verify:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Verify selected commit is current main
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
@@ -56,8 +54,7 @@ jobs:
 
   deploy:
     needs: verify
-    if: >-
-      github.event_name == 'workflow_run' || github.ref == 'refs/heads/main'
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: oracle-production
     timeout-minutes: 15
@@ -80,7 +77,7 @@ jobs:
       - name: Deploy verified main branch and check container health
         env:
           HOST: ${{ secrets.ORACLE_SSH_HOST }}
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
