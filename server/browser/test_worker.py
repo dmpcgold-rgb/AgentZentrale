@@ -614,6 +614,21 @@ class BrowserTests(unittest.TestCase):
    self.assertFalse(result['inventoryComplete'])
    self.assertNotIn('SECRET123',str(result))
   finally: context.close()
+ def test_diagnostic_account_card_parsing(self):
+  """Offline fixture: expose parser exceptions rather than swallowing them."""
+  context=self.b.new_context()
+  try:
+   html='<h1>Westbahn-Konto</h1><button>Gültige Tickets</button><article><h2>Reservierung Comfort Class</h2><div>Abfahrt 18:22 Wien Meidling</div><div>MO 16 NOV</div><div>Ankunft 18:49 Wiener Neustadt</div><div>Sitzplatz 191 D</div></article>'
+   context.route('https://westbahn.at/**',lambda route: route.fulfill(status=200,content_type='text/html; charset=utf-8',body=html))
+   page=context.new_page()
+   try:
+    page.goto('https://westbahn.at/ticketshop/dashboard/tickets?page=1&mode=valid')
+    result=account_summary(page)
+    self.assertEqual(len(result['matchingVisibleCards']),1)
+   finally:
+    page.close()
+  finally:
+   context.close()
  def test_regular_inventory_uses_austrian_domain_only(self):
   context=self.b.new_context()
   try:
