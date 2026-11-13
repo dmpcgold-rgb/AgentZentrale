@@ -586,6 +586,8 @@ def account_summary(page):
         label=re.search(r'\b(?:MO|DI|MI|DO|FR|SA|SO)\s+\d{1,2}\s+(?:JAN|JÄN|FEB|MÄR|APR|MAI|JUN|JUL|AUG|SEP|OKT|NOV|DEZ)(?:\s+\d{4})?\b',t,re.I)
         full_date=extract_explicit_trip_date(t)
         references=reference_indicators(t)
+        # Ticket-code presence is a non-sensitive UI hint, not booking proof.
+        references['ticketCode']=bool(re.search(r'\b(?:Ticketcode|Ticket-Code)\s*:?\s*[A-Z0-9][A-Z0-9-]{3,39}\b',t,re.I))
         rows.append({'dateLabel':label.group(0) if label else None,
                      'seat':seat.group(1).replace(' ','') if seat else None,
                      'fullDate':full_date,
