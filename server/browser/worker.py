@@ -771,9 +771,32 @@ def account_inventory(context, requested_page=None, max_pages=10):
                 page.close()
     rows=list(merged.values())
     ok=any(r['status']=='account_verified' for r in reports)
+    verified=[r for r in reports if r['status']=='account_verified']
+    failed=[r for r in reports if r['status']!='account_verified']
+    # Only counts and booleans: never expose ticket identifiers or raw card text.
+    observed=sum(r.get('matchingCards',0) for r in verified)
+    blockers=['provider_total_unverified']
+    if failed:
+        blockers.append('page_read_failed')
+    if any(r.get('unmatchedComfortCards',0)>0 for r in verified):
+        blockers.append('unmatched_comfort_cards')
+    if any(r.get('newCardsAfterScroll',0)>0 for r in verified):
+        blockers.append('lazy_loaded_cards_observed')
+    if any(not row.get('fullDate') or row.get('fullDate')=='conflicting' for row in rows):
+        blockers.append('journey_date_not_verified')
+    if observed>len(rows):
+        blockers.append('date_seat_labels_not_unique')
+    if len(seen)>=max_pages and pending:
+        blockers.append('pagination_limit_reached')
     return {'status':'account_verified' if ok else 'blocked',
             'matchingVisibleCards':rows,'reports':reports,'inventoryComplete':False,
-            'message':f'{len(rows)} unterschiedliche sichtbare Datum/Sitzplatz-Kombinationen auf beiden WESTbahn-Domains. Bestand nicht vollständig bestätigt; keine Buchung.'}
+            'inventoryDiagnostics':{
+                'verifiedPages':len(verified),
+                'failedPageAttempts':len(failed),
+                'observedMatchingCards':observed,
+                'distinctDateSeatLabels':len(rows),
+                'completionBlockers':blockers},
+            'message':f'{len(rows)} unterschiedliche sichtbare Datum/Sitzplatz-Kombinationen auf westbahn.at. Bestand nicht vollständig bestätigt; keine Buchung.'}
 
 
 
