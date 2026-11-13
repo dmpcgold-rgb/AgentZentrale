@@ -1620,7 +1620,7 @@ def find_seat_change_control(page, diagnostic=False):
           const nearby=all.filter(e=>{
             const t=raw(e),b=e.getBoundingClientRect();
             return t.length>0&&t.length<90&&
-              (/\\b\\d{2,4}\\s*[A-D]\\b/i.test(t)||/^(?:Ändern|Bearbeiten)$/i.test(t))&&
+              (/\b\d{2,4}\s*[A-D]\b/i.test(t)||/^(?:Ändern|Bearbeiten)$/i.test(t))&&
               Math.abs((b.top+b.bottom-hb.top-hb.bottom)/2)<650;
           }).filter(e=>![...e.children].some(c=>visible(c)&&raw(c)===raw(e))).slice(0,12);
           return nearby.map(e=>{
