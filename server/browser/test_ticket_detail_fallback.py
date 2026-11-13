@@ -27,6 +27,11 @@ class TicketDetailFallbackTests(unittest.TestCase):
             result = read_detail(page, page.url, '2026-11-18', '233A')
         self.assertEqual(result['detailStatus'], 'account_overview_fallback')
         self.assertEqual(result['contentDiagnostics']['pageKind'], 'account_overview')
+        self.assertEqual(result['navigationDiagnostics'], {
+            'finalHostMatches': True,
+            'finalPathMatches': True,
+            'finalQueryMatches': True,
+        })
         for key in ('yearVerified', 'seatMatched', 'tripMatched',
                     'referenceVisible', 'dateExplicit',
                     'bookingReferenceChecked', 'bookingReferenceMatched'):
@@ -39,6 +44,8 @@ class TicketDetailFallbackTests(unittest.TestCase):
         self.assertNotIn('url', result)
         self.assertNotIn('body', result)
         self.assertNotIn('ticketCode', result)
+        self.assertNotIn('abcdefgh', str(result))
+        self.assertNotIn('1234', str(result))
 
     def test_http_error_is_not_a_detail_read(self):
         page = self.make_page('Westbahn-Konto Gültige Tickets')
