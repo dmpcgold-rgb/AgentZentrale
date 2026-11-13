@@ -32,3 +32,8 @@ test('deployment uses protected environment and serialized runs', () => {
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /StrictHostKeyChecking=yes/);
 });
+
+test('production deployment is disabled unless explicitly opted in', () => {
+  assert.match(workflow, /vars\.ORACLE_AUTO_DEPLOY_ENABLED == 'true'/);
+  assert.match(workflow, /environment: oracle-production/);
+});
