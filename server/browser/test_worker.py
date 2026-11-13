@@ -111,6 +111,12 @@ class ResultParsingTests(unittest.TestCase):
    return {'kind':'seat','value':code,'group':group,'layout':layout,'free':free,'disabled':not free}
   controls=[seat('201A','four','single-facing-table'),seat('201B','four','single-facing-table'),seat('202A','four','single-facing-table',False),seat('202B','four','single-facing-table',False),seat('203D','pair','single-facing-table'),seat('204D','pair','single-facing-table',False),seat('205D','offset','single-offset-facing'),seat('206D','offset','single-offset-facing',False),seat('207A','unknown','unknown')]
   self.assertEqual(ranked_layout_seats({'controls':controls}),[(0,'203D'),(1,'205D')])
+ def test_fallback_rejects_cross_coach_and_incomplete_coach_groups(self):
+  def seat(value,coach):
+   return {'kind':'seat','value':value,'group':'pair','layout':'single-facing-table','free':True,'disabled':False,'coach':coach}
+  self.assertEqual(ranked_layout_seats({'controls':[seat('201A','7'),seat('201B','8')]}),[])
+  self.assertEqual(ranked_layout_seats({'controls':[seat('201A','7'),seat('201B',None)]}),[])
+  self.assertEqual(ranked_layout_seats({'controls':[seat('201A','7'),seat('201B','7')]}),[(0,'201A'),(0,'201B')])
  def test_fallback_moves_to_known_alternative(self):
   from unittest.mock import Mock
   page=Mock()

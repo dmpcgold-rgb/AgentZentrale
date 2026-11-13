@@ -33,9 +33,9 @@ docker exec "$container" tar -C /app/server/data -czf - . |
     --symmetric --cipher-algo AES256 --output "$temp"
 
 test -s "$temp"
-# Verify that the encrypted archive can be decrypted and its tar index read.
-gpg --batch --quiet --no-tty --pinentry-mode loopback --passphrase-file "$KEY_FILE" \
-  --decrypt "$temp" | tar -tzf - >/dev/null
+# Validate the encrypted archive and reject unsafe paths and link entries.
+# Fail closed: do not publish or prune backups if validation fails.
+bash "$ROOT/scripts/verify-backup-archive.sh" "$temp" "$KEY_FILE"
 mv -- "$temp" "$target"
 chmod 600 "$target"
 trap - EXIT
