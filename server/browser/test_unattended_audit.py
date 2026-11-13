@@ -20,12 +20,12 @@ class UnattendedAuditTests(unittest.TestCase):
         dates=["2026-11-18"]
         result=safe_summary({"status":"inventory_batch_read","days":[
             {"date":dates[0],"status":"detail_verified","seats":["233A"],
-             "dateVerified":True}]},dates)
+             "dateVerified":True,"bookingReferenceChecked":True,"bookingReferenceMatched":True}]},dates)
         self.assertEqual(result["days"][0]["seats"],["233A"])
     def test_inspection_never_authorizes_purchase(self):
         summary={"status":"audit_completed","days":[
             {"date":"2026-11-20","status":"needs_review","seats":[]}]}
-        worker_result={"accountVerifiedBeforeSearch":True,
+        worker_result={"status":"comfort_inspected","date":"2026-11-20","accountVerifiedBeforeSearch":True,
                        "bookingAuthorized":False,
                        "connection":{"displayedPriceCents":0}}
         with patch("unattended_audit.subprocess.run",
@@ -35,6 +35,13 @@ class UnattendedAuditTests(unittest.TestCase):
         self.assertFalse(result["bookingAuthorized"])
         self.assertFalse(result["purchaseExecuted"])
         self.assertIn("comfort-inspect",runner.call_args.args[0])
+    def test_unconfirmed_reference_requires_review(self):
+        dates=["2026-11-18"]
+        result=safe_summary({"status":"inventory_batch_read","days":[
+            {"date":dates[0],"status":"detail_verified","dateVerified":True,
+             "bookingReferenceChecked":False,"bookingReferenceMatched":False}]},dates)
+        self.assertEqual(result["days"][0]["status"],"needs_review")
+        self.assertFalse(result["bookingAuthorized"])
     def test_inspection_rejects_boolean_price(self):
         summary={"status":"audit_completed","days":[
             {"date":"2026-11-20","status":"needs_review","seats":[]}]}
