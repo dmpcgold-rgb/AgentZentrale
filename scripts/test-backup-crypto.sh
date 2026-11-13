@@ -41,4 +41,20 @@ if (set -o pipefail; gpg --batch --quiet --no-tty --pinentry-mode loopback --pas
   echo 'ERROR: truncated archive passed verification' >&2
   exit 1
 fi
-echo 'PASS: encrypted archive restored; wrong key and truncated archive rejected'
+# A malicious tar member must be rejected even when encryption is valid.
+python3 - "$tmp/unsafe.tar.gz" <<'PY'
+import io
+import sys
+import tarfile
+with tarfile.open(sys.argv[1], "w:gz") as archive:
+    payload = b"unsafe"
+    entry = tarfile.TarInfo("../escape.txt")
+    entry.size = len(payload)
+    archive.addfile(entry, io.BytesIO(payload))
+PY
+gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --symmetric --cipher-algo AES256 --output "$tmp/unsafe.gpg" "$tmp/unsafe.tar.gz"
+if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/unsafe.gpg" "$tmp/key" >/dev/null 2>&1; then
+  echo 'ERROR: unsafe tar path accepted' >&2
+  exit 1
+fi
+echo 'PASS: encrypted archive restored; wrong key, truncated archive, and unsafe tar path rejected'
