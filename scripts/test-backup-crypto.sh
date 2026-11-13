@@ -19,4 +19,11 @@ fi
 gpg --batch --quiet --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --decrypt "$tmp/archive.gpg" |
   tar -C "$tmp/restored" -xzf -
 diff -r "$tmp/source" "$tmp/restored"
-echo 'PASS: encrypted archive restored; wrong key rejected'
+# Simulate a truncated cloud upload: decryption + archive validation must fail.
+size="$(stat -c %s "$tmp/archive.gpg")"
+head -c "$((size / 2))" "$tmp/archive.gpg" > "$tmp/truncated.gpg"
+if (set -o pipefail; gpg --batch --quiet --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --decrypt "$tmp/truncated.gpg" 2>/dev/null | tar -tzf - >/dev/null 2>&1); then
+  echo 'ERROR: truncated archive passed verification' >&2
+  exit 1
+fi
+echo 'PASS: encrypted archive restored; wrong key and truncated archive rejected'
