@@ -40,10 +40,17 @@ def safe_summary(payload, requested):
             return {"status":"audit_blocked","dates":requested,"bookingAuthorized":False,
                     "purchaseExecuted":False,"reason":"invalid_inventory_response"}
         seen.add(item["date"])
-        verified = item.get("status") in VERIFIED and item.get("dateVerified") is True and item.get("bookingReferenceChecked") is True and item.get("bookingReferenceMatched") is True
-        results.append({"date":item["date"],"status":"existing_visible" if verified else "needs_review",
+        # inventory_batch emits detailVerified/dateVerified, not bookingReferenceChecked.
+        # An explicitly dated visible card is a conflict even without full detail proof.
+        verified = (item.get("status")=="detail_verified" and
+                    item.get("dateVerified") is True and
+                    item.get("detailVerified") is True)
+        visible_conflict = (item.get("status") in ("visible_year_verified","possible_existing") or
+                            item.get("potentialDuplicate") is True or
+                            bool(item.get("seats")))
+        results.append({"date":item["date"],"status":"existing_verified" if verified else "possible_existing" if visible_conflict else "needs_review",
                         "seats":[seat for seat in item.get("seats",[]) if isinstance(seat,str)
-                                 and len(seat)<=5][:3] if verified else []})
+                                 and len(seat)<=5][:3] if (verified or visible_conflict) else []})
     return {"status":"audit_completed","days":sorted(results,key=lambda x:x["date"]),
             "bookingAuthorized":False,"purchaseExecuted":False,
             "message":"Automatische Bestandsprüfung abgeschlossen. Buchung bleibt gesperrt, solange fehlende Reservierungen nicht autoritativ ausgeschlossen werden können."}
