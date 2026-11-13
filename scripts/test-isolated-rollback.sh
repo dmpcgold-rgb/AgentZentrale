@@ -66,12 +66,18 @@ services:
       args:
         MODE: ${MODE:-healthy}
     image: agentzentrale-rollback-integration-test
+    volumes:
+      - state:/state
+volumes:
+  state:
 COMPOSE
 printf 'MODE=healthy\n' > .env
 git add Dockerfile compose.yaml .env
 git commit -qm "healthy version"
 previous="$(git rev-parse HEAD)"
 docker compose -p "$compose_project" up -d --build --wait --wait-timeout 90
+# A named volume must survive the broken release and subsequent rollback.
+docker compose -p "$compose_project" exec -T agentzentrale sh -c 'printf "persistent-backup-marker" > /state/rollback-marker'
 printf 'MODE=broken\n' > .env
 git add .env
 git commit -qm "broken version"
@@ -91,4 +97,5 @@ test "$(git rev-parse HEAD)" = "$previous"
 restored="$(docker compose -p "$compose_project" ps -q agentzentrale)"
 test -n "$restored"
 test "$(docker inspect --format '{{.State.Health.Status}}' "$restored")" = healthy
-echo "PASS: isolated Git and Docker Compose rollback"
+test "$(docker compose -p "$compose_project" exec -T agentzentrale cat /state/rollback-marker)" = "persistent-backup-marker"
+echo "PASS: isolated Git and Docker Compose rollback; persistent volume retained"
