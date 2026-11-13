@@ -34,3 +34,11 @@ Do not print or commit the passphrase. The verifier does not extract files or ch
 - Verify the scheduled backup actually runs, offsite sync succeeds, retention is appropriate, and failures generate alerts.
 - Perform a controlled offsite restore drill and document its result.
 - Separately protect the passphrase and test key recovery.
+
+## Production deployment authorization
+
+- The `deploy-oracle.yml` workflow runs verification only after successful `main` CI and rejects stale commit SHAs.
+- The deployment job is **disabled by default**. It can run only when the repository variable `ORACLE_AUTO_DEPLOY_ENABLED` is exactly `true` and the `oracle-production` environment allows the job.
+- Before enabling the variable, configure `oracle-production` with required reviewers, branch restrictions to `main`, and appropriate secret scoping. Confirm the deployment SSH host key is pinned and credentials have minimum required privileges.
+- Do not enable automatic deployment until the owner explicitly approves production changes and a rollback drill has succeeded. Keep the variable unset or `false` until then.
+- A green CI run validates tests, **not** the production backup restore or Google Drive disaster-recovery procedure.
