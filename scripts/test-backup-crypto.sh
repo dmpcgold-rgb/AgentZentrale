@@ -13,6 +13,16 @@ tar -C "$tmp/source" -czf - . |
   gpg --batch --yes --no-tty --pinentry-mode loopback --passphrase-file "$tmp/key" --symmetric --cipher-algo AES256 --output "$tmp/archive.gpg"
 test -s "$tmp/archive.gpg"
 bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/archive.gpg" "$tmp/key"
+if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/archive.gpg" "$tmp/wrong-key" >/dev/null 2>&1; then
+  echo 'ERROR: verifier accepted incorrect passphrase' >&2
+  exit 1
+fi
+chmod 644 "$tmp/key"
+if bash "$(dirname "$0")/verify-backup-archive.sh" "$tmp/archive.gpg" "$tmp/key" >/dev/null 2>&1; then
+  echo 'ERROR: verifier accepted insecure key permissions' >&2
+  exit 1
+fi
+chmod 600 "$tmp/key"
 if gpg --batch --quiet --no-tty --pinentry-mode loopback --passphrase-file "$tmp/wrong-key" --decrypt "$tmp/archive.gpg" > /dev/null 2>&1; then
   echo 'ERROR: incorrect key decrypted archive' >&2
   exit 1
