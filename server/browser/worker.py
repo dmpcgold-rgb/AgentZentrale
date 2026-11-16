@@ -1784,6 +1784,45 @@ def inspect_comfort_booking_control(page, day, root=None):
     return result
 
 
+
+def inspect_live_seat_preflight(page, day, root=None):
+    """Read-only seat preflight: never open a seat map or click a booking control."""
+    from seat_preflight_bridge import inspect_selected_seat
+    from booking_ledger import AttemptLedger
+    output={'status':'seat_preflight_inspected','date':day,'bookingAuthorized':False,
+            'purchaseExecuted':False,'seatSelectionVerified':False}
+    try:
+        control=inspect_comfort_booking_control(page,day,root=root)
+        state=control.get('providerReservationState')
+        provider={'found':True if state=='reservation_detected' else
+                  False if state=='not_exposed_in_checked_web_views' else None,
+                  'diagnosis':state}
+        local_status=control.get('localAttemptStatus')
+        if local_status is None:
+            output['reason']='local_ledger_not_verified'
+            return output
+        # Read the matching detail page only if already open; never click to open it.
+        matching=[p for p in page.context.pages if not p.is_closed()
+                  and is_review_detail_url(p.evaluate('window.location.href'),day)]
+        modal={}
+        detail={}
+        if len(matching)==1:
+            modal=seat_modal_state(matching[0])
+            if modal.get('modalFound') is True:
+                detail=detail_selection_summary(matching[0],day)
+        # The inspected control has no authoritative negative inventory proof.
+        # No caller can promote this diagnostic to a purchase authorization.
+        result=inspect_selected_seat(day,{},control,provider,local_status,
+                                     modal,detail,provider_absence_verified=False)
+        output.update(result)
+        output['status']='seat_preflight_inspected'
+        return output
+    except Exception as error:
+        output['reason']='inspection_failed'
+        output['failure']=safe_review_failure(error,'seat_preflight')
+        return output
+
+
 def unattended_seat_selection(page, day, root=None):
     """One-shot headless seat selection. No basket, checkout or purchase."""
     phase='prepare'
@@ -1910,7 +1949,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2026,10 +2065,11 @@ def main():
                                 'message':'Konto nicht bestätigt; keine Bestätigung.'}
                     inventory=account_inventory(context)
                     return summarize_confirmation_candidates(inventory.get('matchingVisibleCards'),args.date,args.seat)
-                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless','comfort-control-check') and not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless','seat-preflight-check','comfort-control-check') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode=='seat-select-headless': return unattended_seat_selection(page,args.date,root)
                 if args.mode=='comfort-control-check': return inspect_comfort_booking_control(page,args.date,root)
+                if args.mode=='seat-preflight-check': return inspect_live_seat_preflight(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
                     return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect',root=root)
                 target=URL
