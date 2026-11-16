@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from blocked_request_metadata import describe
+from blocked_request_metadata import describe, abort_and_record
 
 class BlockedMetadataTests(unittest.TestCase):
     def request(self,url,body=None,content_type="application/json"):
@@ -41,6 +41,31 @@ class BlockedMetadataTests(unittest.TestCase):
         result=describe(r)
         self.assertEqual(result["body_keys"],["{non_json_or_oversize}"])
         self.assertNotIn("a"*100,str(result))
+
+    def test_offline_guard_always_aborts(self):
+        route=Mock()
+        route.request=self.request("https://westbahn.at/api/seat",'{"seat":"233A"}')
+        route.request.resource_type="fetch"
+        blocked=[]
+        abort_and_record(route,blocked)
+        route.abort.assert_called_once_with()
+        route.continue_.assert_not_called()
+        route.fulfill.assert_not_called()
+        self.assertEqual(len(blocked),1)
+        self.assertNotIn("233A",str(blocked))
+
+    def test_offline_guard_aborts_even_if_logging_fails(self):
+        route=Mock()
+        route.request.url="not-a-url"
+        route.request.post_data=None
+        route.request.headers={}
+        route.request.resource_type="fetch"
+        route.request.method="POST"
+        blocked=[]
+        abort_and_record(route,blocked,limit=0)
+        route.abort.assert_called_once_with()
+        route.continue_.assert_not_called()
+        self.assertEqual(blocked,[])
 
 if __name__=="__main__":
     unittest.main()
