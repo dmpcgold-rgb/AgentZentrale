@@ -13,6 +13,18 @@ class SeatRequestContractReviewTests(unittest.TestCase):
         self.assertFalse(result["allowLiveRequests"])
         self.assertFalse(result["bookingAuthorized"])
 
+    def test_provider_origin_separated_without_authorization(self):
+        result = review(self.diagnostic([
+            {"method":"POST","host":"other-origin","path":"/:redacted"},
+            {"method":"POST","host":"other-origin","path":"/:redacted"},
+            {"method":"POST","host":"other-origin","path":"/:redacted"},
+            {"method":"POST","host":"other-origin","path":"/:redacted"},
+            {"method":"POST","host":"westbahn.at","path":"/api/v1/:redacted"}]))
+        self.assertEqual(result["originSummary"]["provider"]["requestIndices"], [5])
+        self.assertEqual(result["originSummary"]["other_origin"]["count"], 4)
+        self.assertFalse(result["originSummary"]["provider"]["liveRequestPermitted"])
+        self.assertFalse(result["bookingAuthorized"])
+
     def test_get_does_not_grant_permission(self):
         result = review(self.diagnostic([{"method":"GET","host":"shop.westbahn.at","path":"/api/v1/availability"}]))
         self.assertEqual(result["requests"][0]["risk"], "read_candidate_only")
