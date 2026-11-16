@@ -2008,6 +2008,24 @@ def unattended_seat_selection(page, day, root=None):
             return {'status':'unattended_selection_blocked',
                     'phase':'ledger_unavailable','date':day,
                     'bookingAuthorized':False,'purchaseExecuted':False}
+        # Require independent read-only account inventory evidence before
+        # inspecting a booking control. An empty/partial inventory is not
+        # authoritative evidence of no existing booking.
+        phase='provider_inventory_check'
+        inventory=inspect_paginated_reservation_evidence(page.context,day)
+        if inventory.get('potentialDuplicate'):
+            return {'status':'unattended_selection_blocked',
+                    'phase':'possible_existing_reservation','date':day,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        if (inventory.get('pagesFailed',0)>0 or
+                not inventory.get('pagesVerified') or
+                inventory.get('inventoryComplete') is not True or
+                inventory.get('absenceEvidence',{}).get('status')!='verified_absent'):
+            return {'status':'unattended_selection_blocked',
+                    'phase':'provider_absence_not_authoritative','date':day,
+                    'pagesVerified':inventory.get('pagesVerified',0),
+                    'pagesFailed':inventory.get('pagesFailed',0),
+                    'bookingAuthorized':False,'purchaseExecuted':False}
         # Connect the final gate to the live, read-only provider/control audit.
         # Never interpret a clickable zero-euro control as proof of absence.
         from final_booking_gate import final_booking_gate
