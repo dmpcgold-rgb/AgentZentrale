@@ -423,6 +423,30 @@ def safe_request_summary(request):
             'resourceType':request.resource_type,'hasQuery':bool(u.query)}
 
 
+
+def classify_blocked_seat_requests(requests):
+    """Conservative offline classification. No network permission is granted."""
+    read_labels={'availability','seatmap','seat-map','layout','layouts','search','offers'}
+    write_labels={'booking','bookings','reservation','reservations','checkout',
+                  'cart','basket','order','orders','payment','payments',
+                  'purchase','confirm','confirmation','add','remove','update'}
+    counts={'read_candidate':0,'write_risk':0,'unknown':0}
+    for request in requests:
+        method=str(request.get('method','')).upper()
+        path=str(request.get('path',''))
+        segments=set(path.lower().split('/'))
+        if method not in ('GET','HEAD','POST') or segments & write_labels:
+            category='write_risk'
+        elif method in ('GET','HEAD') and segments & read_labels and ':redacted' not in path:
+            category='read_candidate'
+        else:
+            # POST may create a booking even if its URL sounds read-only.
+            category='unknown'
+        counts[category]+=1
+    return {'categories':counts,'allowLiveRequests':False,
+            'reason':'classification_is_not_proof_of_non_mutation'}
+
+
 def offline_seat_preview(page, day, network_diagnostic=False):
     """Inspect a local-only transition; never transmit a class/seat click."""
     result=prepare(page,day)
@@ -509,6 +533,7 @@ def offline_seat_preview(page, day, network_diagnostic=False):
             'preferredControls':[s for s in observations['seatControls'] if s['seat'] in preferences],
             'blockedRequestCount':len(blocked_requests),'blockedRequests':blocked_requests,
             'blockedRequestTypes':request_types,'blockedMutationCandidates':mutation_candidates,
+            'requestRiskAssessment':classify_blocked_seat_requests(blocked_requests),
             'networkPolicy':'offline_all_requests_denied',
             'liveAvailabilityVerified':False,
             'message':'Isolierte Offline-Vorschau; keine Anfrage aus dem Comfort-Klick an WESTbahn übertragen. Sichtbare Plätze sind keine bestätigte Live-Verfügbarkeit.'}
