@@ -47,6 +47,32 @@ class SeatSelectionTests(unittest.TestCase):
             open_map.assert_not_called()
             self.assertEqual(result['phase'],'local_duplicate_confirmed')
 
+    def test_pending_and_uncertain_local_bookings_block(self):
+        from booking_ledger import AttemptLedger
+        journey='westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+'
+        for state in ('PENDING','UNCERTAIN'):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                path=str(Path(directory)/'ledger.db')
+                ledger=AttemptLedger(path)
+                attempt=ledger.claim(journey,'2026-11-20')
+                if state == 'UNCERTAIN':
+                    self.assertTrue(ledger.transition(attempt['attempt_id'],'UNCERTAIN'))
+                ledger.close()
+                with patch.dict('os.environ', {'WESTBAHN_BOOKING_LEDGER':path}), patch.object(worker,'authenticated_prepare',return_value={
+                    'status':'connection_found','accountVerifiedBeforeSearch':True,
+                    'connection':{'displayedPriceCents':0}}), patch.object(worker,'open_review_seat_map') as open_map:
+                    result=worker.unattended_seat_selection(MagicMock(),'2026-11-20')
+                open_map.assert_not_called()
+                self.assertEqual(result['phase'],'local_duplicate_'+state.lower())
+
+    def test_missing_ledger_configuration_blocks(self):
+        with patch.dict('os.environ', {}, clear=True), patch.object(worker,'authenticated_prepare',return_value={
+            'status':'connection_found','accountVerifiedBeforeSearch':True,
+            'connection':{'displayedPriceCents':0}}), patch.object(worker,'open_review_seat_map') as open_map:
+            result=worker.unattended_seat_selection(MagicMock(),'2026-11-20')
+        open_map.assert_not_called()
+        self.assertEqual(result['phase'],'ledger_not_configured')
+
     def test_missing_price_blocks(self):
         with patch.object(worker,'authenticated_prepare',return_value={
             'status':'connection_found','accountVerifiedBeforeSearch':True,
