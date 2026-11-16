@@ -15,17 +15,19 @@ class ReadinessTests(unittest.TestCase):
     @patch.object(worker,'inspect_comfort_booking_control')
     @patch.object(worker,'inspect_paginated_reservation_evidence')
     def test_zero_euro_never_authorizes_without_absence_proof(self,inventory,control):
-        inventory.return_value={'potentialDuplicate':False,'inventoryComplete':False,'pagesVerified':2}
-        control.return_value={'bookingFieldState':'enabled_zero_euro','bookingFieldClickable':True}
+        inventory.return_value={'potentialDuplicate':False,'inventoryComplete':False,'pagesVerified':2,'pagesFailed':0,'candidateStatus':'review_required'}
+        control.return_value={'bookingFieldState':'enabled_zero_euro','bookingFieldClickable':True,'providerReservationState':'not_exposed_in_checked_web_views','localAttemptStatus':'NONE'}
         r=worker.inspect_booking_readiness(type('P',(),{'context':object()})(),'2026-11-20')
-        self.assertEqual(r['reason'],'provider_absence_not_authoritative')
+        self.assertEqual(r['reason'],'not_visible_probably_unbooked')
+        self.assertEqual(r['reservationLikelihood'],'probably_not_booked')
+        self.assertFalse(r['bookingAuthorized'])
         self.assertFalse(r['readyToPurchase'])
         self.assertFalse(r['purchaseExecuted'])
 
     @patch.object(worker,'inspect_comfort_booking_control')
     @patch.object(worker,'inspect_paginated_reservation_evidence')
     def test_disabled_control_stays_blocked(self,inventory,control):
-        inventory.return_value={'potentialDuplicate':False,'inventoryComplete':False}
+        inventory.return_value={'potentialDuplicate':False,'inventoryComplete':False,'pagesVerified':2,'pagesFailed':0,'candidateStatus':'review_required'}
         control.return_value={'bookingFieldState':'disabled','bookingFieldClickable':False}
         r=worker.inspect_booking_readiness(type('P',(),{'context':object()})(),'2026-11-20')
         self.assertEqual(r['reason'],'control_not_verified')
