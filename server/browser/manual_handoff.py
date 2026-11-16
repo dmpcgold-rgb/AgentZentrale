@@ -4,7 +4,7 @@ This module is pure: it does not open a browser, send requests, or buy tickets.
 """
 from datetime import date
 
-def manual_handoff(day, preparation, inventory=None):
+def manual_handoff(day, preparation, inventory=None, local_status=None):
     result={"status":"manual_review_required","date":day,
             "bookingAuthorized":False,"purchaseExecuted":False,
             "allowLiveRequests":False,
@@ -36,9 +36,28 @@ def manual_handoff(day, preparation, inventory=None):
         result["status"]="blocked"
         result["reason"]="journey_mismatch"
         return result
-    if isinstance(inventory,dict) and inventory.get("potentialDuplicate"):
+    if local_status in ("PENDING","CONFIRMED","UNCERTAIN"):
+        result["status"]="blocked"
+        result["reason"]="local_duplicate_or_uncertain"
+        return result
+    if local_status not in ("NONE",):
+        result["status"]="blocked"
+        result["reason"]="local_ledger_not_verified"
+        return result
+    if not isinstance(inventory,dict):
+        result["status"]="blocked"
+        result["reason"]="provider_inventory_not_checked"
+        return result
+    result["inventoryPagesVerified"]=inventory.get("pagesVerified",0)
+    result["inventoryPagesFailed"]=inventory.get("pagesFailed",0)
+    result["candidateStatus"]=inventory.get("candidateStatus","unverified")
+    if inventory.get("potentialDuplicate"):
         result["status"]="blocked"
         result["reason"]="possible_existing_reservation"
+        return result
+    if inventory.get("reason")=="inventory_inspection_failed" or inventory.get("pagesFailed",0):
+        result["status"]="blocked"
+        result["reason"]="provider_inventory_inspection_failed"
         return result
     result["reason"]="provider_absence_not_authoritative"
     result["displayedPriceCents"]=0
