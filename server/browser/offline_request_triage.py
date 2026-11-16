@@ -6,6 +6,7 @@ redacted JSON emitted by worker.py seat-network-diagnostic.
 """
 import json
 import sys
+from urllib.parse import unquote, urlsplit
 
 def provider_host(host):
     """Match the exact WESTbahn domain or a dot-delimited subdomain only."""
@@ -30,7 +31,18 @@ def triage(report):
         host = str(item.get("host", ""))
         # Only provider-host metadata may be considered for read-only triage.
         # This is classification, never permission to send a request.
-        segments = set(path.lower().split("/"))
+        # Decode nested percent-encoding before classifying routes.
+        decoded = path
+        for _ in range(5):
+            next_path = unquote(decoded)
+            if next_path == decoded:
+                break
+            decoded = next_path
+        if "%" in decoded or "\\" in decoded or "\x00" in decoded:
+            groups["unknown"].append({"method": method, "host": host, "path": path})
+            continue
+        parsed = urlsplit(decoded)
+        segments = set(parsed.path.lower().split("/"))
         writes = {"booking", "bookings", "reservation", "reservations", "checkout",
                   "cart", "basket", "order", "orders", "payment", "payments",
                   "purchase", "confirm", "confirmation", "add", "remove", "update"}
