@@ -418,9 +418,21 @@ def safe_request_summary(request):
     # bodies and any opaque/digit-containing or encoded segment.
     route_words=re.compile(r'^(?:api|rest|graphql|tickets?|ticketshop|reservation|reservations|reserve|booking|bookings|checkout|cart|basket|order|orders|seat|seats|seatmap|seat-map|seatselection|seat-selection|availability|train|trains|connection|connections|journey|journeys|trip|trips|coach|coaches|wagon|wagons|waggon|waggons|vehicle|vehicles|class|classes|comfort|search|offer|offers|price|prices|product|products|session|auth|account|dashboard|payment|payments|purchase|confirm|confirmation|add|remove|update|select|selection|layout|layouts|configuration|config|assets|static|css|js|images|fonts|public|data|shop|v[1-9])$',re.I)
     path='/'.join(s if route_words.fullmatch(s) else ':redacted' for s in u.path.split('/') if s)
+    # Boolean-only metadata: no headers, payloads, query values, or identifiers.
+    # These flags help identify which browser phase produced the request,
+    # but do not prove that any POST is safe to send live.
+    try:
+        navigation=bool(request.is_navigation_request())
+    except Exception:
+        navigation=None
+    try:
+        has_body=request.post_data is not None
+    except Exception:
+        has_body=None
     return {'method':request.method,'host':host if is_provider else 'other-origin',
             'path':'/'+path if is_provider else '/:redacted',
-            'resourceType':request.resource_type,'hasQuery':bool(u.query)}
+            'resourceType':request.resource_type,'hasQuery':bool(u.query),
+            'isNavigationRequest':navigation,'hasBody':has_body}
 
 
 
