@@ -44,3 +44,24 @@ def review(diagnostic):
             "allowLiveRequests": False,
             "bookingAuthorized": False,
             "purchaseExecuted": False}
+
+def main():
+    """Review a previously captured, sanitized diagnostic from stdin only."""
+    import json
+    import sys
+    # Bounded input and no network, browser, filesystem writes or execution.
+    raw = sys.stdin.read(131073)
+    if len(raw) > 131072:
+        result = {"status": "review_blocked", "reason": "input_too_large",
+                  "allowLiveRequests": False, "bookingAuthorized": False}
+    else:
+        try:
+            result = review(json.loads(raw))
+        except (ValueError, TypeError):
+            result = {"status": "review_blocked", "reason": "invalid_json",
+                      "allowLiveRequests": False, "bookingAuthorized": False}
+    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
