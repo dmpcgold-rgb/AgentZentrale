@@ -40,6 +40,20 @@ class OfflineRequestTriageTests(unittest.TestCase):
                 self.assertEqual(r["counts"]["unknown"], 1)
                 self.assertFalse(r["allowLiveRequests"])
 
+    def test_encoded_booking_routes_are_write_risk(self):
+        for path in ("/api/v1/%62ooking", "/api/v1/%2562ooking",
+                     "/api/v1/booking?next=availability"):
+            with self.subTest(path=path):
+                r = triage(self.diagnostic([{"method": "GET", "host": "westbahn.at", "path": path}]))
+                self.assertEqual(r["counts"]["write_risk"], 1)
+                self.assertFalse(r["allowLiveRequests"])
+
+    def test_ambiguous_percent_encoding_stays_unknown(self):
+        r = triage(self.diagnostic([{"method": "GET", "host": "westbahn.at",
+                                     "path": "/api/v1/availability%ZZ"}]))
+        self.assertEqual(r["counts"]["unknown"], 1)
+        self.assertFalse(r["allowLiveRequests"])
+
     def test_invalid_input_blocks(self):
         self.assertFalse(triage({})["allowLiveRequests"])
 
