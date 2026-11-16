@@ -1786,6 +1786,31 @@ def inspect_comfort_booking_control(page, day, root=None):
 
 
 
+def inspect_booking_readiness(page, day, root=None):
+    """Combine independent read-only diagnostics; never authorize or click."""
+    output={'status':'booking_readiness_inspected','date':day,
+            'bookingAuthorized':False,'purchaseExecuted':False,
+            'readyToPurchase':False}
+    inventory=inspect_paginated_reservation_evidence(page.context,day)
+    output['inventory']={key:inventory.get(key) for key in
+        ('candidateStatus','potentialDuplicate','candidateSeats','pagesVerified',
+         'pagesFailed','inventoryComplete','reason')}
+    if inventory.get('potentialDuplicate'):
+        output['reason']='possible_existing_reservation'
+        return output
+    control=inspect_comfort_booking_control(page,day,root=root)
+    output['control']={key:control.get(key) for key in
+        ('bookingFieldState','bookingFieldClickable','providerReservationState',
+         'localAttemptStatus')}
+    if control.get('bookingFieldState')!='enabled_zero_euro':
+        output['reason']='control_not_verified'
+    elif inventory.get('inventoryComplete') is not True:
+        output['reason']='provider_absence_not_authoritative'
+    else:
+        output['reason']='manual_final_verification_required'
+    return output
+
+
 def inspect_paginated_reservation_evidence(context, day):
     """Bounded read-only evidence; never proves absence or authorizes booking."""
     result={'status':'inventory_evidence_inspected','date':day,
@@ -1971,7 +1996,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2092,6 +2117,11 @@ def main():
                 if args.mode=='seat-select-headless': return unattended_seat_selection(page,args.date,root)
                 if args.mode=='comfort-control-check': return inspect_comfort_booking_control(page,args.date,root)
                 if args.mode=='seat-preflight-check': return inspect_live_seat_preflight(page,args.date,root)
+                if args.mode=='booking-readiness-check':
+                    session=ensure_austrian_session(page,root)
+                    if session.get('status')!='account_verified':
+                        return {'status':'account_not_verified','bookingAuthorized':False,'purchaseExecuted':False}
+                    return inspect_booking_readiness(page,args.date,root)
                 if args.mode=='reservation-pages-check':
                     session=ensure_austrian_session(page,root)
                     if session.get('status')!='account_verified':
