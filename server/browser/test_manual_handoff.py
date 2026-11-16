@@ -22,7 +22,7 @@ class HandoffTests(unittest.TestCase):
     def test_unverified_account_blocks(self):
         self.assertEqual(manual_handoff(DAY,{"status":"login_required"})["reason"],"account_unverified")
     def test_wrong_date_blocks(self):
-        self.assertEqual(manual_handoff("2026-11-21",prepared())["reason"],"journey_mismatch")
+        self.assertEqual(manual_handoff("2026-11-19",prepared())["reason"],"journey_mismatch")
 
     def test_wrong_origin_blocks(self):
         p=prepared()
