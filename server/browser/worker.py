@@ -2086,7 +2086,11 @@ def main():
                 return run_price_audit(p,root,kwargs,args.date)
             if args.mode in ('seat-preview','seat-network-diagnostic'):
                 if not args.date: raise Blocked('Reisedatum fehlt.')
-                return run_seat_preview(p,root,kwargs,args.date,network_diagnostic=args.mode=='seat-network-diagnostic')
+                diagnostic=run_seat_preview(p,root,kwargs,args.date,network_diagnostic=args.mode=='seat-network-diagnostic')
+                if args.mode=='seat-network-diagnostic':
+                    from seat_request_contract_review import review
+                    diagnostic['contractReview']=review(diagnostic)
+                return diagnostic
             context=p.chromium.launch_persistent_context(str(root/'chromium'),**kwargs)
             try:
                 page=context.pages[0] if context.pages else context.new_page()
