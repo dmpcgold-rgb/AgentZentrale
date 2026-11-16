@@ -35,4 +35,25 @@ class FinalGateTests(unittest.TestCase):
         self.assertFalse(result['bookingAuthorized'])
         self.assertFalse(result['purchaseExecuted'])
 
+    def test_probably_unbooked_is_not_authoritative(self):
+        result=check(provider={'found':False,'diagnosis':'probably_not_booked'})
+        self.assertEqual(result['reason'],'provider_evidence_ambiguous')
+        self.assertFalse(result['bookingAuthorized'])
+
+    def test_unverified_provider_evidence_blocks_even_with_flag(self):
+        result=check(provider={'found':None,'diagnosis':'not_exposed_in_checked_web_views'},
+                     provider_absence_verified=True)
+        self.assertEqual(result['reason'],'provider_evidence_ambiguous')
+        self.assertFalse(result['purchaseExecuted'])
+
+    def test_zero_euro_alone_does_not_authorize(self):
+        result=check(selection=None)
+        self.assertEqual(result['reason'],'provider_absence_not_authoritative')
+        self.assertFalse(result['bookingAuthorized'])
+
+    def test_confirmed_local_booking_blocks_even_with_absence_flag(self):
+        result=check(local_status='CONFIRMED',provider_absence_verified=True)
+        self.assertEqual(result['reason'],'local_duplicate_or_uncertain')
+        self.assertFalse(result['purchaseExecuted'])
+
 if __name__=='__main__': unittest.main()
