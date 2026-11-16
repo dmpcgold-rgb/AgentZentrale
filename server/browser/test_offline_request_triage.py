@@ -21,6 +21,12 @@ class OfflineRequestTriageTests(unittest.TestCase):
         self.assertEqual(r["counts"]["write_risk"], 1)
         self.assertFalse(r["bookingAuthorized"])
 
+    def test_other_origin_get_cannot_be_read_candidate(self):
+        r = triage(self.diagnostic([{"method": "GET", "host": "other-origin", "path": "/api/v1/availability"}]))
+        self.assertEqual(r["counts"]["read_candidate"], 0)
+        self.assertEqual(r["counts"]["unknown"], 1)
+        self.assertFalse(r["allowLiveRequests"])
+
     def test_invalid_input_blocks(self):
         self.assertFalse(triage({})["allowLiveRequests"])
 
