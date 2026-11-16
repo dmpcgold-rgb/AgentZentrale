@@ -1785,6 +1785,28 @@ def inspect_comfort_booking_control(page, day, root=None):
 
 
 
+
+def inspect_paginated_reservation_evidence(context, day):
+    """Bounded read-only evidence; never proves absence or authorizes booking."""
+    result={'status':'inventory_evidence_inspected','date':day,
+            'bookingAuthorized':False,'purchaseExecuted':False,
+            'inventoryComplete':False,'potentialDuplicate':False}
+    try:
+        inventory=account_inventory(context,max_pages=10)
+        reports=inventory.get('reports',[])
+        summary=summarize_inventory_batch(inventory.get('matchingVisibleCards',[]),[day],reports)
+        candidate=next((item for item in summary.get('days',[]) if item.get('date')==day),None)
+        result['pagesVerified']=sum(r.get('status')=='account_verified' for r in reports)
+        result['pagesFailed']=sum(r.get('status')!='account_verified' for r in reports)
+        result['candidateStatus']=candidate.get('status','unverified') if candidate else 'unverified'
+        result['potentialDuplicate']=bool(candidate and candidate.get('potentialDuplicate'))
+        result['candidateSeats']=candidate.get('seats',[]) if candidate else []
+        result['reason']='possible_existing_reservation' if result['potentialDuplicate'] else 'absence_not_authoritative'
+    except Exception:
+        result['reason']='inventory_inspection_failed'
+    return result
+
+
 def inspect_live_seat_preflight(page, day, root=None):
     """Read-only seat preflight: never open a seat map or click a booking control."""
     from seat_preflight_bridge import inspect_selected_seat
@@ -1949,7 +1971,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2065,11 +2087,16 @@ def main():
                                 'message':'Konto nicht bestätigt; keine Bestätigung.'}
                     inventory=account_inventory(context)
                     return summarize_confirmation_candidates(inventory.get('matchingVisibleCards'),args.date,args.seat)
-                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless','seat-preflight-check','comfort-control-check') and not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','comfort-control-check') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode=='seat-select-headless': return unattended_seat_selection(page,args.date,root)
                 if args.mode=='comfort-control-check': return inspect_comfort_booking_control(page,args.date,root)
                 if args.mode=='seat-preflight-check': return inspect_live_seat_preflight(page,args.date,root)
+                if args.mode=='reservation-pages-check':
+                    session=ensure_austrian_session(page,root)
+                    if session.get('status')!='account_verified':
+                        return {'status':'account_not_verified','bookingAuthorized':False,'purchaseExecuted':False}
+                    return inspect_paginated_reservation_evidence(context,args.date)
                 if args.mode in ('prepare','comfort-inspect'):
                     return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect',root=root)
                 target=URL
