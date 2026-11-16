@@ -2061,7 +2061,8 @@ def manual_seat_review(page, day, root=None):
     # A failed session check keeps the private desktop open for manual login.
     last_confirmed_seat=None
     while True:
-        result=authenticated_prepare(page,day,root=root)
+        prepared=authenticated_prepare(page,day,root=root)
+        result=prepared
         print(json.dumps(result,ensure_ascii=False),file=sys.stderr,flush=True)
         if result.get('status') in ('login_required','account_unverified'):
             print('Bitte im privaten Browser auf westbahn.at anmelden bzw. das Konto öffnen. Danach hier Enter drücken; q beendet.',file=sys.stderr,flush=True)
