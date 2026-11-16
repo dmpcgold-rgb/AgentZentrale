@@ -334,6 +334,31 @@ class BrowserTests(unittest.TestCase):
   self.assertIsNotNone(seat_modal_state(self.page,{'kind':'seat','value':'191D','allowKnown':True}))
   self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'182A','allowKnown':True}))
   self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'205D','allowKnown':True}))
+ def test_known_primary_seat_rejects_wheelchair_marker(self):
+  self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>11 191D</div><div>2+ | Comfort</div><button aria-selected="true">11</button><button title="233A frei ♿" data-wheelchair="true">233A</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  state=seat_modal_state(self.page)
+  control=next(c for c in state['controls'] if c['kind']=='seat')
+  self.assertTrue(control['wheelchair'])
+  self.assertFalse(control['selectableKnown'])
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'233A','allowKnown':True}))
+ def test_known_primary_seat_rejects_four_seat_layout(self):
+  self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>11 191D</div><div>2+ | Comfort</div><button aria-selected="true">11</button><div data-seat-group="table-4" data-seat-layout="four-seat"><button title="233D frei">233D</button></div><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  state=seat_modal_state(self.page)
+  control=next(c for c in state['controls'] if c['kind']=='seat')
+  self.assertTrue(control['fourSeat'])
+  self.assertFalse(control['selectableKnown'])
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'233D','allowKnown':True}))
+ def test_known_primary_seat_rejects_disabled_control(self):
+  self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>11 191D</div><div>2+ | Comfort</div><button aria-selected="true">11</button><button title="233A frei" disabled>233A</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  self.assertIsNone(seat_modal_state(self.page,{'kind':'seat','value':'233A','allowKnown':True}))
+ def test_known_primary_seat_still_selectable_when_safe(self):
+  self.page.set_content("""<section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>11 191D</div><div>2+ | Comfort</div><button aria-selected="true">11</button><button title="233A frei">233A</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
+  state=seat_modal_state(self.page)
+  control=next(c for c in state['controls'] if c['kind']=='seat')
+  self.assertFalse(control['wheelchair'])
+  self.assertFalse(control['fourSeat'])
+  self.assertTrue(control['selectableKnown'])
+  self.assertIsNotNone(seat_modal_state(self.page,{'kind':'seat','value':'233A','allowKnown':True}))
  def test_detail_comfort_requires_scoped_zero_summary(self):
   self.page.set_content("""<section><h2>Meine Auswahl</h2><p>Reservierung Comfort Class</p><p>Wien Meidling - Wiener Neustadt</p><p>1009 18:22</p><p>€ 0,00</p></section><section><h2>Sitzplatzreservierung</h2><div>Wagen Platz</div><div>9 208A</div><button aria-selected="true">8</button><button>191D</button><button>Abbrechen</button><button>Bestätigen</button></section>""")
   state=seat_modal_state(self.page)
