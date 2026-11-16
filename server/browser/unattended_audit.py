@@ -53,7 +53,28 @@ def safe_summary(payload, requested):
         results.append({"date":item["date"],"status":"existing_verified" if verified else "possible_existing" if visible_conflict else "needs_review",
                         "seats":[seat for seat in item.get("seats",[]) if isinstance(seat,str)
                                  and len(seat)<=5][:3] if (verified or visible_conflict) else []})
+    # Export bounded, redacted coverage diagnostics; no account identifiers.
+    coverage=payload.get("coverage") if isinstance(payload.get("coverage"),dict) else {}
+    pagination=payload.get("paginationDiagnostics") if isinstance(payload.get("paginationDiagnostics"),dict) else {}
+    austrian=pagination.get("westbahn.at") if isinstance(pagination.get("westbahn.at"),dict) else {}
+    card=austrian.get("cardCoverage") if isinstance(austrian.get("cardCoverage"),dict) else {}
+    observed=austrian.get("linkedPagesObserved")
+    checked=austrian.get("pagesVerified")
+    missing=austrian.get("linkedPagesNotVerified")
+    diagnostic={
+        "providerInventoryComplete":False,
+        "pagesAttempted":coverage.get("pagesAttempted") if type(coverage.get("pagesAttempted")) is int else None,
+        "pagesVerified":coverage.get("pagesVerified") if type(coverage.get("pagesVerified")) is int else None,
+        "pagesFailed":coverage.get("pagesFailed") if type(coverage.get("pagesFailed")) is int else None,
+        "austrianPagesChecked":len(checked) if isinstance(checked,list) else None,
+        "austrianPagesLinked":len(observed) if isinstance(observed,list) else None,
+        "austrianLinkedPagesMissing":len(missing) if isinstance(missing,list) else None,
+        "unmatchedComfortCards":card.get("unmatchedComfortCards") if type(card.get("unmatchedComfortCards")) is int else None,
+        "visibleParserConsistent":card.get("visibleParserConsistent") is True,
+        "absenceEvidence":"not_authoritative"
+    }
     return {"status":"audit_completed","days":sorted(results,key=lambda x:x["date"]),
+            "scanDiagnostics":diagnostic,
             "bookingAuthorized":False,"purchaseExecuted":False,
             "message":"Automatische Bestandsprüfung abgeschlossen. Buchung bleibt gesperrt, solange fehlende Reservierungen nicht autoritativ ausgeschlossen werden können."}
 
