@@ -104,3 +104,25 @@ class AttemptLedger:
             AND travel_date=? ORDER BY rowid DESC LIMIT 1""",
             (journey_key, travel_date)).fetchone()
         return rows[0] if rows else None
+
+
+def inspect_existing_attempt(path, journey_key, travel_date):
+    """Read-only inspection. Never creates a database or a new attempt."""
+    _day(travel_date)
+    if not isinstance(journey_key,str) or not journey_key.strip():
+        raise ValueError('journey_key required')
+    if not path or not Path(path).is_file():
+        return {'status':'UNAVAILABLE','reason':'ledger_file_missing'}
+    db=None
+    try:
+        db=sqlite3.connect('file:'+Path(path).resolve().as_posix()+'?mode=ro',uri=True,timeout=5)
+        rows=db.execute("""SELECT status FROM attempts
+            WHERE journey_key=? AND travel_date=?
+            ORDER BY rowid DESC LIMIT 1""",(journey_key,travel_date)).fetchone()
+        return {'status':rows[0] if rows else 'NONE',
+                'reason':'ledger_entry_found' if rows else 'no_local_attempt'}
+    except (sqlite3.Error,OSError):
+        return {'status':'UNAVAILABLE','reason':'ledger_read_failed'}
+    finally:
+        if db is not None:
+            db.close()
