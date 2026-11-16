@@ -1709,6 +1709,52 @@ def safe_review_failure(error, phase):
             'bookingAuthorized':False}
 
 
+
+def inspect_comfort_booking_control(page, day, root=None):
+    """Read-only: 0 EUR alone is never proof of a bookable or duplicate-free trip."""
+    result={'status':'comfort_control_inspected','date':day,
+            'bookingAuthorized':False,'purchaseExecuted':False,
+            'bookingFieldClickable':False,'bookingFieldState':'unknown'}
+    try:
+        prepared=authenticated_prepare(page,day,inspect_only=True,root=root)
+        if prepared.get('accountVerifiedBeforeSearch') is not True or prepared.get('status')!='comfort_inspected':
+            result['bookingFieldState']='account_or_connection_unverified'
+            return result
+        connection=prepared.get('connection')
+        if not isinstance(connection,dict) or connection.get('date')!=day or connection.get('departure')!='18:22' or connection.get('trainNumber')!='1009':
+            result['bookingFieldState']='connection_unverified'
+            return result
+        inspection=prepared.get('inspection')
+        if not isinstance(inspection,dict):
+            result['bookingFieldState']='control_unverified'
+            return result
+        controls=inspection.get('controls')
+        if inspection.get('targetClassLabels')!=1 or not isinstance(controls,list) or len(controls)!=1:
+            result['bookingFieldState']='control_ambiguous'
+            return result
+        control=controls[0]
+        if not isinstance(control,dict):
+            result['bookingFieldState']='control_unverified'
+            return result
+        if control.get('disabled') is True:
+            result['bookingFieldState']='disabled'
+            return result
+        if control.get('visible') is not True or control.get('disabled') is not False or control.get('pointerEvents') in (None,'none'):
+            result['bookingFieldState']='not_interactable'
+            return result
+        verified=apply_comfort_control_price(connection,inspection)
+        if verified.get('displayedPriceCents')!=0 or verified.get('priceSource')!='comfort_control':
+            result['bookingFieldState']='price_not_verified_zero'
+            return result
+        result['bookingFieldClickable']=True
+        result['bookingFieldState']='enabled_zero_euro'
+        result['message']='UI control appears enabled; no click, purchase or absence verification performed.'
+    except Exception as error:
+        result['bookingFieldState']='inspection_failed'
+        result['failure']=safe_review_failure(error,'control_inspection')
+    return result
+
+
 def unattended_seat_selection(page, day, root=None):
     """One-shot headless seat selection. No basket, checkout or purchase."""
     phase='prepare'
@@ -1823,7 +1869,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -1939,9 +1985,10 @@ def main():
                                 'message':'Konto nicht bestätigt; keine Bestätigung.'}
                     inventory=account_inventory(context)
                     return summarize_confirmation_candidates(inventory.get('matchingVisibleCards'),args.date,args.seat)
-                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless') and not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless','comfort-control-check') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
                 if args.mode=='seat-select-headless': return unattended_seat_selection(page,args.date,root)
+                if args.mode=='comfort-control-check': return inspect_comfort_booking_control(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
                     return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect',root=root)
                 target=URL
