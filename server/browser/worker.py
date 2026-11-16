@@ -1820,12 +1820,24 @@ def unattended_seat_selection(page, day, root=None):
             return {'status':'unattended_selection_blocked',
                     'phase':'ledger_unavailable','date':day,
                     'bookingAuthorized':False,'purchaseExecuted':False}
-        # Visible account cards cannot establish that a date is unbooked.
-        # A 0-EUR result is not authorization to mutate the seat selection.
+        # Connect the final gate to the live, read-only provider/control audit.
+        # Never interpret a clickable zero-euro control as proof of absence.
+        from final_booking_gate import final_booking_gate
+        control=inspect_comfort_booking_control(page,day,root=root)
+        state=control.get('providerReservationState')
+        provider={'found':True if state=='reservation_detected' else None,
+                  'diagnosis':state}
+        if state=='not_exposed_in_checked_web_views':
+            provider['found']=False
+        preflight=final_booking_gate(
+            day,connection,control,provider,local_status or 'NONE',
+            selection=None,provider_absence_verified=False)
         return {'status':'unattended_selection_blocked',
-                'phase':'duplicate_absence_not_verified',
-                'date':day,'bookingAuthorized':False,'purchaseExecuted':False,
-                'message':'0-EUR-Verbindung gefunden, aber Buchungsfreiheit nicht verbindlich nachgewiesen.'}
+                'phase':'final_gate_'+preflight['reason'],
+                'date':day,'controlState':control.get('bookingFieldState'),
+                'providerReservationState':state,
+                'bookingAuthorized':False,'purchaseExecuted':False,
+                'message':'Sitzplatzauswahl bleibt gesperrt, bis der Anbieter Buchungsfreiheit verbindlich bestätigt.'}
     except Exception as error:
         return {'status':'unattended_selection_blocked','phase':phase,
                 'failure':safe_review_failure(error,phase),
