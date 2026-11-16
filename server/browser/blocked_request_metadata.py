@@ -68,3 +68,14 @@ def describe(request,step="seat_selection"):
             "timestamp_utc":datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "step":step}
 
+
+def abort_and_record(route, blocked_requests, step="seat_selection", limit=100):
+    """Fail-closed offline route guard: always abort, never continue/fulfill."""
+    try:
+        if len(blocked_requests)<limit:
+            item=describe(route.request,step=step)
+            item["resourceType"]=route.request.resource_type
+            item["requestIndex"]=len(blocked_requests)+1
+            blocked_requests.append(item)
+    finally:
+        route.abort()
