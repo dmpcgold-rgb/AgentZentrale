@@ -2122,7 +2122,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','seat-metadata-diagnostic','manual-handoff-check','trip-plan-check','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','seat-metadata-diagnostic','manual-handoff-check','trip-plan-check','trip-seat-summary-check','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2177,6 +2177,30 @@ def main():
                                 return
                         route.continue_()
                     context.route('**/*',guard)
+                if args.mode=='trip-seat-summary-check':
+                    if not args.date: raise Blocked('Reisedatum fehlt.')
+                    from trip_plan import plan, seat_review_summary
+                    prepared=authenticated_prepare(page,args.date,root=root)
+                    trip=plan(args.date,prepared)
+                    observed=None
+                    if trip.get('status')=='ready_for_manual_seat_review':
+                        matching=[p for p in context.pages if not p.is_closed()
+                                  and is_review_detail_url(p.evaluate('window.location.href'),args.date)]
+                        if len(matching)==1:
+                            modal=seat_modal_state(matching[0])
+                            detail=detail_selection_summary(matching[0],args.date)
+                            selected=modal.get('selected') or {}
+                            seat=selected.get('seat')
+                            # Do not infer seat layout from seat number alone.
+                            observed={'verified':bool(detail.get('verified') and
+                                                     detail.get('seat')==seat and
+                                                     modal.get('modalFound')),
+                                      'seat':seat,
+                                      'comfortClassVerified':bool(modal.get('comfortMap')),
+                                      'wheelchair':None,'fourSeatGroup':None}
+                    summary=seat_review_summary(trip,observed)
+                    return {'status':summary['status'],'trip':trip,'seatSummary':summary,
+                            'bookingAuthorized':False,'purchaseExecuted':False}
                 if args.mode=='trip-plan-check':
                     if not args.date: raise Blocked('Reisedatum fehlt.')
                     from trip_plan import plan
