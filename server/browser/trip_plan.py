@@ -33,3 +33,28 @@ def plan(day,prepared):
     result["reason"]="seat_availability_not_verified"
     result["displayedPriceCents"]=0
     return result
+
+def seat_review_summary(trip, seat_observation=None):
+    """Combine trip readiness and independently observed seat data without guessing."""
+    result={"status":"review_required","bookingAuthorized":False,
+            "purchaseExecuted":False,"seatConfirmed":False,
+            "preferredSeats":list(SEATS),"selectedSeat":None,
+            "nextAction":"Verify actual Comfort seat map and checkout manually."}
+    if not isinstance(trip,dict) or trip.get("status")!="ready_for_manual_seat_review":
+        result["reason"]="trip_not_ready"
+        return result
+    if not isinstance(seat_observation,dict) or seat_observation.get("verified") is not True:
+        result["reason"]="seat_map_unverified"
+        return result
+    seat=seat_observation.get("seat")
+    if seat not in SEATS or seat_observation.get("comfortClassVerified") is not True:
+        result["reason"]="seat_or_class_unverified"
+        return result
+    if seat_observation.get("wheelchair") is not False or seat_observation.get("fourSeatGroup") is not False:
+        result["reason"]="seat_layout_unverified"
+        return result
+    result["selectedSeat"]=seat
+    result["seatConfirmed"]=True
+    result["status"]="ready_for_manual_checkout_review"
+    result["reason"]="checkout_requires_manual_confirmation"
+    return result
