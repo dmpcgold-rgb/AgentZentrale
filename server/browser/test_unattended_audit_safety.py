@@ -38,6 +38,24 @@ class AuditSafetyTests(unittest.TestCase):
         self.assertFalse(result['bookingAuthorized'])
         self.assertFalse(result['purchaseExecuted'])
 
+    def test_coverage_diagnostics_are_redacted_and_non_authoritative(self):
+        payload={'status':'inventory_batch_read','days':[
+            {'date':day,'status':'review_required','seats':[]} for day in self.DAYS],
+            'coverage':{'pagesAttempted':5,'pagesVerified':4,'pagesFailed':1,
+                        'secretToken':'DO_NOT_EXPOSE'},
+            'paginationDiagnostics':{'westbahn.at':{
+                'pagesVerified':[1,2],'linkedPagesObserved':[1,2,3],
+                'linkedPagesNotVerified':[3],
+                'cardCoverage':{'unmatchedComfortCards':2,
+                                'visibleParserConsistent':False},
+                'rawTicketReference':'DO_NOT_EXPOSE'}}}
+        result=audit.safe_summary(payload,self.DAYS)
+        self.assertEqual(result['scanDiagnostics']['austrianLinkedPagesMissing'],1)
+        self.assertEqual(result['scanDiagnostics']['unmatchedComfortCards'],2)
+        self.assertFalse(result['scanDiagnostics']['providerInventoryComplete'])
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertNotIn('DO_NOT_EXPOSE',str(result))
+
     def test_duplicate_dates_block_audit(self):
         payload={'status':'inventory_batch_read','days':[
             {'date':self.DAYS[0],'status':'review_required'} for _ in self.DAYS]}
