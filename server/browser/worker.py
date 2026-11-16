@@ -1891,6 +1891,24 @@ def inspect_paginated_reservation_evidence(context, day):
         candidate=next((item for item in summary.get('days',[]) if item.get('date')==day),None)
         result['pagesVerified']=sum(r.get('status')=='account_verified' for r in reports)
         result['pagesFailed']=sum(r.get('status')!='account_verified' for r in reports)
+        # Pagination indicators are diagnostics, not proof of complete inventory.
+        # Preserve only bounded counts; no ticket identifiers or customer data.
+        verified=[r for r in reports if r.get('status')=='account_verified']
+        scanned={r.get('page') for r in verified if type(r.get('page')) is int}
+        linked={n for r in verified for n in r.get('paginationLinks',[])
+                if type(n) is int and 1<=n<=100}
+        unresolved=sorted(linked-scanned)
+        result['paginationEvidence']={
+            'pagesObserved':len(scanned),
+            'linkedPagesNotVerified':unresolved[:20],
+            'hasUnverifiedPaginationLinks':bool(unresolved),
+            'navigationControlsObserved':sum(
+                min(100,max(0,r.get('domHints',{}).get('navigationControls',0)))
+                for r in verified if isinstance(r.get('domHints'),dict)),
+            'totalLabelsObserved':sum(
+                min(100,max(0,r.get('totalHints',{}).get('candidateTotalLabels',0)))
+                for r in verified if isinstance(r.get('totalHints'),dict)),
+            'authoritativeCompleteness':False}
         result['candidateStatus']=candidate.get('status','unverified') if candidate else 'unverified'
         result['potentialDuplicate']=bool(candidate and candidate.get('potentialDuplicate'))
         result['candidateSeats']=candidate.get('seats',[]) if candidate else []
