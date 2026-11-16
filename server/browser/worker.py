@@ -1227,7 +1227,7 @@ def seat_modal_state(page, target=None):
         elements.push(e);
       }
       if(target){
-        const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||c.free||(target.allowKnown===true&&c.selectableKnown)));
+        const matches=controls.map((c,i)=>({c,i})).filter(({c})=>c.kind===target.kind&&c.value===target.value&&!c.disabled&&!c.unavailable&&(c.kind!=='seat'||(!c.wheelchair&&!c.fourSeat&&(c.free||(target.allowKnown===true&&c.selectableKnown)))));
         return matches.length===1?elements[matches[0].i]:null;
       }
       const active=[...new Set(activeCoaches)];
