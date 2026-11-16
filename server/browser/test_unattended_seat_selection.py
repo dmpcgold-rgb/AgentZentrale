@@ -19,27 +19,23 @@ class SeatSelectionTests(unittest.TestCase):
         open_map.assert_not_called()
         self.assertEqual(result['status'],'unattended_selection_blocked')
 
-    def test_selection_never_purchases(self):
-        page=MagicMock()
-        choice={'coach':'11','seat':'233A'}
+    def test_zero_price_still_blocks_without_duplicate_proof(self):
         with patch.object(worker,'authenticated_prepare',return_value={
             'status':'connection_found','accountVerifiedBeforeSearch':True,
-            'connection':{'displayedPriceCents':0}}),patch.object(worker,'open_review_seat_map',return_value=page),patch.object(worker,'find_open_review_page',return_value=(page,{})),patch.object(worker,'select_primary_seat_in_open_modal',return_value={'status':'primary_seat_selected','selection':choice}),patch.object(worker,'confirm_review_selection',return_value={'status':'seat_confirmed','selection':choice}):
-            result=worker.unattended_seat_selection(page,'2026-11-20')
-        self.assertEqual(result['status'],'seat_selected_not_booked')
-        self.assertEqual(result['seat'],'233A')
+            'connection':{'displayedPriceCents':0}}),patch.object(worker,'open_review_seat_map') as open_map:
+            result=worker.unattended_seat_selection(MagicMock(),'2026-11-20')
+        open_map.assert_not_called()
+        self.assertEqual(result['phase'],'duplicate_absence_not_verified')
         self.assertFalse(result['bookingAuthorized'])
         self.assertFalse(result['purchaseExecuted'])
 
-    def test_unconfirmed_selection_blocks(self):
-        page=MagicMock()
-        choice={'coach':'11','seat':'233A'}
+    def test_missing_price_blocks(self):
         with patch.object(worker,'authenticated_prepare',return_value={
             'status':'connection_found','accountVerifiedBeforeSearch':True,
-            'connection':{'displayedPriceCents':0}}),patch.object(worker,'open_review_seat_map',return_value=page),patch.object(worker,'find_open_review_page',return_value=(page,{})),patch.object(worker,'select_primary_seat_in_open_modal',return_value={'status':'primary_seat_selected','selection':choice}),patch.object(worker,'confirm_review_selection',return_value={'status':'seat_confirmation_unverified'}):
-            result=worker.unattended_seat_selection(page,'2026-11-20')
-        self.assertEqual(result['status'],'unattended_selection_blocked')
-        self.assertFalse(result['purchaseExecuted'])
+            'connection':{'displayedPriceCents':None}}),patch.object(worker,'open_review_seat_map') as open_map:
+            result=worker.unattended_seat_selection(MagicMock(),'2026-11-20')
+        open_map.assert_not_called()
+        self.assertEqual(result['phase'],'fare_not_verified')
 
 if __name__=='__main__':
     unittest.main()
