@@ -1721,38 +1721,12 @@ def unattended_seat_selection(page, day, root=None):
         if not isinstance(connection,dict) or type(connection.get('displayedPriceCents')) is not int or connection['displayedPriceCents']!=0:
             return {'status':'unattended_selection_blocked','phase':'fare_not_verified',
                     'bookingAuthorized':False,'purchaseExecuted':False}
-        # The account inventory cannot prove absence of a ticket. Do not
-        # mutate a live reservation until a separate authoritative duplicate
-        # check exists. This mode is intentionally a safe preflight only.
+        # Visible account cards cannot establish that a date is unbooked.
+        # A 0-EUR result is not authorization to mutate the seat selection.
         return {'status':'unattended_selection_blocked',
                 'phase':'duplicate_absence_not_verified',
                 'date':day,'bookingAuthorized':False,'purchaseExecuted':False,
                 'message':'0-EUR-Verbindung gefunden, aber Buchungsfreiheit nicht verbindlich nachgewiesen.'}
-        phase='open_seat_map'
-        actual=open_review_seat_map(page,day)
-        phase='locate_seat_map'
-        actual,diagnostic=find_open_review_page(actual,day)
-        if actual is None:
-            return {'status':'unattended_selection_blocked','phase':phase,
-                    'bookingAuthorized':False,'purchaseExecuted':False}
-        phase='select_seat'
-        selected=select_primary_seat_in_open_modal(actual)
-        if selected.get('status') not in ('primary_seat_selected','alternative_seat_selected'):
-            return {'status':'unattended_selection_blocked','phase':phase,
-                    'bookingAuthorized':False,'purchaseExecuted':False}
-        choice=selected.get('selection')
-        if not isinstance(choice,dict) or not choice.get('seat') or not choice.get('coach'):
-            return {'status':'unattended_selection_blocked','phase':'selection_not_verified',
-                    'bookingAuthorized':False,'purchaseExecuted':False}
-        phase='confirm_seat_only'
-        confirmed=confirm_review_selection(actual,day)
-        if confirmed.get('status')!='seat_confirmed' or confirmed.get('selection')!=choice:
-            return {'status':'unattended_selection_blocked','phase':phase,
-                    'bookingAuthorized':False,'purchaseExecuted':False}
-        return {'status':'seat_selected_not_booked','date':day,
-                'seat':choice['seat'],'coach':choice['coach'],
-                'bookingAuthorized':False,'purchaseExecuted':False,
-                'message':'Sitzplatz nur in der Auswahl bestätigt. Keine Reservierung gekauft.'}
     except Exception as error:
         return {'status':'unattended_selection_blocked','phase':phase,
                 'failure':safe_review_failure(error,phase),
