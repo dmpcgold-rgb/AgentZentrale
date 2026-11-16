@@ -1,9 +1,52 @@
 import unittest
 from unittest.mock import MagicMock, patch
+import os
+import tempfile
+from booking_ledger import AttemptLedger
 import worker
 
 
 class ComfortControlTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.ledger_path=os.path.join(self.tmp.name,'ledger.sqlite')
+        self.env=patch.dict(os.environ,{'WESTBAHN_BOOKING_LEDGER':self.ledger_path})
+        self.env.start()
+        self.audit=patch.object(worker,'account_audit',return_value={
+            'found':False,'diagnosis':'not_exposed_in_checked_web_views'})
+        self.audit.start()
+
+    def tearDown(self):
+        self.audit.stop()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def test_provider_verified_ticket_overrides_enabled_control(self):
+        with patch.object(worker,'account_audit',return_value={
+            'found':True,'diagnosis':'reservation_detected'}), patch.object(
+            worker,'authenticated_prepare',return_value=self.prepared(
+            {'disabled':False,'visible':True,'pointerEvents':'auto','prices':['0,00 €']})):
+            result=worker.inspect_comfort_booking_control(MagicMock(),'2026-11-19')
+        self.assertEqual(result['bookingFieldState'],'existing_reservation_blocked')
+        self.assertFalse(result['bookingFieldClickable'])
+
+    def test_ambiguous_provider_marker_blocks(self):
+        with patch.object(worker,'account_audit',return_value={
+            'found':False,'diagnosis':'date_present_parser_needs_review'}), patch.object(
+            worker,'authenticated_prepare',return_value=self.prepared(
+            {'disabled':False,'visible':True,'pointerEvents':'auto'})):
+            result=worker.inspect_comfort_booking_control(MagicMock(),'2026-11-20')
+        self.assertEqual(result['bookingFieldState'],'provider_evidence_ambiguous')
+
+    def test_local_pending_attempt_blocks(self):
+        db=AttemptLedger(self.ledger_path)
+        db.claim('westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+','2026-11-20')
+        db.close()
+        with patch.object(worker,'authenticated_prepare',return_value=self.prepared(
+            {'disabled':False,'visible':True,'pointerEvents':'auto'})):
+            result=worker.inspect_comfort_booking_control(MagicMock(),'2026-11-20')
+        self.assertEqual(result['bookingFieldState'],'local_attempt_blocked')
+
     def prepared(self, control):
         return {'status':'comfort_inspected','accountVerifiedBeforeSearch':True,
                 'connection':{'date':'2026-11-20','departure':'18:22','trainNumber':'1009'},
