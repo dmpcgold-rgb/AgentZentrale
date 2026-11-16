@@ -7,6 +7,15 @@ redacted JSON emitted by worker.py seat-network-diagnostic.
 import json
 import sys
 
+def provider_host(host):
+    """Match the exact WESTbahn domain or a dot-delimited subdomain only."""
+    if not isinstance(host, str):
+        return False
+    host = host.lower()
+    return any(host == domain or host.endswith("." + domain)
+               for domain in ("westbahn.at", "westbahn.de"))
+
+
 def triage(report):
     blocked = report.get("blockedRequests", [])
     if report.get("status") != "seat_network_diagnostic" or not isinstance(blocked, list):
@@ -28,7 +37,7 @@ def triage(report):
         reads = {"availability", "seatmap", "seat-map", "layout", "layouts", "search", "offers"}
         if method not in ("GET", "HEAD", "POST") or segments & writes:
             category = "write_risk"
-        elif (method in ("GET", "HEAD") and host in ("westbahn.at", "westbahn.de")
+        elif (method in ("GET", "HEAD") and provider_host(host)
               and segments & reads and ":redacted" not in path):
             category = "read_candidate"
         else:
