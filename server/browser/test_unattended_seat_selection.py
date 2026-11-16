@@ -27,7 +27,7 @@ class SeatSelectionTests(unittest.TestCase):
             'connection':{'displayedPriceCents':0}}),patch.object(worker,'open_review_seat_map') as open_map:
             result=worker.unattended_seat_selection(MagicMock(),'2026-11-20')
         open_map.assert_not_called()
-        self.assertEqual(result['phase'],'duplicate_absence_not_verified')
+        self.assertEqual(result['phase'],'provider_absence_not_authoritative')
         self.assertFalse(result['bookingAuthorized'])
         self.assertFalse(result['purchaseExecuted'])
 
