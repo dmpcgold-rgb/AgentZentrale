@@ -2117,10 +2117,15 @@ def manual_seat_review(page, day, root=None):
                         trip=plan(day,prepared if isinstance(prepared,dict) else {})
                         selection=result.get('selection') if isinstance(result,dict) else None
                         modal=seat_modal_state(actual)
-                        verified_seat=(selection or {}).get('seat')
+                        # Partial browser evidence must block, never authorize a booking.
+                        selection=selection if isinstance(selection,dict) else {}
+                        modal=modal if isinstance(modal,dict) else {}
+                        verified_seat=selection.get('seat')
+                        raw_controls=modal.get('controls')
+                        raw_controls=raw_controls if isinstance(raw_controls,list) else []
                         # A selection in the modal does not prove a safe two-seat layout.
-                        controls=[c for c in modal.get('controls',[])
-                                  if c.get('kind')=='seat' and c.get('value')==verified_seat]
+                        controls=[c for c in raw_controls if isinstance(c,dict)
+                                  and c.get('kind')=='seat' and c.get('value')==verified_seat]
                         eligible=(len(controls)==1 and
                                   controls[0].get('fourSeat') is False and
                                   controls[0].get('wheelchair') is False and
