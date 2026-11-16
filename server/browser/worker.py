@@ -2110,6 +2110,25 @@ def manual_seat_review(page, day, root=None):
                     phase='confirm_seat_only' if command=='b' else 'select_preferred_seat'
                     result=confirm_review_selection(actual,day) if command=='b' else select_primary_seat_in_open_modal(actual)
                     result['pageInspection']=diagnostic
+                    if command=='a':
+                        from trip_plan import plan, seat_review_summary
+                        trip=plan(day,prepared if isinstance(prepared,dict) else {})
+                        selection=result.get('selection') if isinstance(result,dict) else None
+                        modal=seat_modal_state(actual)
+                        verified_seat=(selection or {}).get('seat')
+                        # A selection in the modal does not prove a safe two-seat layout.
+                        controls=[c for c in modal.get('controls',[])
+                                  if c.get('kind')=='seat' and c.get('value')==verified_seat]
+                        eligible=(len(controls)==1 and
+                                  controls[0].get('fourSeat') is False and
+                                  controls[0].get('wheelchair') is False and
+                                  controls[0].get('layout') in ('single-facing-table','single-offset-facing'))
+                        observation={'verified':bool(eligible and modal.get('selected')==selection),
+                                     'seat':verified_seat,
+                                     'comfortClassVerified':bool(modal.get('comfortMap')),
+                                     'wheelchair':controls[0].get('wheelchair') if eligible else None,
+                                     'fourSeatGroup':controls[0].get('fourSeat') if eligible else None}
+                        result['tripSeatSummary']=seat_review_summary(trip,observation)
                     if result.get('status')=='seat_confirmed':
                         last_confirmed_seat=result.get('selection',{}).get('seat')
             except Blocked as error:
