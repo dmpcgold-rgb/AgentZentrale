@@ -2121,7 +2121,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','seat-metadata-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2141,9 +2141,16 @@ def main():
             if args.mode=='price-audit':
                 if not args.date: raise Blocked('Reisedatum fehlt.')
                 return run_price_audit(p,root,kwargs,args.date)
-            if args.mode in ('seat-preview','seat-network-diagnostic'):
+            if args.mode in ('seat-preview','seat-network-diagnostic','seat-metadata-diagnostic'):
                 if not args.date: raise Blocked('Reisedatum fehlt.')
-                diagnostic=run_seat_preview(p,root,kwargs,args.date,network_diagnostic=args.mode=='seat-network-diagnostic')
+                diagnostic=run_seat_preview(p,root,kwargs,args.date,network_diagnostic=args.mode!='seat-preview')
+                if args.mode=='seat-metadata-diagnostic':
+                    return {'status':diagnostic.get('status'),
+                            'blockReason':diagnostic.get('blockReason'),
+                            'networkPolicy':'offline_all_requests_denied',
+                            'allowLiveRequests':False,
+                            'blockedRequestCount':diagnostic.get('blockedRequestCount',0),
+                            'blockedRequests':diagnostic.get('blockedRequests',[])}
                 if args.mode=='seat-network-diagnostic':
                     from seat_request_contract_review import review
                     diagnostic['contractReview']=review(diagnostic)
