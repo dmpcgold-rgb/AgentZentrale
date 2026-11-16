@@ -58,4 +58,32 @@ class ReadinessTests(unittest.TestCase):
         self.assertFalse(result['bookingAuthorized'])
         control.assert_not_called()
 
+    @patch.object(worker,'summarize_inventory_batch')
+    @patch.object(worker,'account_inventory')
+    def test_unverified_pagination_links_reported_without_absence_proof(self,inventory,summarize):
+        inventory.return_value={'matchingVisibleCards':[], 'reports':[
+            {'status':'account_verified','page':1,'paginationLinks':[1,2,3],
+             'domHints':{'navigationControls':2},
+             'totalHints':{'candidateTotalLabels':1}},
+            {'status':'account_verified','page':2,'paginationLinks':[1,2,3]}]}
+        summarize.return_value={'days':[{'date':'2026-11-20','status':'review_required',
+                                         'potentialDuplicate':False,'seats':[]}]}
+        result=worker.inspect_paginated_reservation_evidence(object(),'2026-11-20')
+        self.assertEqual(result['paginationEvidence']['linkedPagesNotVerified'],[3])
+        self.assertTrue(result['paginationEvidence']['hasUnverifiedPaginationLinks'])
+        self.assertFalse(result['paginationEvidence']['authoritativeCompleteness'])
+        self.assertFalse(result['bookingAuthorized'])
+
+    @patch.object(worker,'summarize_inventory_batch')
+    @patch.object(worker,'account_inventory')
+    def test_no_pagination_links_still_not_authoritative(self,inventory,summarize):
+        inventory.return_value={'matchingVisibleCards':[], 'reports':[
+            {'status':'account_verified','page':1,'paginationLinks':[]}]}
+        summarize.return_value={'days':[]}
+        result=worker.inspect_paginated_reservation_evidence(object(),'2026-11-20')
+        self.assertEqual(result['paginationEvidence']['linkedPagesNotVerified'],[])
+        self.assertFalse(result['inventoryComplete'])
+        self.assertFalse(result['paginationEvidence']['authoritativeCompleteness'])
+        self.assertFalse(result['purchaseExecuted'])
+
 if __name__=='__main__': unittest.main()
