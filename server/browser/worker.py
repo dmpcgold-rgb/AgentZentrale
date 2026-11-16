@@ -496,10 +496,21 @@ def offline_seat_preview(page, day, network_diagnostic=False):
         seatMapLabel:/Sitzplatz(?:auswahl| auswählen)|Wagen(?:auswahl| auswählen)|Sitzplan/i.test(t)};
     }""")
     preferences=['233A','233D','191D','182A','193A','193D']
+    # Diagnostic only: summarize blocked requests without exposing query
+    # strings, bodies, tokens, or enabling any network mutation.
+    request_types={}
+    for item in blocked_requests:
+        key=str(item.get('method','UNKNOWN')).upper()+' '+str(item.get('resourceType','unknown'))
+        request_types[key]=request_types.get(key,0)+1
+    mutation_candidates=sum(1 for item in blocked_requests
+                            if str(item.get('method','')).upper() not in ('GET','HEAD'))
     return {'status':'seat_network_diagnostic' if network_diagnostic else 'seat_preview_offline','connection':conn,'inspection':observations,
             'zeroPriceObserved':zero_price,'bookingAuthorized':False,
             'preferredControls':[s for s in observations['seatControls'] if s['seat'] in preferences],
-            'blockedRequestCount':len(blocked_requests),'blockedRequests':blocked_requests,'liveAvailabilityVerified':False,
+            'blockedRequestCount':len(blocked_requests),'blockedRequests':blocked_requests,
+            'blockedRequestTypes':request_types,'blockedMutationCandidates':mutation_candidates,
+            'networkPolicy':'offline_all_requests_denied',
+            'liveAvailabilityVerified':False,
             'message':'Isolierte Offline-Vorschau; keine Anfrage aus dem Comfort-Klick an WESTbahn übertragen. Sichtbare Plätze sind keine bestätigte Live-Verfügbarkeit.'}
 
 
