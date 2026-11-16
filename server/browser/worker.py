@@ -1721,6 +1721,30 @@ def unattended_seat_selection(page, day, root=None):
         if not isinstance(connection,dict) or type(connection.get('displayedPriceCents')) is not int or connection['displayedPriceCents']!=0:
             return {'status':'unattended_selection_blocked','phase':'fare_not_verified',
                     'bookingAuthorized':False,'purchaseExecuted':False}
+        # Check the durable ledger before any future browser mutation.
+        # A missing record is NOT proof that WESTbahn has no reservation.
+        phase='local_duplicate_check'
+        try:
+            from booking_ledger import AttemptLedger
+            ledger_path=os.environ.get('WESTBAHN_BOOKING_LEDGER')
+            if not ledger_path:
+                return {'status':'unattended_selection_blocked',
+                        'phase':'ledger_not_configured','date':day,
+                        'bookingAuthorized':False,'purchaseExecuted':False}
+            journey='westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+'
+            ledger=AttemptLedger(ledger_path)
+            try:
+                local_status=ledger.status(journey,day)
+            finally:
+                ledger.close()
+            if local_status in ('PENDING','CONFIRMED','UNCERTAIN'):
+                return {'status':'unattended_selection_blocked',
+                        'phase':'local_duplicate_'+local_status.lower(),
+                        'date':day,'bookingAuthorized':False,'purchaseExecuted':False}
+        except Exception:
+            return {'status':'unattended_selection_blocked',
+                    'phase':'ledger_unavailable','date':day,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
         # Visible account cards cannot establish that a date is unbooked.
         # A 0-EUR result is not authorization to mutate the seat selection.
         return {'status':'unattended_selection_blocked',
