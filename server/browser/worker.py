@@ -2186,20 +2186,15 @@ def main():
                     if prepared.get('status')!='connection_found':
                         return manual_handoff(args.date,prepared)
                     inventory=inspect_paginated_reservation_evidence(context,args.date)
-                    local_status=None
-                    try:
-                        from booking_ledger import AttemptLedger
-                        ledger_path=os.environ.get('WESTBAHN_BOOKING_LEDGER')
-                        if ledger_path:
-                            ledger=AttemptLedger(ledger_path)
-                            try:
-                                journey='westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+'
-                                local_status=ledger.status(journey,args.date) or 'NONE'
-                            finally:
-                                ledger.close()
-                    except Exception:
-                        local_status=None
-                    return manual_handoff(args.date,prepared,inventory,local_status=local_status)
+                    from booking_ledger import inspect_existing_attempt
+                    journey='westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+'
+                    ledger_path=os.environ.get('WESTBAHN_BOOKING_LEDGER')
+                    local_evidence=inspect_existing_attempt(ledger_path,journey,args.date)
+                    result=manual_handoff(args.date,prepared,inventory,
+                                          local_status=local_evidence['status'])
+                    result['localLedgerStatus']=local_evidence['status']
+                    result['localLedgerReason']=local_evidence['reason']
+                    return result
                 if args.mode=='login-check': return ensure_austrian_session(page,root)
                 if args.mode=='account':
                     session=ensure_austrian_session(page,root)
