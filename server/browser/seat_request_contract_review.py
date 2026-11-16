@@ -14,7 +14,8 @@ def review(diagnostic):
         return {"status": "review_blocked", "reason": "missing_requests",
                 "allowLiveRequests": False, "bookingAuthorized": False}
     allowed_keys = ("method", "host", "path", "resourceType",
-                    "hasQuery", "isNavigationRequest", "hasBody")
+                    "query_keys", "body_keys", "content_type",
+                    "body_size_bytes", "timestamp_utc", "step")
     rows = []
     for index, item in enumerate(requests, 1):
         if not isinstance(item, dict):
