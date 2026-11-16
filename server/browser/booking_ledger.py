@@ -23,7 +23,6 @@ class AttemptLedger:
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(self.path.parent, 0o700)
         self.db = sqlite3.connect(str(self.path), timeout=30, isolation_level=None)
         self.db.execute('PRAGMA busy_timeout=30000')
         self.db.execute('PRAGMA journal_mode=WAL')
