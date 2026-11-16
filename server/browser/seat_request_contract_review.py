@@ -33,6 +33,14 @@ def review(diagnostic):
             row["risk"] = "unknown"
         else:
             row["risk"] = "read_candidate_only"
+        # A request body plus POST is not evidence of a seat-map read.
+        # Give the operator a precise next verification step, never permission.
+        if method not in ("GET", "HEAD"):
+            row["evidenceNeeded"] = "provider_endpoint_contract_and_non_mutating_behavior"
+        elif not provider_host:
+            row["evidenceNeeded"] = "identify_external_service_and_verify_data_handling"
+        else:
+            row["evidenceNeeded"] = "provider_read_only_endpoint_contract"
         row["needsIndependentProviderEvidence"] = True
         rows.append(row)
     # Separate provider requests from other origins without exposing hostnames,
