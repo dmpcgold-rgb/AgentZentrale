@@ -1721,6 +1721,13 @@ def unattended_seat_selection(page, day, root=None):
         if not isinstance(connection,dict) or type(connection.get('displayedPriceCents')) is not int or connection['displayedPriceCents']!=0:
             return {'status':'unattended_selection_blocked','phase':'fare_not_verified',
                     'bookingAuthorized':False,'purchaseExecuted':False}
+        # The account inventory cannot prove absence of a ticket. Do not
+        # mutate a live reservation until a separate authoritative duplicate
+        # check exists. This mode is intentionally a safe preflight only.
+        return {'status':'unattended_selection_blocked',
+                'phase':'duplicate_absence_not_verified',
+                'date':day,'bookingAuthorized':False,'purchaseExecuted':False,
+                'message':'0-EUR-Verbindung gefunden, aber Buchungsfreiheit nicht verbindlich nachgewiesen.'}
         phase='open_seat_map'
         actual=open_review_seat_map(page,day)
         phase='locate_seat_map'
