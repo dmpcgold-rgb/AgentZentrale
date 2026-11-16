@@ -6,6 +6,8 @@ Run via the existing container's Python interpreter.
 import argparse
 from datetime import date, timedelta
 import json
+import os
+from booking_reconciliation import reconcile_days
 import subprocess
 import sys
 from pathlib import Path
@@ -96,7 +98,9 @@ def run(start, worker=WORKER, timeout=240, inspect_fares=False):
                     "purchaseExecuted":False,"reason":"worker_failed"}
         payload = json.loads(result.stdout.strip())
         summary=safe_summary(payload,dates)
-        return inspect_unbooked_days(summary,worker) if inspect_fares else summary
+        inspected=inspect_unbooked_days(summary,worker) if inspect_fares else summary
+        return reconcile_days(inspected,os.environ.get('WESTBAHN_BOOKING_LEDGER'),
+                              'westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+')
     except (subprocess.TimeoutExpired,ValueError,OSError):
         return {"status":"audit_blocked","dates":dates,"bookingAuthorized":False,
                 "purchaseExecuted":False,"reason":"worker_unavailable"}
