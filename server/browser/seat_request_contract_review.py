@@ -35,9 +35,23 @@ def review(diagnostic):
             row["risk"] = "read_candidate_only"
         row["needsIndependentProviderEvidence"] = True
         rows.append(row)
+    # Separate provider requests from other origins without exposing hostnames,
+    # payloads, query strings or any unverified endpoint semantics.
+    groups = {"provider": [], "other_origin": []}
+    for row in rows:
+        host = str(row["host"] or "").lower()
+        provider = host in ("westbahn.at", "westbahn.de") or host.endswith((".westbahn.at", ".westbahn.de"))
+        group = "provider" if provider else "other_origin"
+        groups[group].append(row["index"])
+    origin_summary = {
+        group: {"count": len(indices), "requestIndices": indices,
+                "contractVerified": False, "liveRequestPermitted": False}
+        for group, indices in groups.items()
+    }
     counts = dict(Counter(row["risk"] for row in rows))
     return {"status": "contract_review_required",
             "requestCount": len(rows),
+            "originSummary": origin_summary,
             "requests": rows,
             "riskCounts": counts,
             "nextStep": "Verify endpoint semantics against provider documentation or authorized read-only evidence; never infer safety from HTTP method or URL alone.",
