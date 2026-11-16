@@ -19,6 +19,8 @@ def triage(report):
         method = str(item.get("method", "")).upper()
         path = str(item.get("path", ""))
         host = str(item.get("host", ""))
+        # Only provider-host metadata may be considered for read-only triage.
+        # This is classification, never permission to send a request.
         segments = set(path.lower().split("/"))
         writes = {"booking", "bookings", "reservation", "reservations", "checkout",
                   "cart", "basket", "order", "orders", "payment", "payments",
@@ -26,7 +28,8 @@ def triage(report):
         reads = {"availability", "seatmap", "seat-map", "layout", "layouts", "search", "offers"}
         if method not in ("GET", "HEAD", "POST") or segments & writes:
             category = "write_risk"
-        elif method in ("GET", "HEAD") and segments & reads and ":redacted" not in path:
+        elif (method in ("GET", "HEAD") and host in ("westbahn.at", "westbahn.de")
+              and segments & reads and ":redacted" not in path):
             category = "read_candidate"
         else:
             category = "unknown"
