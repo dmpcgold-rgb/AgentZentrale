@@ -27,6 +27,19 @@ class OfflineRequestTriageTests(unittest.TestCase):
         self.assertEqual(r["counts"]["unknown"], 1)
         self.assertFalse(r["allowLiveRequests"])
 
+    def test_official_subdomain_get_is_candidate_but_never_authorized(self):
+        r = triage(self.diagnostic([{"method": "GET", "host": "shop.westbahn.at", "path": "/api/v1/availability"}]))
+        self.assertEqual(r["counts"]["read_candidate"], 1)
+        self.assertFalse(r["allowLiveRequests"])
+        self.assertFalse(r["bookingAuthorized"])
+
+    def test_lookalike_host_get_is_unknown(self):
+        for host in ("fakewestbahn.at", "westbahn.at.evil.example", "westbahn.at-example.com"):
+            with self.subTest(host=host):
+                r = triage(self.diagnostic([{"method": "GET", "host": host, "path": "/api/v1/availability"}]))
+                self.assertEqual(r["counts"]["unknown"], 1)
+                self.assertFalse(r["allowLiveRequests"])
+
     def test_invalid_input_blocks(self):
         self.assertFalse(triage({})["allowLiveRequests"])
 
