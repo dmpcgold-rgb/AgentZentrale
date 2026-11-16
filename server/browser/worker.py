@@ -2122,7 +2122,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','seat-metadata-diagnostic','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','seat-metadata-diagnostic','manual-handoff-check','price-audit','seat-review','seat-select-headless','seat-preflight-check','reservation-pages-check','booking-readiness-check','comfort-control-check','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -2177,6 +2177,16 @@ def main():
                                 return
                         route.continue_()
                     context.route('**/*',guard)
+                if args.mode=='manual-handoff-check':
+                    if not args.date: raise Blocked('Reisedatum fehlt.')
+                    from manual_handoff import manual_handoff
+                    prepared=authenticated_prepare(page,args.date,root=root)
+                    # A missing reservation in a partial account view is not proof of absence.
+                    # Only inspect inventory if account authentication and fare checks passed.
+                    if prepared.get('status')!='connection_found':
+                        return manual_handoff(args.date,prepared)
+                    inventory=inspect_paginated_reservation_evidence(context,args.date)
+                    return manual_handoff(args.date,prepared,inventory)
                 if args.mode=='login-check': return ensure_austrian_session(page,root)
                 if args.mode=='account':
                     session=ensure_austrian_session(page,root)
