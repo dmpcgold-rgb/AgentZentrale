@@ -502,7 +502,12 @@ def offline_seat_preview(page, day, network_diagnostic=False):
     blocked_requests=[]
     def deny(route):
         if len(blocked_requests)<100:
-            item=safe_request_summary(route.request)
+            if network_diagnostic:
+                from blocked_request_metadata import describe
+                item=describe(route.request,step='seat_selection')
+                item['resourceType']=route.request.resource_type
+            else:
+                item=safe_request_summary(route.request)
             item['requestIndex']=len(blocked_requests)+1
             blocked_requests.append(item)
         route.abort()
