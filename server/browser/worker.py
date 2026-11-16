@@ -1720,6 +1720,35 @@ def inspect_comfort_booking_control(page, day, root=None):
         if prepared.get('accountVerifiedBeforeSearch') is not True or prepared.get('status')!='comfort_inspected':
             result['bookingFieldState']='account_or_connection_unverified'
             return result
+        # Provider positive evidence overrides a visually enabled zero-euro button.
+        # This audit is read-only and does not establish absence of tickets.
+        provider=account_audit(page.context,day)
+        result['providerReservationState']=provider.get('diagnosis','unverified')
+        if provider.get('found') is True:
+            result['bookingFieldState']='existing_reservation_blocked'
+            return result
+        if provider.get('diagnosis')!='not_exposed_in_checked_web_views':
+            result['bookingFieldState']='provider_evidence_ambiguous'
+            return result
+        # Persisted PENDING/CONFIRMED/UNCERTAIN attempts must always block.
+        try:
+            from booking_ledger import AttemptLedger
+            path=os.environ.get('WESTBAHN_BOOKING_LEDGER')
+            if not path:
+                result['bookingFieldState']='ledger_unavailable'
+                return result
+            ledger=AttemptLedger(path)
+            try:
+                state=ledger.status('westbahn|Wien Meidling|Wiener Neustadt Hbf|18:22|Comfort2+',day)
+            finally:
+                ledger.close()
+            result['localAttemptStatus']=state or 'NONE'
+            if state in ('PENDING','CONFIRMED','UNCERTAIN'):
+                result['bookingFieldState']='local_attempt_blocked'
+                return result
+        except Exception:
+            result['bookingFieldState']='ledger_unavailable'
+            return result
         connection=prepared.get('connection')
         if not isinstance(connection,dict) or connection.get('date')!=day or connection.get('departure')!='18:22' or connection.get('trainNumber')!='1009':
             result['bookingFieldState']='connection_unverified'
