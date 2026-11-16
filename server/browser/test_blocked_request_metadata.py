@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import Mock
-from blocked_request_metadata import describe, abort_and_record
+from blocked_request_metadata import describe, abort_and_record, risk_summary
 
 class BlockedMetadataTests(unittest.TestCase):
     def request(self,url,body=None,content_type="application/json"):
@@ -66,6 +66,22 @@ class BlockedMetadataTests(unittest.TestCase):
         route.abort.assert_called_once_with()
         route.continue_.assert_not_called()
         self.assertEqual(blocked,[])
+
+    def test_grouped_requests_never_authorize_booking(self):
+        items=[
+            {"method":"POST","host":"other-origin","path":"/{redacted}",
+             "content_type":"text/plain","body_keys":["{non_json_or_oversize}"],"body_size_bytes":457},
+            {"method":"POST","host":"other-origin","path":"/{redacted}",
+             "content_type":"text/plain","body_keys":["{non_json_or_oversize}"],"body_size_bytes":452},
+            {"method":"POST","host":"westbahn.at","path":"/api/v1/{id}",
+             "content_type":"application/json","body_keys":["trid"],"body_size_bytes":15}]
+        result=risk_summary(items)
+        self.assertEqual(len(result["groups"]),2)
+        self.assertFalse(result["allowLiveRequests"])
+        self.assertFalse(result["bookingAuthorized"])
+        self.assertFalse(result["purchaseExecuted"])
+        self.assertTrue(all(g["risk"]=="mutation_possible" for g in result["groups"]))
+        self.assertEqual(result["groups"][0]["body_size_range"],[452,457])
 
 if __name__=="__main__":
     unittest.main()
