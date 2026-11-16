@@ -1798,6 +1798,13 @@ def inspect_booking_readiness(page, day, root=None):
     if inventory.get('potentialDuplicate'):
         output['reason']='possible_existing_reservation'
         return output
+    # An incomplete or failed provider scan must stop before the control check.
+    # Missing reservations in a partial scan are not evidence of absence.
+    if inventory.get('pagesFailed',0)>0 or not inventory.get('pagesVerified'):
+        output['reason']='inventory_incomplete_or_failed'
+        output['reservationLikelihood']='unknown'
+        output['seatSelectionReviewAllowed']=False
+        return output
     control=inspect_comfort_booking_control(page,day,root=root)
     output['control']={key:control.get(key) for key in
         ('bookingFieldState','bookingFieldClickable','providerReservationState',
