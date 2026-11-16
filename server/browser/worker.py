@@ -1388,7 +1388,11 @@ def select_primary_seat_in_open_modal(page):
     for c in state.get('controls',[]):
         if c.get('kind')=='coach' and c['value'] not in scanned and not c.get('disabled'):
             scan(c['value'])
-    for rank,coach,seat in sorted(set(candidates)):
+    # The user's fifth explicitly preferred seat is 193. Its coach is not
+    # fixed: consider it only when the LIVE map proves an available seat in a
+    # complete two-seat layout. Never infer its class, coach or availability.
+    for rank,coach,seat in sorted(set(candidates), key=lambda item:
+                                  (0 if item[2]=='193' else 1, item[0], item[1], item[2])):
         current=open_coach(coach)
         if current is None or (rank,seat) not in ranked_layout_seats(current): continue
         result=choose(coach,seat,'facing_table' if rank==0 else 'offset_facing')
