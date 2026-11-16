@@ -79,3 +79,32 @@ def abort_and_record(route, blocked_requests, step="seat_selection", limit=100):
             blocked_requests.append(item)
     finally:
         route.abort()
+
+def risk_summary(blocked_requests):
+    """Offline-only grouped evidence; never grants network permission."""
+    groups={}
+    for item in blocked_requests:
+        method=item.get("method","OTHER")
+        host=item.get("host","other-origin")
+        path=item.get("path","/{redacted}")
+        ctype=item.get("content_type","{unknown}")
+        key=(method,host,path,ctype)
+        group=groups.setdefault(key,{"method":method,"host":host,"path":path,
+                                     "content_type":ctype,"count":0,
+                                     "body_keys":set(),"body_size_bytes":[]})
+        group["count"]+=1
+        group["body_keys"].update(item.get("body_keys",[]))
+        group["body_size_bytes"].append(item.get("body_size_bytes",0))
+    results=[]
+    for group in groups.values():
+        sizes=group.pop("body_size_bytes")
+        group["body_size_range"]=[min(sizes),max(sizes)]
+        group["body_keys"]=sorted(group["body_keys"])
+        group["risk"]="mutation_possible" if group["method"] not in ("GET","HEAD") else "unverified_read_candidate"
+        group["contractStatus"]="unverified"
+        results.append(group)
+    return {"groups":sorted(results,key=lambda g:(g["host"],g["path"],g["method"])),
+            "allowLiveRequests":False,"bookingAuthorized":False,
+            "purchaseExecuted":False,
+            "providerContractVerified":False,
+            "nextStep":"Independent provider endpoint documentation or authorized read-only evidence required"}
