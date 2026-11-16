@@ -19,6 +19,10 @@ def manual_handoff(day, preparation, inventory=None, local_status=None):
         result["status"]="blocked"
         result["reason"]="invalid_date"
         return result
+    if date.fromisoformat(day).weekday()>=5:
+        result["status"]="blocked"
+        result["reason"]="weekend_not_in_schedule"
+        return result
     if not isinstance(preparation,dict) or preparation.get("accountVerifiedBeforeSearch") is not True:
         result["status"]="blocked"
         result["reason"]="account_unverified"
@@ -31,6 +35,10 @@ def manual_handoff(day, preparation, inventory=None, local_status=None):
     if not isinstance(connection,dict) or type(connection.get("displayedPriceCents")) is not int or connection["displayedPriceCents"]!=0:
         result["status"]="blocked"
         result["reason"]="zero_euro_not_verified"
+        return result
+    if connection.get("priceVerifiedForKlimaTicket") is not True:
+        result["status"]="blocked"
+        result["reason"]="klimaticket_price_not_verified"
         return result
     if (connection.get("date")!=day or connection.get("departure")!="18:22"
             or connection.get("origin")!="Wien Meidling"
