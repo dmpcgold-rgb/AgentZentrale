@@ -32,7 +32,10 @@ def manual_handoff(day, preparation, inventory=None, local_status=None):
         result["status"]="blocked"
         result["reason"]="zero_euro_not_verified"
         return result
-    if connection.get("date")!=day or connection.get("departure")!="18:22":
+    if (connection.get("date")!=day or connection.get("departure")!="18:22"
+            or connection.get("origin")!="Wien Meidling"
+            or connection.get("destination")!="Wiener Neustadt Hbf"
+            or connection.get("class")!="2+"):
         result["status"]="blocked"
         result["reason"]="journey_mismatch"
         return result
