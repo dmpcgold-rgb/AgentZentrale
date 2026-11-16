@@ -2146,7 +2146,10 @@ def main():
                 if not args.date: raise Blocked('Reisedatum fehlt.')
                 diagnostic=run_seat_preview(p,root,kwargs,args.date,network_diagnostic=args.mode!='seat-preview')
                 if args.mode=='seat-metadata-diagnostic':
+                    from blocked_request_metadata import risk_summary
+                    grouped=risk_summary(diagnostic.get('blockedRequests',[]))
                     return {'status':diagnostic.get('status'),
+                            'riskSummary':grouped,
                             'blockReason':diagnostic.get('blockReason'),
                             'networkPolicy':'offline_all_requests_denied',
                             'allowLiveRequests':False,
