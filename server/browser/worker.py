@@ -1621,7 +1621,7 @@ def find_seat_change_control(page, diagnostic=False):
           for(const c of visualLeaves){
             const cb=c.getBoundingClientRect();
             const dy=Math.abs((cb.top+cb.bottom-hb.top-hb.bottom)/2);
-            if(dy>56||cb.left<hb.right-25||cb.left>hb.right+650)continue;
+            if(!(/\bWagen\b/i.test(raw(h.parentElement||h))&&/\bPlatz\b/i.test(raw(h.parentElement||h))&&/\b\d{2,4}\s*[A-D]\b/i.test(raw(h.parentElement||h)))||dy>56||cb.left<hb.right-25||cb.left>hb.right+650)continue;
             const target=clickOwner(c,document.body);
             if(!target||target.contains(h)||raw(target).length>90||!/Ändern/i.test(raw(target)))continue;
             visualEditCandidates.push(target);
