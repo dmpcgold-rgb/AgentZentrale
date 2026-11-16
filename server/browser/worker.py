@@ -1209,6 +1209,11 @@ def seat_modal_state(page, target=None):
         const group=groupNode?(groupNode.getAttribute('data-seat-group')||groupNode.getAttribute('data-table-id')):null;
         const layout=groupNode?(groupNode.getAttribute('data-seat-layout')||groupNode.getAttribute('data-layout')||'').toLowerCase():'';
         const fourSeat=/four|4er|vierer|4-seat/.test(layout);
+        // Explicit accessibility markers disqualify a seat even if the
+        // control is otherwise enabled or belongs to a two-seat group.
+        const wheelchair=!!code && (
+          /rollstuhl|wheelchair|accessible|barrierefrei|♿/i.test(state) ||
+          !!e.closest('[data-wheelchair="true"],[data-accessible="true"],[data-seat-type="wheelchair"],[data-seat-type="accessible"]'));
         if(coach && !code){
           const active=e.matches('[aria-selected="true"],[aria-pressed="true"],[aria-current="true"],[data-active="true"]')||/(?:^|[\s_-])(active|selected)(?:$|[\s_-])/i.test(e.getAttribute('class')||'');
           if(active)activeCoaches.push(coach[1]);
@@ -1216,9 +1221,9 @@ def seat_modal_state(page, target=None):
         const seatId=code?code[1]+code[2].toUpperCase():null;
         // WESTbahn's enabled seat controls do not necessarily say "frei".
         // Only use this signal for user-approved seats, not unknown layouts.
-        const selectableKnown=!!code&&known.has(seatId)&&!disabled&&!unavailable&&!fourSeat&&e.matches('button,[role="button"],[role="option"]')&&e.getAttribute('aria-disabled')!=='true';
+        const selectableKnown=!!code&&known.has(seatId)&&!disabled&&!unavailable&&!fourSeat&&!wheelchair&&e.matches('button,[role="button"],[role="option"]')&&e.getAttribute('aria-disabled')!=='true';
         controls.push({kind:code?'seat':'coach',value:code?seatId:coach[1],disabled,unavailable,free,selectableKnown,
-          ...(code?{group:group?String(group).slice(0,60):null,layout,fourSeat}:{})});
+          ...(code?{group:group?String(group).slice(0,60):null,layout,fourSeat,wheelchair}:{})});
         elements.push(e);
       }
       if(target){
@@ -1314,7 +1319,7 @@ def ranked_layout_seats(state):
         if layouts=={'single-facing-table'}: rank=0
         elif layouts=={'single-offset-facing'}: rank=1
         else: continue
-        if any(c.get('fourSeat') for c in group): continue
+        if any(c.get('fourSeat') or c.get('wheelchair') for c in group): continue
         for c in group:
             if c.get('free') and not c.get('disabled') and not c.get('unavailable'):
                 result.append((rank,c['value']))
