@@ -1709,6 +1709,49 @@ def safe_review_failure(error, phase):
             'bookingAuthorized':False}
 
 
+def unattended_seat_selection(page, day, root=None):
+    """One-shot headless seat selection. No basket, checkout or purchase."""
+    phase='prepare'
+    try:
+        prepared=authenticated_prepare(page,day,root=root)
+        if prepared.get('accountVerifiedBeforeSearch') is not True or prepared.get('status')!='connection_found':
+            return {'status':'unattended_selection_blocked','phase':phase,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        connection=prepared.get('connection')
+        if not isinstance(connection,dict) or type(connection.get('displayedPriceCents')) is not int or connection['displayedPriceCents']!=0:
+            return {'status':'unattended_selection_blocked','phase':'fare_not_verified',
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        phase='open_seat_map'
+        actual=open_review_seat_map(page,day)
+        phase='locate_seat_map'
+        actual,diagnostic=find_open_review_page(actual,day)
+        if actual is None:
+            return {'status':'unattended_selection_blocked','phase':phase,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        phase='select_seat'
+        selected=select_primary_seat_in_open_modal(actual)
+        if selected.get('status') not in ('primary_seat_selected','alternative_seat_selected'):
+            return {'status':'unattended_selection_blocked','phase':phase,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        choice=selected.get('selection')
+        if not isinstance(choice,dict) or not choice.get('seat') or not choice.get('coach'):
+            return {'status':'unattended_selection_blocked','phase':'selection_not_verified',
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        phase='confirm_seat_only'
+        confirmed=confirm_review_selection(actual,day)
+        if confirmed.get('status')!='seat_confirmed' or confirmed.get('selection')!=choice:
+            return {'status':'unattended_selection_blocked','phase':phase,
+                    'bookingAuthorized':False,'purchaseExecuted':False}
+        return {'status':'seat_selected_not_booked','date':day,
+                'seat':choice['seat'],'coach':choice['coach'],
+                'bookingAuthorized':False,'purchaseExecuted':False,
+                'message':'Sitzplatz nur in der Auswahl bestätigt. Keine Reservierung gekauft.'}
+    except Exception as error:
+        return {'status':'unattended_selection_blocked','phase':phase,
+                'failure':safe_review_failure(error,phase),
+                'bookingAuthorized':False,'purchaseExecuted':False}
+
+
 def manual_seat_review(page, day, root=None):
     # Login and search stay in the SAME visible browser, never a cloned profile.
     # A failed session check keeps the private desktop open for manual login.
@@ -1775,7 +1818,7 @@ def manual_seat_review(page, day, root=None):
 
 
 def main():
-    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument('mode',choices=['login','probe','prepare','account','account-audit','comfort-inspect','seat-preview','seat-network-diagnostic','price-audit','seat-review','seat-select-headless','credentials-set','credentials-remove','login-check','booking-check','confirmation-check','ticket-detail-check','inventory-batch']);parser.add_argument('--date'); parser.add_argument('--seat'); parser.add_argument('--dates'); parser.add_argument('--page',type=int,default=None); args=parser.parse_args()
     if args.page is not None and not 1 <= args.page <= 100: raise Blocked('Ungültige Kontoseite.')
     try: batch_days=validate_batch_dates(args.dates) if args.mode=='inventory-batch' else None
     except ValueError: raise Blocked('Ungültiger Pendeltage-Bereich.')
@@ -1891,8 +1934,9 @@ def main():
                                 'message':'Konto nicht bestätigt; keine Bestätigung.'}
                     inventory=account_inventory(context)
                     return summarize_confirmation_candidates(inventory.get('matchingVisibleCards'),args.date,args.seat)
-                if args.mode in ('prepare','comfort-inspect','seat-review') and not args.date: raise Blocked('Reisedatum fehlt.')
+                if args.mode in ('prepare','comfort-inspect','seat-review','seat-select-headless') and not args.date: raise Blocked('Reisedatum fehlt.')
                 if args.mode=='seat-review': return manual_seat_review(page,args.date,root)
+                if args.mode=='seat-select-headless': return unattended_seat_selection(page,args.date,root)
                 if args.mode in ('prepare','comfort-inspect'):
                     return authenticated_prepare(page,args.date,inspect_only=args.mode=='comfort-inspect',root=root)
                 target=URL
