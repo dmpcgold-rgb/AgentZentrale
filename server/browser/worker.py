@@ -1909,9 +1909,25 @@ def inspect_paginated_reservation_evidence(context, day):
                 min(100,max(0,r.get('totalHints',{}).get('candidateTotalLabels',0)))
                 for r in verified if isinstance(r.get('totalHints'),dict)),
             'authoritativeCompleteness':False}
+        # Explicitly separate positive evidence from missing evidence.
+        # These fields are diagnostics only and never authorize a booking.
+        verified_count=result['pagesVerified']
+        failed_count=result['pagesFailed']
+        result['absenceEvidence']={
+            'status':'not_proven',
+            'verifiedPages':verified_count,
+            'failedPages':failed_count,
+            'unverifiedPaginationLinks':len(unresolved),
+            'providerTotalVerified':False,
+            'reason':('page_failures' if failed_count else
+                      'pagination_unverified' if unresolved else
+                      'provider_total_not_verified')}
         result['candidateStatus']=candidate.get('status','unverified') if candidate else 'unverified'
         result['potentialDuplicate']=bool(candidate and candidate.get('potentialDuplicate'))
         result['candidateSeats']=candidate.get('seats',[]) if candidate else []
+        if result['potentialDuplicate']:
+            result['absenceEvidence']['status']='positive_booking_evidence'
+            result['absenceEvidence']['reason']='possible_existing_reservation'
         result['reason']='possible_existing_reservation' if result['potentialDuplicate'] else 'absence_not_authoritative'
     except Exception:
         result['reason']='inventory_inspection_failed'
