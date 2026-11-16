@@ -1802,12 +1802,22 @@ def inspect_booking_readiness(page, day, root=None):
     output['control']={key:control.get(key) for key in
         ('bookingFieldState','bookingFieldClickable','providerReservationState',
          'localAttemptStatus')}
-    if control.get('bookingFieldState')!='enabled_zero_euro':
+    output['reservationLikelihood']='unknown'
+    if inventory.get('pagesFailed',0)>0 or not inventory.get('pagesVerified'):
+        output['reason']='inventory_incomplete_or_failed'
+    elif inventory.get('candidateStatus') not in ('review_required',):
+        output['reason']='inventory_state_unverified'
+    elif control.get('bookingFieldState')!='enabled_zero_euro':
         output['reason']='control_not_verified'
-    elif inventory.get('inventoryComplete') is not True:
-        output['reason']='provider_absence_not_authoritative'
+    elif control.get('providerReservationState')!='not_exposed_in_checked_web_views':
+        output['reason']='provider_status_unverified'
+    elif control.get('localAttemptStatus')!='NONE':
+        output['reason']='local_attempt_unverified'
     else:
-        output['reason']='manual_final_verification_required'
+        # A negative scan is probabilistic, never authoritative absence.
+        output['reservationLikelihood']='probably_not_booked'
+        output['reason']='not_visible_probably_unbooked'
+        output['seatSelectionReviewAllowed']=True
     return output
 
 
