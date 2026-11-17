@@ -65,7 +65,11 @@ jobs:
         run: |
           ssh -i ~/.ssh/oracle_deploy -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "ubuntu@$HOST" 'set -eu
             sudo git -C /opt/agentzentrale fetch origin main
-            sudo git -C /opt/agentzentrale checkout main
+            echo "Checking Oracle deployment safety"
+          test "$(sudo git -C /opt/agentzentrale branch --show-current)" = main
+          test -z "$(sudo git -C /opt/agentzentrale status --porcelain)"
+          sudo git -C /opt/agentzentrale merge-base --is-ancestor HEAD origin/main
+          sudo git -C /opt/agentzentrale checkout main
             sudo git -C /opt/agentzentrale merge --ff-only origin/main
             sudo docker compose -f /opt/agentzentrale/compose.yaml up -d --build
             sudo docker compose -f /opt/agentzentrale/compose.yaml ps
