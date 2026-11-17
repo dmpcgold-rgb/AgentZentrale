@@ -36,8 +36,8 @@ def summarize_confirmation_candidates(rows, day, seat):
     with_seat=[m for m in matching.get('matches',[]) if m['expectedSeat']]
     exact_year=any(m['yearExplicit'] for m in with_seat)
     labeled_reference=any(m.get('bookingReference') or m.get('ticketReference') or m.get('ticketCode') for m in with_seat)
-    if visible and exact_year and labeled_reference:
-        evidence='dated_reference_candidate'
+    if visible and labeled_reference:
+        evidence='reference_candidate'
     elif visible:
         evidence='visible_ticket_card'
     else:
