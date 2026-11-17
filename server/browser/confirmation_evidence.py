@@ -21,11 +21,12 @@ REFERENCE_PATTERNS = {
 
 def reference_indicators(card_text):
     """Booleans only. Sensitive ticket identifiers never leave this function."""
+    keys = ('bookingReference', 'ticketReference', 'ticketCode')
     if not isinstance(card_text, str):
-        return {'bookingReference': False, 'ticketReference': False}
-    # Ticket codes alone are not booking references. Preserve the two-key API.
+        return {key: False for key in keys}
+    # Ticket codes are evidence indicators, not booking confirmation.
     return {key: bool(REFERENCE_PATTERNS[key].search(card_text))
-            for key in ('bookingReference', 'ticketReference')}
+            for key in keys}
 
 
 def summarize_confirmation_candidates(rows, day, seat):
