@@ -176,6 +176,50 @@ def main():
                         }))
                     }));
                 }""")
+                # Identify visible booking controls outside HTML forms. Never read
+                # input values or account identifiers.
+                booking_fields = page.evaluate(r"""() => {
+                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,80);
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden" &&
+                        getComputedStyle(e).display!=="none";
+                    const fields=[...document.querySelectorAll(
+                        'input,select,textarea,[role="combobox"],[role="radio"],[role="textbox"]'
+                    )].filter(visible).slice(0,30);
+                    return fields.map(e=>{
+                        const id=e.id;
+                        const linked=id?[...document.querySelectorAll('label[for]')]
+                            .filter(l=>l.htmlFor===id).map(l=>norm(l.innerText)).slice(0,2):[];
+                        const parent=e.closest('label');
+                        const wrapper=e.closest('[role="group"],fieldset');
+                        const parentText=parent?norm(parent.innerText):"";
+                        return {
+                            tag:e.tagName.toLowerCase(),
+                            type:(e.getAttribute("type")||"").slice(0,20),
+                            role:(e.getAttribute("role")||"").slice(0,30),
+                            placeholder:norm(e.getAttribute("placeholder")),
+                            ariaLabel:norm(e.getAttribute("aria-label")),
+                            labels:linked,
+                            parentLabel:parentText,
+                            groupLegend:wrapper?norm(wrapper.querySelector('legend')?.innerText):"",
+                            required:e.hasAttribute("required"),
+                            readOnly:e.hasAttribute("readonly"),
+                            disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                            withinForm:!!e.closest("form")
+                        };
+                    });
+                }""")
+                booking_buttons = page.evaluate(r"""() => {
+                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,85);
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden";
+                    return [...document.querySelectorAll("button,[role=button]")]
+                        .filter(visible).slice(0,35).map(e=>({
+                            label:norm(e.getAttribute("aria-label")||e.innerText||e.getAttribute("title")),
+                            disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                            kind:e.tagName.toLowerCase()
+                        }));
+                }""")
                 # The booking UI may be embedded in a frame; disclose only
                 # public host/path and aggregate control counts, never values.
                 frame_summary = []
@@ -229,6 +273,8 @@ def main():
                                           "westbahnGetFailureCodes":westbahn_failed_reasons[:10]},
                     "embeddingDiagnostics":embedded,
                     "formDiagnostics":form_diagnostics,
+                    "bookingFieldDiagnostics":booking_fields,
+                    "visibleButtonDiagnostics":booking_buttons,
                     "browserErrorTypes":browser_error_types,
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
