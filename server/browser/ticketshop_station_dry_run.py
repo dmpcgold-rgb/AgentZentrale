@@ -134,15 +134,38 @@ def main():
                         editor.click(timeout=4000)
                         page.wait_for_timeout(350)
                         month=page.get_by_role("button",name="November 2026",exact=True)
-                        day=page.get_by_role("button",name="20",exact=True)
+                        # WESTbahn's calendar buttons may expose an accessible
+                        # name longer than their visible day text. Require an
+                        # exact visible text of "20" and one unique enabled
+                        # control, with the requested month heading present.
+                        day_locator=page.locator("button").filter(
+                            has_text=__import__("re").compile(r"^\s*20\s*$")
+                        )
+                        day_candidates=page.evaluate(r"""() => {
+                            const shown=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden";
+                            return [...document.querySelectorAll("button")]
+                                .filter(e=>shown(e) && (
+                                    (e.textContent||"").trim()==="20" ||
+                                    (e.innerText||"").trim()==="20" ||
+                                    /(?:^|\D)20(?:\D|$)/.test(e.getAttribute("aria-label")||"")
+                                )).slice(0,12).map(e=>({
+                                    text:(e.innerText||"").trim().slice(0,35),
+                                    ariaLabel:(e.getAttribute("aria-label")||"").slice(0,85),
+                                    disabled:e.matches(":disabled,[aria-disabled=true]"),
+                                    title:(e.getAttribute("title")||"").slice(0,80),
+                                    dataDate:(e.getAttribute("data-date")||"").slice(0,35)
+                                }));
+                        }""")
                         result["datePicker"]={
                             "status":"date_not_selected",
                             "requested":test_day,
                             "monthMatches":month.count(),
-                            "dayMatches":day.count()
+                            "dayMatches":day_locator.count(),
+                            "dayCandidates":day_candidates
                         }
-                        if month.count()==1 and month.is_visible() and day.count()==1 and day.is_visible() and day.is_enabled():
-                            day.click(timeout=4000)
+                        if month.count()==1 and month.is_visible() and day_locator.count()==1 and day_locator.is_visible() and day_locator.is_enabled():
+                            day_locator.click(timeout=4000)
                             page.wait_for_timeout(350)
                             # Inspect only the outward date field and any
                             # specifically exposed selection metadata.
