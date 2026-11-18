@@ -281,6 +281,27 @@ def main():
                                         note:"Observed timetable content only; no live availability or booking authorization."
                                     };
                                 }""")
+                                report=result["connectionOverview"]
+                                headers=report.get("resultsDiagnostics",{}).get("headings",[])
+                                unavailable=any(
+                                    "Am gewählten Datum gibt es die gewünschte Verbindung leider nicht." in heading
+                                    for heading in headers
+                                )
+                                if unavailable and report.get("targetTrainCount")==0:
+                                    result["status"]="provider_reports_no_bookable_connection"
+                                    result["connectionOverview"]["bookingCheck"]={
+                                        "state":"provider_no_connection_for_selected_date",
+                                        "date":test_day,
+                                        "canSelectTrain":False,
+                                        "canSelectSeat":False,
+                                        "safeToBook":False,
+                                        "explanation":"Der Fahrplan kann einen Zug zeigen, obwohl der Ticketshop ihn für die gewählte Strecke nicht anbietet."
+                                    }
+                                elif report.get("targetTrainCount")==0:
+                                    result["status"]="timetable_not_verified"
+                                    result["connectionOverview"]["bookingCheck"]={
+                                        "state":"unknown","safeToBook":False
+                                    }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
