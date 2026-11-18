@@ -62,7 +62,7 @@ def main():
                         and u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.port in (None,443)
                         and u.path in ("/timetable/get-timetable","/timetable/get-day-prices")
-                        and not u.query and not u.fragment
+                        and not u.fragment  # WESTbahn uses query parameters for timetable fetches
                         and req.resource_type in ("fetch","xhr")
                         and not req.is_navigation_request()
                     )
