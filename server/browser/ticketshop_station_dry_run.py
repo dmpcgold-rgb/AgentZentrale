@@ -32,9 +32,32 @@ def main():
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
+                network={"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
+                         "httpErrors":[],"firstPartyRequestsByMethod":{}}
+                def on_failed(req):
+                    u=urlsplit(req.url)
+                    if u.hostname in ("westbahn.at","www.westbahn.at"):
+                        item={"method":req.method,"path":u.path[:130]}
+                        if item not in network["failedFirstPartyRequests"] and len(network["failedFirstPartyRequests"])<15:
+                            network["failedFirstPartyRequests"].append(item)
+                def on_response(resp):
+                    u=urlsplit(resp.url)
+                    if u.hostname in ("westbahn.at","www.westbahn.at") and resp.status>=400:
+                        item={"status":resp.status,"path":u.path[:130]}
+                        if item not in network["httpErrors"] and len(network["httpErrors"])<15:
+                            network["httpErrors"].append(item)
+                context.on("requestfailed",on_failed)
+                context.on("response",on_response)
                 def guard(route):
                     req=route.request
+                    u=urlsplit(req.url)
+                    if u.hostname in ("westbahn.at","www.westbahn.at"):
+                        network["firstPartyRequestsByMethod"][req.method]=network["firstPartyRequestsByMethod"].get(req.method,0)+1
                     if req.method.upper() not in ("GET","HEAD"):
+                        if u.hostname in ("westbahn.at","www.westbahn.at"):
+                            item={"method":req.method,"path":u.path[:130],"resourceType":req.resource_type}
+                            if item not in network["blockedFirstPartyWrites"] and len(network["blockedFirstPartyWrites"])<15:
+                                network["blockedFirstPartyWrites"].append(item)
                         route.abort()
                         return
                     if req.is_navigation_request():
@@ -234,7 +257,7 @@ def main():
                                         routePath:location.pathname.slice(0,200),
                                         outboundField:outbound?outbound.value.slice(0,35):null,
                                         requestedDayButtons:labels,
-                                        # Navigation tiles display alternative dates, not the selected travel date.
+                                        // Tiles are alternative dates; the outbound input is authoritative.
                                         visibleDateTiles:[...document.querySelectorAll('button')]
                                             .filter(visible).map(e=>({
                                                 label:norm(e.getAttribute('aria-label')||e.innerText).slice(0,70),
@@ -308,6 +331,16 @@ def main():
                                     result["connectionOverview"]["bookingCheck"]={
                                         "state":"unknown","safeToBook":False
                                     }
+                result["environmentDiagnostics"]={
+                    "network":network,
+                    "browserHasWestbahnCookies":any(
+                        c.get("domain","").endswith("westbahn.at") for c in context.cookies(URL)
+                    ),
+                    "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
+                    "browserLocale":page.evaluate("navigator.language"),
+                    "selectedDateIsTopField":True,
+                    "note":"Blocked POST requests may include essential search APIs; no POST was permitted."
+                }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
