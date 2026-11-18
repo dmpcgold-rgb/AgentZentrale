@@ -442,6 +442,69 @@ def main():
                                             };
                                         }""")
                                         result["status"]="train_tile_opened_dry_run"
+                                        # Select the Comfort 2+ option strictly
+                                        # inside the one previously verified
+                                        # 1009 connection tile. Do not choose a
+                                        # Comfort option from another train.
+                                        comfort_target=page.evaluate_handle(r"""() => {
+                                            const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                            const visible=e=>!!e.getClientRects().length &&
+                                                getComputedStyle(e).visibility!=="hidden";
+                                            const tiles=[...document.querySelectorAll(
+                                                ".west-ui-select-connection-tile--content"
+                                            )].filter(e=>{
+                                                const t=norm(e.innerText);
+                                                return visible(e) && /\b18:22\b/.test(t) &&
+                                                    /\b18:49\b/.test(t) && /\b1009\b/.test(t);
+                                            });
+                                            if(tiles.length!==1)return null;
+                                            let root=tiles[0];
+                                            for(let i=0;i<5 && root;i++,root=root.parentElement){
+                                                const candidates=[...root.querySelectorAll("button")].filter(b=>
+                                                    visible(b) && !b.disabled &&
+                                                    /^2\+\s*\|\s*Comfort\s+ab\s*€\s*0,00$/i.test(
+                                                        norm(b.getAttribute("aria-label")||b.innerText)));
+                                                if(candidates.length===1 &&
+                                                   (root===tiles[0] || root.querySelectorAll(
+                                                       ".west-ui-select-connection-tile--content").length===1))
+                                                    return candidates[0];
+                                                if(candidates.length>1)break;
+                                            }
+                                            return null;
+                                        }""")
+                                        comfort_button=comfort_target.as_element()
+                                        if comfort_button is not None and comfort_button.is_visible():
+                                            comfort_button.click(timeout=4500)
+                                            page.wait_for_timeout(800)
+                                            result["comfortClassDiagnostic"]=page.evaluate(r"""() => {
+                                                const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                const visible=e=>!!e.getClientRects().length &&
+                                                    getComputedStyle(e).visibility!=="hidden";
+                                                const main=document.querySelector("main")||document.body;
+                                                return {
+                                                    status:"comfort_2plus_option_opened_dry_run",
+                                                    path:location.pathname.slice(0,170),
+                                                    headings:[...main.querySelectorAll("h1,h2,h3,h4,[role=heading]")]
+                                                        .filter(visible).map(e=>norm(e.innerText).slice(0,85))
+                                                        .filter(x=>/Sitz|Platz|Klasse|Komfort|Comfort|Reserv|Ticket|Wagen/i.test(x)).slice(0,14),
+                                                    controls:[...main.querySelectorAll("button,[role=button],a[href]")]
+                                                        .filter(visible).map(e=>({
+                                                            label:norm(e.getAttribute("aria-label")||
+                                                                e.innerText||e.getAttribute("title")).slice(0,80),
+                                                            disabled:e.matches(":disabled,[aria-disabled=true]")
+                                                        })).filter(x=>/Sitz|Platz|Wagen|Weiter|Auswahl|Reserv|Comfort|2\+|Abbrechen/i.test(x.label)).slice(0,30),
+                                                    seatCodeHints:[...new Set((main.innerText.match(/\b(?:233\s*[AD]|191\s*D|182\s*A)\b/gi)||[]))].slice(0,10),
+                                                    bookingAuthorized:false,
+                                                    purchaseExecuted:false
+                                                };
+                                            }""")
+                                            result["status"]="comfort_2plus_opened_dry_run"
+                                        else:
+                                            result["comfortClassDiagnostic"]={
+                                                "status":"comfort_2plus_button_not_uniquely_scoped",
+                                                "bookingAuthorized":False,"purchaseExecuted":False
+                                            }
+
                                     else:
                                         result["trainSelectionDiagnostic"]={
                                             "status":"train_tile_not_unique_or_missing"
