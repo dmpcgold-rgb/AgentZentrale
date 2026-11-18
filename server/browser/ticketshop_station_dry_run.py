@@ -60,19 +60,66 @@ def main():
                         break
                     field.fill(target,timeout=5000)
                     page.wait_for_timeout(700)
-                    # Autocomplete implementations can use listbox options,
-                    # or a menu of buttons. Prefer semantic listbox controls.
-                    opts=page.get_by_role("option",name=target,exact=True)
-                    if opts.count()==1 and opts.is_visible():
-                        opts.click(timeout=4000)
+                    # Match only named railway station options. An alternate
+                    # spelling is not enough unless the listbox offers one
+                    # unique candidate with that full accessible name.
+                    aliases=(target,) if name=="Von" else (
+                        "Wiener Neustadt Hbf",
+                        "Wiener Neustadt Hauptbahnhof",
+                        "Wr. Neustadt Hbf",
+                        "Wiener Neustadt",
+                    )
+                    listboxes=page.get_by_role("listbox")
+                    option_labels=[]
+                    if listboxes.count()==1 and listboxes.first.is_visible():
+                        option_labels=[
+                            text.strip() for text in
+                            listboxes.first.get_by_role("option").all_text_contents()
+                            if text.strip()
+                        ][:20]
+                    selected=None
+                    for alias in aliases:
+                        opts=page.get_by_role("option",name=alias,exact=True)
+                        if opts.count()==1 and opts.first.is_visible():
+                            if selected is not None:
+                                selected=None
+                                break
+                            selected=(opts.first,alias)
+                    if selected is not None:
+                        chosen,alias=selected
+                        chosen.click(timeout=4000)
                         result["steps"].append({"field":name,"status":"suggestion_selected",
-                                                 "requested":target})
+                                                 "requested":target,"matchedLabel":alias})
                         continue
-                    # Never press Enter blindly: it might submit a booking form.
+                    # If exact aliases were not available, retry only the
+                    # destination text search; never guess another station.
+                    if name=="Nach":
+                        field.fill("Wiener Neustadt",timeout=5000)
+                        page.wait_for_timeout(850)
+                        for alias in aliases:
+                            opts=page.get_by_role("option",name=alias,exact=True)
+                            if opts.count()==1 and opts.first.is_visible():
+                                if selected is not None:
+                                    selected=None
+                                    break
+                                selected=(opts.first,alias)
+                        if selected is not None:
+                            chosen,alias=selected
+                            chosen.click(timeout=4000)
+                            result["steps"].append({"field":name,"status":"suggestion_selected",
+                                                     "requested":target,"matchedLabel":alias})
+                            continue
+                        if listboxes.count()==1:
+                            option_labels=[
+                                text.strip() for text in
+                                listboxes.first.get_by_role("option").all_text_contents()
+                                if text.strip()
+                            ][:20]
                     result["status"]="station_selection_blocked"
                     result["steps"].append({"field":name,"status":"suggestion_not_unique",
-                                             "requested":target,"matchingOptions":opts.count(),
-                                             "listboxes":page.get_by_role("listbox").count()})
+                                             "requested":target,
+                                             "listboxes":listboxes.count(),
+                                             "visibleOptionLabels":option_labels})
                     break
                 if len(result["steps"])==2 and all(x["status"]=="suggestion_selected" for x in result["steps"]):
                     result["status"]="stations_selected_dry_run"
