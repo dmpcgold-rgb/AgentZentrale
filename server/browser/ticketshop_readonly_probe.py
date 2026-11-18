@@ -41,17 +41,26 @@ def main():
             try:
                 blocked_methods = {}
                 failed_requests = {}
+                blocked_by_host_and_type = {}
+                failed_by_host_and_type = {}
                 def on_request_failure(request):
                     p = urlsplit(request.url)
                     host_type = "westbahn" if p.hostname in ("westbahn.at", "www.westbahn.at") else "external"
                     key = request.method.upper() + ":" + host_type
                     failed_requests[key] = failed_requests.get(key, 0) + 1
+                    site = (p.hostname or "unknown").lower()[:100]
+                    reason = request.resource_type[:22]
+                    group = f"{request.method.upper()}:{site}:{reason}"
+                    failed_by_host_and_type[group] = failed_by_host_and_type.get(group, 0) + 1
                 context.on("requestfailed", on_request_failure)
                 def guard(route):
                     req = route.request
                     if req.method.upper() not in ("GET", "HEAD"):
                         method = req.method.upper()
                         blocked_methods[method] = blocked_methods.get(method, 0) + 1
+                        hostname = (urlsplit(req.url).hostname or "unknown").lower()[:100]
+                        key = f"{method}:{hostname}:{req.resource_type[:22]}"
+                        blocked_by_host_and_type[key] = blocked_by_host_and_type.get(key, 0) + 1
                         route.abort()
                         return
                     if req.is_navigation_request():
@@ -140,7 +149,9 @@ def main():
                     "ticketshopNavigation":navigation,
                     "frames":frame_summary,
                     "networkDiagnostics":{"blockedWriteMethods":blocked_methods,
-                                          "failedRequestsByMethodAndHost":failed_requests},
+                                          "failedRequestsByMethodAndHost":failed_requests,
+                                          "blockedByHostnameAndResourceType":blocked_by_host_and_type,
+                                          "failedByHostnameAndResourceType":failed_by_host_and_type},
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
