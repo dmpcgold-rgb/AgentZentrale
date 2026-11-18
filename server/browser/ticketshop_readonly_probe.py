@@ -39,6 +39,11 @@ def main():
                 kwargs["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context = p.chromium.launch_persistent_context(str(root/"chromium"), **kwargs)
             try:
+                browser_error_types = {}
+                def record_page_error(error):
+                    category = type(error).__name__[:40]
+                    browser_error_types[category] = browser_error_types.get(category, 0) + 1
+                context.on("page", lambda tab: tab.on("pageerror", record_page_error))
                 blocked_methods = {}
                 failed_requests = {}
                 blocked_by_host_and_type = {}
@@ -143,6 +148,34 @@ def main():
                             };
                         });
                 }""")
+                form_diagnostics = page.evaluate(r"""() => {
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden";
+                    const scrub=s=>(s||"").replace(/\s+/g," ").trim().slice(0,60);
+                    const urlInfo=value=>{
+                        try {
+                            const u=new URL(value||location.href,location.href);
+                            return {sameOrigin:u.origin===location.origin,
+                                path:u.origin===location.origin?u.pathname.slice(0,90):"external"};
+                        } catch{return {sameOrigin:false,path:"invalid"};}
+                    };
+                    return [...document.querySelectorAll("form")].slice(0,6).map(form=>({
+                        action:urlInfo(form.getAttribute("action")),
+                        method:(form.getAttribute("method")||"get").toLowerCase(),
+                        visible:visible(form),
+                        fields:[...form.querySelectorAll("input,select,textarea")].slice(0,25).map(input=>({
+                            element:input.tagName.toLowerCase(),
+                            type:(input.getAttribute("type")||"").toLowerCase().slice(0,22),
+                            visible:visible(input),
+                            autocomplete:(input.getAttribute("autocomplete")||"").slice(0,22),
+                            hasPlaceholder:!!input.getAttribute("placeholder")
+                        })),
+                        buttons:[...form.querySelectorAll("button")].slice(0,12).map(btn=>({
+                            label:scrub(btn.getAttribute("aria-label")||btn.innerText),
+                            visible:visible(btn)
+                        }))
+                    }));
+                }""")
                 # The booking UI may be embedded in a frame; disclose only
                 # public host/path and aggregate control counts, never values.
                 frame_summary = []
@@ -195,6 +228,8 @@ def main():
                                           "westbahnGetHttpErrors":westbahn_get_http_errors[:10],
                                           "westbahnGetFailureCodes":westbahn_failed_reasons[:10]},
                     "embeddingDiagnostics":embedded,
+                    "formDiagnostics":form_diagnostics,
+                    "browserErrorTypes":browser_error_types,
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
