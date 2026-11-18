@@ -3,7 +3,7 @@
 
 Only exact matching station suggestions may be selected. This does not
 select dates, train, fare, seats, cart, payment, or booking controls.
-Network POST/PUT/PATCH/DELETE are blocked.
+Only the two exact first-party timetable POST endpoints are permitted. Other writes, all checkout and booking actions remain blocked.
 """
 import fcntl
 import json
@@ -27,12 +27,13 @@ def main():
             print(json.dumps({"status":"profile_busy","bookingAuthorized":False}))
             return
         with sync_playwright() as p:
-            args={"headless":True,"accept_downloads":False,"timeout":20000}
+            args={"headless":True,"accept_downloads":False,"timeout":20000,
+                  "locale":"de-AT","timezone_id":"Europe/Vienna"}
             if os.environ.get("WESTBAHN_CHROMIUM_PATH"):
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
-                network={"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
+                network={"allowedTimetableReads":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
                          "httpErrors":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
@@ -53,6 +54,24 @@ def main():
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
                         network["firstPartyRequestsByMethod"][req.method]=network["firstPartyRequestsByMethod"].get(req.method,0)+1
+                    # These exact POST endpoints return timetable/pricing data.
+                    # No general POST allowance and no booking/checkout route.
+                    safe_timetable=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname=="westbahn.at"
+                        and u.port in (None,443)
+                        and u.path in ("/timetable/get-timetable","/timetable/get-day-prices")
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                    )
+                    if safe_timetable:
+                        item={"method":"POST","path":u.path}
+                        if item not in network["allowedTimetableReads"]:
+                            network["allowedTimetableReads"].append(item)
+                        route.continue_()
+                        return
                     if req.method.upper() not in ("GET","HEAD"):
                         if u.hostname in ("westbahn.at","www.westbahn.at"):
                             item={"method":req.method,"path":u.path[:130],"resourceType":req.resource_type}
@@ -339,7 +358,7 @@ def main():
                     "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
                     "browserLocale":page.evaluate("navigator.language"),
                     "selectedDateIsTopField":True,
-                    "note":"Blocked POST requests may include essential search APIs; no POST was permitted."
+                    "note":"Only exact first-party timetable/price POST fetch requests allowed; all other writes blocked."
                 }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
