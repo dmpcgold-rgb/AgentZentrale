@@ -500,6 +500,55 @@ def main():
                                                 };
                                             }""")
                                             result["status"]="comfort_2plus_opened_dry_run"
+                                            # Identify tariff fields without selecting them or
+                                            # retrieving account numbers/input values.
+                                            result["tariffFieldDiagnostic"]=page.evaluate(r"""() => {
+                                                const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,120);
+                                                const vis=e=>!!e.getClientRects().length &&
+                                                    getComputedStyle(e).visibility!=="hidden" &&
+                                                    getComputedStyle(e).display!=="none";
+                                                const main=document.querySelector("main")||document.body;
+                                                const fields=[...main.querySelectorAll(
+                                                    'input[type=radio],input[role=combobox],select,[role=radio]'
+                                                )].filter(vis);
+                                                const info=fields.map((e,index)=>{
+                                                    const labels=e.labels?[...e.labels].map(l=>norm(l.innerText)).filter(Boolean):[];
+                                                    const enclosing=e.closest("label");
+                                                    const context=e.closest("fieldset,[role=radiogroup],[role=group]");
+                                                    const parent=e.parentElement;
+                                                    const publicTerms=/KlimaTicket|Reservierung|Vollpreis|WestFlexpreis|WestFixpreis|Sitzplatz|Class|Comfort|Tarif|Erwachsene|Erwachsener|Standard/i;
+                                                    const descriptiveText=[
+                                                        ...(labels||[]),
+                                                        enclosing?norm(enclosing.innerText):"",
+                                                        context?norm(context.querySelector("legend")?.innerText):"",
+                                                        parent?norm(parent.innerText):""
+                                                    ].filter(x=>publicTerms.test(x)).slice(0,4);
+                                                    return {
+                                                        index,
+                                                        type:(e.getAttribute("type")||"").slice(0,18),
+                                                        role:(e.getAttribute("role")||"").slice(0,22),
+                                                        ariaLabel:norm(e.getAttribute("aria-label")),
+                                                        descriptiveText,
+                                                        checked:e.matches(":checked,[aria-checked=true]"),
+                                                        disabled:e.matches(":disabled,[aria-disabled=true]"),
+                                                        idPresent:!!e.id,
+                                                        enclosingGroup:context?context.tagName.toLowerCase():null
+                                                    };
+                                                });
+                                                const notableButtons=[...main.querySelectorAll("button")].filter(vis)
+                                                    .map(e=>({
+                                                        label:norm(e.getAttribute("aria-label")||e.innerText),
+                                                        type:(e.getAttribute("type")||"").slice(0,15)
+                                                    })).filter(e=>/Warenkorb|Bearbeiten|Schließen/.test(e.label)).slice(0,8);
+                                                return {
+                                                    fieldCount:info.length,fields:info,
+                                                    notableButtons,
+                                                    shoppingCartBlockedByNetworkPolicy:true,
+                                                    selectedFareNotVerified:true,
+                                                    reservationMade:false
+                                                };
+                                            }""")
+
                                             # Diagnose only the visible structure,
                                             # without reading text-input values,
                                             # account identifiers, or cookie data.
