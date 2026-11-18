@@ -396,15 +396,27 @@ def main():
                                     and len(train["rows"])==1
                                     and all(train["rows"][0].get(x) for x in ("has1822","has1849","has1009"))
                                     and result["datePicker"]["dateFieldValue"]=="20.11.2026"):
-                                    tiles=page.locator(".west-ui-select-connection-tile--content").filter(
-                                        has_text=__import__("re").compile(r"\b18:22\b")
-                                    ).filter(
-                                        has_text=__import__("re").compile(r"\b18:49\b")
-                                    ).filter(
-                                        has_text=__import__("re").compile(r"\b1009\b")
-                                    )
-                                    if tiles.count()==1 and tiles.first.is_visible():
-                                        tiles.first.click(timeout=5000)
+                                    # DOM innerText verified all 3 signals,
+                                    # whereas Playwright has_text uses textContent
+                                    # semantics and missed this exact card.
+                                    tile_handle=page.evaluate_handle(r"""() => {
+                                        const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                        const visible=e=>!!e.getClientRects().length &&
+                                            getComputedStyle(e).visibility!=="hidden";
+                                        const candidates=[...document.querySelectorAll(
+                                            ".west-ui-select-connection-tile--content"
+                                        )].filter(e=>{
+                                            const t=norm(e.innerText);
+                                            return visible(e) &&
+                                                /\b18:22\b/.test(t) &&
+                                                /\b18:49\b/.test(t) &&
+                                                /\b1009\b/.test(t);
+                                        });
+                                        return candidates.length===1?candidates[0]:null;
+                                    }""")
+                                    tile=tile_handle.as_element()
+                                    if tile is not None and tile.is_visible():
+                                        tile.click(timeout=5000)
                                         page.wait_for_timeout(850)
                                         result["trainSelectionDiagnostic"]=page.evaluate(r"""() => {
                                             const norm=s=>(s||"").replace(/\s+/g," ").trim();
@@ -432,7 +444,7 @@ def main():
                                         result["status"]="train_tile_opened_dry_run"
                                     else:
                                         result["trainSelectionDiagnostic"]={
-                                            "status":"train_tile_not_unique","count":tiles.count()
+                                            "status":"train_tile_not_unique_or_missing"
                                         }
                                 else:
                                     result["trainSelectionDiagnostic"]={"status":"train_evidence_incomplete"}
