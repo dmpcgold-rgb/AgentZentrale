@@ -123,40 +123,49 @@ def main():
                     break
                 if len(result["steps"])==2 and all(x["status"]=="suggestion_selected" for x in result["steps"]):
                     result["status"]="stations_selected_dry_run"
-                    # Open the explicitly named date editor for structural
-                    # inspection only; never choose a date or submit a search.
+                    # Dry-run only: select the known test date, never search
+                    # connections, checkout, or reserve a seat.
+                    test_day="2026-11-20"
                     editor=page.get_by_role("button",name="Hinfahrt Datum bearbeiten",exact=True)
                     if editor.count()!=1 or not editor.is_visible():
                         result["datePicker"]={"status":"editor_missing_or_ambiguous",
                                               "count":editor.count()}
                     else:
                         editor.click(timeout=4000)
-                        page.wait_for_timeout(400)
-                        result["datePicker"]=page.evaluate(r"""() => {
-                            const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,75);
-                            const visible=e=>!!e.getClientRects().length &&
-                                getComputedStyle(e).visibility!=="hidden" &&
-                                getComputedStyle(e).display!=="none";
-                            const dialogs=[...document.querySelectorAll(
-                                '[role=dialog],[role=grid],[role=application]'
-                            )].filter(visible);
-                            const labelled=[...document.querySelectorAll(
-                                '[role=gridcell],button,[role=button],[role=option],select,input'
-                            )].filter(visible).slice(0,200).map(e=>({
-                                tag:e.tagName.toLowerCase(),
-                                role:(e.getAttribute('role')||'').slice(0,18),
-                                type:(e.getAttribute('type')||'').slice(0,18),
-                                label:norm(e.getAttribute('aria-label')||e.innerText||
-                                    e.getAttribute('placeholder')||e.getAttribute('title')),
-                                disabled:e.matches(':disabled,[aria-disabled=true]')
-                            })).filter(x=>x.label && (
-                                /^(?:\d{1,2}|Mo|Di|Mi|Do|Fr|Sa|So|Jan|Feb|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez)/i.test(x.label)||
-                                /Kalender|Monat|Datum|Weiter|Zurück|Heute|November|Dezember/i.test(x.label)
-                            )).slice(0,35);
-                            return {status:"calendar_inspected_no_date_selected",
-                                    visibleDialogs:dialogs.length,
-                                    candidateControls:labelled};
-                        }""")
+                        page.wait_for_timeout(350)
+                        month=page.get_by_role("button",name="November 2026",exact=True)
+                        day=page.get_by_role("button",name="20",exact=True)
+                        result["datePicker"]={
+                            "status":"date_not_selected",
+                            "requested":test_day,
+                            "monthMatches":month.count(),
+                            "dayMatches":day.count()
+                        }
+                        if month.count()==1 and month.is_visible() and day.count()==1 and day.is_visible() and day.is_enabled():
+                            day.click(timeout=4000)
+                            page.wait_for_timeout(350)
+                            # Inspect only the outward date field and any
+                            # specifically exposed selection metadata.
+                            result["datePicker"]=page.evaluate(r"""() => {
+                                const input=[...document.querySelectorAll("input")].find(
+                                    e=>e.labels && [...e.labels].some(
+                                        l=>l.textContent.trim()==="Hinfahrt"));
+                                const value=input ? input.value.slice(0,50) : null;
+                                const declared=input ? {
+                                    value:input.getAttribute("value"),
+                                    dateTime:input.getAttribute("data-date"),
+                                    aria:input.getAttribute("aria-label")
+                                } : null;
+                                const accepted=/^(?:20\.11\.2026|20\/11\/2026|2026-11-20|20\. November 2026)$/.test(value||"");
+                                return {
+                                    status:accepted?"date_field_verified":"date_field_review_required",
+                                    requested:"2026-11-20",
+                                    dateFieldValue:value,
+                                    declared:declared
+                                };
+                            }""")
+                            if result["datePicker"]["status"]=="date_field_verified":
+                                result["status"]="stations_and_date_selected_dry_run"
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
