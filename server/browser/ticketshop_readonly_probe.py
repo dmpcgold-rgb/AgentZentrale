@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
-TARGET = "https://westbahn.at/ticketshop/"
+TARGET = "https://westbahn.at/ticketshop/ticket-buchen/ticketshop/"
 WORDS = re.compile(
     r"^(?:"
     r".{0,45}(?:KlimaTicket|Comfort|2\+|Sitzplatz|Wagen|Platz|Reservierung|"
@@ -98,10 +98,37 @@ def main():
                             };
                         });
                 }""")
+                # The booking UI may be embedded in a frame; disclose only
+                # public host/path and aggregate control counts, never values.
+                frame_summary = []
+                for frame in page.frames[:12]:
+                    u = urlsplit(frame.url)
+                    if u.scheme != "https":
+                        continue
+                    try:
+                        facts = frame.evaluate(r"""() => {
+                            const vis=e=>!!e.getClientRects().length;
+                            const inputs=[...document.querySelectorAll('input,select,textarea')].filter(vis);
+                            return {
+                                inputs:inputs.length,
+                                buttons:[...document.querySelectorAll('button,[role=button]')].filter(vis).length,
+                                inputTypes:[...new Set(inputs.map(e=>e.tagName.toLowerCase()==='input'
+                                    ? (e.getAttribute('type')||'text').toLowerCase()
+                                    :e.tagName.toLowerCase()))].slice(0,12)
+                            };
+                        }""")
+                    except Exception:
+                        facts = {"status":"frame_unavailable"}
+                    frame_summary.append({
+                        "host":u.hostname if u.hostname in ("westbahn.at","www.westbahn.at") else "other_https",
+                        "path":u.path[:100] if u.hostname in ("westbahn.at","www.westbahn.at") else "redacted",
+                        "controls":facts
+                    })
                 print(json.dumps({
                     "status":"ticketshop_read_only_inspected",
                     "result":observed,
                     "ticketshopNavigation":navigation,
+                    "frames":frame_summary,
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
