@@ -1624,6 +1624,75 @@ def find_seat_change_control(page, diagnostic=False):
     return page.evaluate_handle(script,False).as_element()
 
 
+
+def find_assigned_seat_link(page, diagnostic=False):
+    """Find the uniquely assigned seat number in the bounded reservation section.
+
+    Unlike generic 'Ändern' controls, this is tied to a visible coach and seat.
+    Read-only until the caller explicitly clicks the returned element.
+    """
+    script = r"""(audit) => {
+        const norm = s => (s || '').normalize('NFKC').replace(/\s+/g,' ').trim();
+        const visible = e => !!e.getClientRects().length &&
+            getComputedStyle(e).visibility !== 'hidden' &&
+            getComputedStyle(e).display !== 'none';
+        const raw = e => norm(e.innerText || e.textContent);
+        const all = [...document.querySelectorAll('body *')].filter(visible);
+        const headings = all.filter(e => raw(e) === 'Sitzplatzreservierung' &&
+            ![...e.children].some(c => visible(c) && raw(c) === 'Sitzplatzreservierung'));
+        const result = {headingCount:headings.length,eligibleScopes:0,
+            seatLinks:0,reason:'no_unique_assigned_seat_link'};
+        if (headings.length !== 1) return audit ? result : null;
+        const heading = headings[0];
+        const h = heading.getBoundingClientRect();
+        const seen = new Set(), candidates = [];
+        for (let scope=heading.parentElement, depth=0;
+             scope && scope!==document.body && depth<9;
+             scope=scope.parentElement,depth++) {
+            const t = raw(scope);
+            if (t.length>3000 ||
+                /Meine Auswahl|In den Warenkorb|Bezahlen|Jetzt kaufen|Bestätigen/.test(t))
+                break;
+            if (!/\bWagen\b/i.test(t) || !/\b(?:Platz|Sitzplatz)\b/i.test(t))
+                continue;
+            result.eligibleScopes++;
+            const codes = [...scope.querySelectorAll('*')].filter(e=>{
+                const v=raw(e);
+                return visible(e) && /^(?:Sitzplatz\s*:?\s*)?\d{2,4}\s*[A-D]$/i.test(v) &&
+                    ![...e.children].some(c=>visible(c)&&raw(c)===v);
+            });
+            for (const e of codes) {
+                const b=e.getBoundingClientRect();
+                if (Math.abs(b.top-h.top)>500) continue;
+                let target=e;
+                for (let i=0;i<5&&target&&!target.matches('a,button,[role="button"],[tabindex]');i++)
+                    target=target.parentElement;
+                if (!target || !scope.contains(target) ||
+                    !visible(target) || seen.has(target) ||
+                    target.matches(':disabled,[aria-disabled="true"]') ||
+                    getComputedStyle(target).pointerEvents==='none' ||
+                    raw(target).length>85 ||
+                    target.closest('aside,[role="complementary"]')) continue;
+                const href=target.getAttribute('href');
+                if (href && href!=='#') {
+                    let url;
+                    try {url=new URL(href,location.href);} catch {continue;}
+                    if (url.origin!==location.origin ||
+                        !/^\/(?:reservierung\/sitzplatz-upgrade|ticketshop)(?:\/|$)/.test(url.pathname))
+                        continue;
+                }
+                seen.add(target);candidates.push(target);
+            }
+            break;
+        }
+        result.seatLinks=candidates.length;
+        result.reason=candidates.length===1?'unique_assigned_seat_link':'no_unique_assigned_seat_link';
+        return audit ? result : candidates.length===1 ? candidates[0] : null;
+    }"""
+    if diagnostic:
+        return page.evaluate(script, True)
+    return page.evaluate_handle(script, False).as_element()
+
 def open_review_seat_map(page, day):
     """Open the official zero-price Comfort detail and seat picker, not checkout."""
     def live_url(p):
@@ -1672,8 +1741,13 @@ def open_review_seat_map(page, day):
     # anchor without href. Never select an unscoped page-wide 'Ändern'.
     change=find_seat_change_control(actual)
     if change is None:
-        audit=find_seat_change_control(actual,diagnostic=True)
-        raise Blocked('Ändern im Sitzplatzbereich nicht eindeutig. Diagnose: '+json.dumps(audit,ensure_ascii=False))
+        # In the ticketshop a coach/seat is assigned first; its seat-number
+        # link may open the map instead of a labelled 'Ändern' control.
+        change=find_assigned_seat_link(actual)
+    if change is None:
+        audit={'change':find_seat_change_control(actual,diagnostic=True),
+               'assignedSeat':find_assigned_seat_link(actual,diagnostic=True)}
+        raise Blocked('Sitzplatzänderung nicht eindeutig. Diagnose: '+json.dumps(audit,ensure_ascii=False))
     change.click(timeout=5000)
     for _ in range(16):
         actual.wait_for_timeout(250)
