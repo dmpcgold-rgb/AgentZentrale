@@ -333,6 +333,61 @@ def main():
                                         note:"Observed timetable content only; no live availability or booking authorization."
                                     };
                                 }""")
+                                # Identify the 18:22 row and controls without
+                                # clicking. Do not assume the train number is
+                                # in the same smallest DOM element as the time.
+                                result["train1009Diagnostic"]=page.evaluate(r"""() => {
+                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                    const visible=e=>!!e.getClientRects().length &&
+                                        getComputedStyle(e).visibility!=="hidden" &&
+                                        getComputedStyle(e).display!=="none";
+                                    const leafs=[...document.querySelectorAll("main *")].filter(e=>{
+                                        if(!visible(e))return false;
+                                        const t=norm(e.innerText);
+                                        return t.length>0 && t.length<=100 && /\b18:22\b/.test(t) &&
+                                            ![...e.children].some(c=>/\b18:22\b/.test(norm(c.innerText)) &&
+                                                norm(c.innerText).length<=100);
+                                    }).slice(0,8);
+                                    const rows=leafs.map(e=>{
+                                        let n=e;
+                                        let best=null;
+                                        for(let i=0;i<9 && n;i++,n=n.parentElement){
+                                            const t=norm(n.innerText);
+                                            if(t.length>1500)break;
+                                            const hasTime=/\b18:22\b/.test(t);
+                                            const hasArrival=/\b18:49\b/.test(t);
+                                            const hasNumber=/\b1009\b/.test(t);
+                                            if(hasTime && hasArrival){
+                                                best=n;
+                                                if(hasNumber)break;
+                                            }
+                                        }
+                                        if(!best)return {status:"row_not_found"};
+                                        const label=n=>norm(n.getAttribute("aria-label")||
+                                            n.innerText||n.getAttribute("title")||
+                                            n.getAttribute("value")).slice(0,90);
+                                        return {
+                                            status:"row_found",
+                                            has1822:/\b18:22\b/.test(norm(best.innerText)),
+                                            has1849:/\b18:49\b/.test(norm(best.innerText)),
+                                            has1009:/\b1009\b/.test(norm(best.innerText)),
+                                            hasComfortClass:/Comfort\s*(?:Class)?\s*2\+/i.test(norm(best.innerText)),
+                                            controls:[...best.querySelectorAll(
+                                                "button,a[href],[role=button],[role=radio],input[type=radio]"
+                                            )].filter(visible).slice(0,14).map(c=>({
+                                                tag:c.tagName.toLowerCase(),
+                                                role:c.getAttribute("role")||"",
+                                                label:label(c),
+                                                disabled:c.matches(":disabled,[aria-disabled=true]")
+                                            })),
+                                            ancestorTag:best.tagName.toLowerCase(),
+                                            ancestorClasses:(typeof best.className==="string"?
+                                                best.className:"").slice(0,100)
+                                        };
+                                    });
+                                    return {matchedTimeLeafCount:leafs.length,rows:rows.slice(0,5),
+                                        clicked:false,reservationMade:false};
+                                }""")
                                 report=result["connectionOverview"]
                                 headers=report.get("resultsDiagnostics",{}).get("headings",[])
                                 unavailable=any(
