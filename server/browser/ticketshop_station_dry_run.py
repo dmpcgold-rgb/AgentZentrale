@@ -34,7 +34,7 @@ def main():
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
                 network={"allowedTimetableReads":[],"allowedBasketAdd":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
-                         "httpErrors":[],"firstPartyRequestsByMethod":{}}
+                         "httpErrors":[],"basketAddResponses":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
@@ -43,6 +43,16 @@ def main():
                             network["failedFirstPartyRequests"].append(item)
                 def on_response(resp):
                     u=urlsplit(resp.url)
+                    # Record only the transport status, never response body,
+                    # profile data, cookies or ticket identifiers.
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.path=="/api/v1/basket/add"):
+                        network["basketAddResponses"].append({
+                            "method":resp.request.method,
+                            "status":resp.status,
+                            "ok":resp.ok,
+                            "contentType":(resp.headers.get("content-type") or "").split(";")[0][:50]
+                        })
                     if u.hostname in ("westbahn.at","www.westbahn.at") and resp.status>=400:
                         item={"status":resp.status,"path":u.path[:130]}
                         if item not in network["httpErrors"] and len(network["httpErrors"])<15:
@@ -704,14 +714,17 @@ def main():
                                         "state":"unknown","safeToBook":False
                                     }
                 basket_added=bool(network["allowedBasketAdd"])
+                basket_transport_ok=any(x.get("ok") for x in network["basketAddResponses"])
                 result["bookingSafety"]={
                     "state":"basket_add_requested" if basket_added else "basket_not_modified",
                     "basketAddRequestAllowed":basket_added,
                     "basketAddConfirmedByProvider":False,
+                    "basketTransportAccepted":basket_transport_ok,
+                    "basketAddResponses":network["basketAddResponses"],
                     "maxBasketAddRequestsPerRun":1,
                     "checkoutAuthorized":False,
                     "purchaseExecuted":False,
-                    "note":"A request is not proof of cart success; downstream cart and seat-state must be verified."
+                    "note":"Even a 2xx POST is not proof the cart holds an item; independent cart read required."
                 }
                 if basket_added:
                     result["status"]="basket_add_requested_dry_run"
