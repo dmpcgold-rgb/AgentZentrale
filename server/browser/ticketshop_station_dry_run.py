@@ -388,6 +388,54 @@ def main():
                                     return {matchedTimeLeafCount:leafs.length,rows:rows.slice(0,5),
                                         clicked:false,reservationMade:false};
                                 }""")
+                                # Select only the verified train card in the
+                                # browser UI. No non-timetable writes are allowed
+                                # by the network guard; no payment/reservation.
+                                train=result["train1009Diagnostic"]
+                                if (train["matchedTimeLeafCount"]==1
+                                    and len(train["rows"])==1
+                                    and all(train["rows"][0].get(x) for x in ("has1822","has1849","has1009"))
+                                    and result["datePicker"]["dateFieldValue"]=="20.11.2026"):
+                                    tiles=page.locator(".west-ui-select-connection-tile--content").filter(
+                                        has_text=__import__("re").compile(r"\b18:22\b")
+                                    ).filter(
+                                        has_text=__import__("re").compile(r"\b18:49\b")
+                                    ).filter(
+                                        has_text=__import__("re").compile(r"\b1009\b")
+                                    )
+                                    if tiles.count()==1 and tiles.first.is_visible():
+                                        tiles.first.click(timeout=5000)
+                                        page.wait_for_timeout(850)
+                                        result["trainSelectionDiagnostic"]=page.evaluate(r"""() => {
+                                            const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                            const visible=e=>!!e.getClientRects().length &&
+                                                getComputedStyle(e).visibility!=="hidden";
+                                            const main=document.querySelector("main")||document.body;
+                                            const controls=[...main.querySelectorAll(
+                                                "button,[role=button],[role=radio],a[href]"
+                                            )].filter(visible).map(e=>({
+                                                label:norm(e.getAttribute("aria-label")||e.innerText).slice(0,80),
+                                                tag:e.tagName.toLowerCase(),
+                                                disabled:e.matches(":disabled,[aria-disabled=true]")
+                                            })).filter(x=>x.label && /Comfort|Klasse|Sitz|Reserv|Weiter|Tarif|Ticket|Platz|2\+|Warenkorb/i.test(x.label)).slice(0,28);
+                                            const headings=[...main.querySelectorAll("h1,h2,h3,h4,[role=heading]")]
+                                                .filter(visible).map(e=>norm(e.innerText).slice(0,90))
+                                                .filter(t=>/Sitz|Klasse|Ticket|Tarif|Reserv|Reisende/i.test(t)).slice(0,12);
+                                            return {
+                                                status:"train_tile_clicked_without_purchase",
+                                                path:location.pathname.slice(0,170),
+                                                controls,headings,
+                                                hasComfort2Plus:/Comfort\s*(?:Class)?\s*2\+/i.test(main.innerText),
+                                                hasSeatMap:/Sitzplatz\s*(?:auswahl|reservierung)|Sitzplan/i.test(main.innerText)
+                                            };
+                                        }""")
+                                        result["status"]="train_tile_opened_dry_run"
+                                    else:
+                                        result["trainSelectionDiagnostic"]={
+                                            "status":"train_tile_not_unique","count":tiles.count()
+                                        }
+                                else:
+                                    result["trainSelectionDiagnostic"]={"status":"train_evidence_incomplete"}
                                 report=result["connectionOverview"]
                                 headers=report.get("resultsDiagnostics",{}).get("headings",[])
                                 unavailable=any(
