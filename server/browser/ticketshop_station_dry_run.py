@@ -255,6 +255,29 @@ def main():
                                                     .slice(0,14).map(t=>t.slice(0,90))
                                             };
                                         })(),
+                                        resultsDiagnostics:(()=>{
+                                            const root=document.querySelector('main')||document.body;
+                                            const text=norm(root.innerText);
+                                            const headings=[...root.querySelectorAll('h1,h2,h3,h4,[role=heading]')]
+                                                .filter(visible).map(e=>norm(e.innerText).slice(0,100))
+                                                .filter(Boolean).slice(0,30);
+                                            const lines=(root.innerText||"").split(/\n+/).map(norm).filter(Boolean);
+                                            // Only pre-approved timetable/status terms; never
+                                            // emit arbitrary text, account names, or identifiers.
+                                            const terms=/verbindung|abfahrt|ankunft|fahrt|zug|prei[sz]|ausgebucht|nicht verfügbar|nicht buchbar|keine|hinweis|ergebnis|laden|uhrzeit|umsteigen|fahrplan|tagespreis|reisezeit/i;
+                                            const statusLines=lines.filter(t=>terms.test(t)&&t.length<=110)
+                                                .slice(0,35).map(t=>t.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,"[redacted]"));
+                                            const dateRows=[...root.querySelectorAll('button')].filter(visible)
+                                                .map(e=>({label:norm(e.getAttribute('aria-label')||e.innerText).slice(0,65),
+                                                    disabled:e.matches(':disabled,[aria-disabled=true]')}))
+                                                .filter(e=>/\b(?:18|19|20|21|22|23|24)\.\s*November/i.test(e.label))
+                                                .slice(0,10);
+                                            return {headings,statusLines,dateRows,
+                                                visibleMainLength:text.length,
+                                                resultsRegionCount:root.querySelectorAll(
+                                                    '[class*="connection"],[class*="journey"],[class*="timetable"],[data-testid*="connection"]'
+                                                ).length};
+                                        })(),
                                         note:"Observed timetable content only; no live availability or booking authorization."
                                     };
                                 }""")
