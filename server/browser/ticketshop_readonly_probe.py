@@ -39,9 +39,19 @@ def main():
                 kwargs["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context = p.chromium.launch_persistent_context(str(root/"chromium"), **kwargs)
             try:
+                blocked_methods = {}
+                failed_requests = {}
+                def on_request_failure(request):
+                    p = urlsplit(request.url)
+                    host_type = "westbahn" if p.hostname in ("westbahn.at", "www.westbahn.at") else "external"
+                    key = request.method.upper() + ":" + host_type
+                    failed_requests[key] = failed_requests.get(key, 0) + 1
+                context.on("requestfailed", on_request_failure)
                 def guard(route):
                     req = route.request
                     if req.method.upper() not in ("GET", "HEAD"):
+                        method = req.method.upper()
+                        blocked_methods[method] = blocked_methods.get(method, 0) + 1
                         route.abort()
                         return
                     if req.is_navigation_request():
@@ -53,7 +63,7 @@ def main():
                 context.route("**/*", guard)
                 page = context.pages[0] if context.pages else context.new_page()
                 page.goto(TARGET, wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_timeout(1600)
+                page.wait_for_timeout(3000)
                 observed = page.evaluate(r"""() => {
                     const norm = value => (value || "").replace(/\s+/g," ").trim();
                     const visible = e => !!e.getClientRects().length &&
@@ -129,6 +139,8 @@ def main():
                     "result":observed,
                     "ticketshopNavigation":navigation,
                     "frames":frame_summary,
+                    "networkDiagnostics":{"blockedWriteMethods":blocked_methods,
+                                          "failedRequestsByMethodAndHost":failed_requests},
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
