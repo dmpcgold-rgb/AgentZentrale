@@ -59,7 +59,7 @@ def main():
                     safe_timetable=(
                         req.method.upper()=="POST"
                         and u.scheme=="https"
-                        and u.hostname=="westbahn.at"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.port in (None,443)
                         and u.path in ("/timetable/get-timetable","/timetable/get-day-prices")
                         and not u.query and not u.fragment
@@ -74,7 +74,11 @@ def main():
                         return
                     if req.method.upper() not in ("GET","HEAD"):
                         if u.hostname in ("westbahn.at","www.westbahn.at"):
-                            item={"method":req.method,"path":u.path[:130],"resourceType":req.resource_type}
+                            item={"method":req.method,"path":u.path[:130],
+                                  "resourceType":req.resource_type,
+                                  "host":u.hostname,"scheme":u.scheme,
+                                  "hasQuery":bool(u.query),
+                                  "isNavigation":req.is_navigation_request()}
                             if item not in network["blockedFirstPartyWrites"] and len(network["blockedFirstPartyWrites"])<15:
                                 network["blockedFirstPartyWrites"].append(item)
                         route.abort()
