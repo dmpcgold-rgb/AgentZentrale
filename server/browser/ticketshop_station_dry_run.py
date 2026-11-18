@@ -500,6 +500,57 @@ def main():
                                                 };
                                             }""")
                                             result["status"]="comfort_2plus_opened_dry_run"
+                                            # Diagnose only the visible structure,
+                                            # without reading text-input values,
+                                            # account identifiers, or cookie data.
+                                            page.wait_for_timeout(1300)
+                                            result["detailsStructure"]=page.evaluate(r"""() => {
+                                                const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,95);
+                                                const visible=e=>!!e.getClientRects().length &&
+                                                    getComputedStyle(e).display!=="none" &&
+                                                    getComputedStyle(e).visibility!=="hidden";
+                                                const main=document.querySelector("main")||document.body;
+                                                const selectors='button,[role=button],a[href],select,[role=combobox],[role=radio],input';
+                                                const controls=[...main.querySelectorAll(selectors)].filter(visible)
+                                                    .slice(0,100).map(e=>({
+                                                        tag:e.tagName.toLowerCase(),
+                                                        role:(e.getAttribute("role")||"").slice(0,25),
+                                                        type:(e.getAttribute("type")||"").slice(0,20),
+                                                        label:norm(e.getAttribute("aria-label")||e.innerText||
+                                                            e.getAttribute("placeholder")||
+                                                            e.getAttribute("title")),
+                                                        disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                                                        isInput:e.matches("input,select"),
+                                                        inForm:!!e.closest("form")
+                                                    }));
+                                                const publicTerms=/Sitzplatz|Sitzplan|Wagen|Platz|Tarif|Comfort|Klasse|KlimaTicket|Reservierung|Weiter|Preis|Lade|Anmeldung|Anmelden|Verfügbarkeit|Fehler|auswählen/i;
+                                                const lines=(main.innerText||"").split(/\n+/)
+                                                    .map(norm).filter(x=>x && x.length<=90)
+                                                    .filter(x=>publicTerms.test(x))
+                                                    .slice(0,32);
+                                                const forms=[...main.querySelectorAll("form")].slice(0,6)
+                                                    .map(e=>({method:(e.getAttribute("method")||"get").toLowerCase(),
+                                                        inputCount:e.querySelectorAll("input").length,
+                                                        buttonCount:e.querySelectorAll("button").length}));
+                                                return {
+                                                    path:location.pathname.slice(0,150),
+                                                    visibleMainLength:(main.innerText||"").length,
+                                                    title:norm(document.title),
+                                                    controlCount:controls.length,
+                                                    controls:controls.slice(0,45),
+                                                    publicStatusLines:lines,
+                                                    forms,
+                                                    spinnerCount:[...main.querySelectorAll(
+                                                        '[aria-busy=true],[role=progressbar],[class*=spinner],[class*=loading]'
+                                                    )].filter(visible).length,
+                                                    iframeCount:document.querySelectorAll("iframe").length,
+                                                    hasVisibleSeatMap:!![...main.querySelectorAll(
+                                                        '[class*=seat-map],[class*=seatmap],[data-testid*=seat]'
+                                                    )].find(visible),
+                                                    note:"No form values, profile names, ticket numbers, or cookies collected"
+                                                };
+                                            }""")
+
                                         else:
                                             result["comfortClassDiagnostic"]={
                                                 "status":"comfort_2plus_button_not_uniquely_scoped",
