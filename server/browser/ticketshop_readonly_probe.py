@@ -80,9 +80,28 @@ def main():
                             .filter(t=>t.length<75 && relevant.test(t)).slice(0,12)
                     };
                 }""")
+                # Resolve only navigation targets, not private account or form values.
+                navigation = page.evaluate(r"""() => {
+                    const norm = s => (s || "").replace(/\s+/g," ").trim();
+                    const links=[...document.querySelectorAll('a[href]')];
+                    return links.filter(e => /Zur Ticketbuchung|Ticket buchen/i.test(norm(e.innerText)))
+                        .slice(0,8).map(e=>{
+                            let u;
+                            try {u=new URL(e.getAttribute('href'),location.href);} catch {return {valid:false};}
+                            return {
+                                label:norm(e.innerText).slice(0,45),
+                                protocol:u.protocol,
+                                host:u.hostname,
+                                path:u.pathname.slice(0,140),
+                                queryKeys:[...u.searchParams.keys()].filter(k=>
+                                    /^(?:lang|locale|language|step|action)$/i.test(k)).slice(0,6)
+                            };
+                        });
+                }""")
                 print(json.dumps({
                     "status":"ticketshop_read_only_inspected",
                     "result":observed,
+                    "ticketshopNavigation":navigation,
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
