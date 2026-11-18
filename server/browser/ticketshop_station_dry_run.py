@@ -189,6 +189,32 @@ def main():
                             }""")
                             if result["datePicker"]["status"]=="date_field_verified":
                                 result["status"]="stations_and_date_selected_dry_run"
+                                # Map the connection-search entry after
+                                # confirming the exact trip date. Do not click.
+                                result["connectionSearchControls"]=page.evaluate(r"""() => {
+                                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,95);
+                                    const visible=e=>!!e.getClientRects().length &&
+                                        getComputedStyle(e).display!=="none" &&
+                                        getComputedStyle(e).visibility!=="hidden";
+                                    return [...document.querySelectorAll(
+                                        'button,[role=button],input[type=submit],a[href]'
+                                    )].filter(visible).map(e=>({
+                                        tag:e.tagName.toLowerCase(),
+                                        role:(e.getAttribute("role")||"").slice(0,25),
+                                        label:norm(e.getAttribute("aria-label")||e.innerText||
+                                            e.getAttribute("title")||e.getAttribute("value")),
+                                        disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                                        withinForm:!!e.closest("form"),
+                                        hrefPath:(()=>{
+                                            const href=e.getAttribute("href");
+                                            if(!href)return null;
+                                            try{const u=new URL(href,location.href);
+                                                return u.origin===location.origin?
+                                                    u.pathname.slice(0,100):"external";
+                                            }catch{return "invalid";}
+                                        })()
+                                    })).filter(e=>e.label && e.label!=="Frage KI").slice(0,65);
+                                }""")
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
