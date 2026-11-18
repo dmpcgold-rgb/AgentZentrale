@@ -123,6 +123,40 @@ def main():
                     break
                 if len(result["steps"])==2 and all(x["status"]=="suggestion_selected" for x in result["steps"]):
                     result["status"]="stations_selected_dry_run"
+                    # Open the explicitly named date editor for structural
+                    # inspection only; never choose a date or submit a search.
+                    editor=page.get_by_role("button",name="Hinfahrt Datum bearbeiten",exact=True)
+                    if editor.count()!=1 or not editor.is_visible():
+                        result["datePicker"]={"status":"editor_missing_or_ambiguous",
+                                              "count":editor.count()}
+                    else:
+                        editor.click(timeout=4000)
+                        page.wait_for_timeout(400)
+                        result["datePicker"]=page.evaluate(r"""() => {
+                            const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,75);
+                            const visible=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden" &&
+                                getComputedStyle(e).display!=="none";
+                            const dialogs=[...document.querySelectorAll(
+                                '[role=dialog],[role=grid],[role=application]'
+                            )].filter(visible);
+                            const labelled=[...document.querySelectorAll(
+                                '[role=gridcell],button,[role=button],[role=option],select,input'
+                            )].filter(visible).slice(0,200).map(e=>({
+                                tag:e.tagName.toLowerCase(),
+                                role:(e.getAttribute('role')||'').slice(0,18),
+                                type:(e.getAttribute('type')||'').slice(0,18),
+                                label:norm(e.getAttribute('aria-label')||e.innerText||
+                                    e.getAttribute('placeholder')||e.getAttribute('title')),
+                                disabled:e.matches(':disabled,[aria-disabled=true]')
+                            })).filter(x=>x.label && (
+                                /^(?:\d{1,2}|Mo|Di|Mi|Do|Fr|Sa|So|Jan|Feb|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez)/i.test(x.label)||
+                                /Kalender|Monat|Datum|Weiter|Zurück|Heute|November|Dezember/i.test(x.label)
+                            )).slice(0,35);
+                            return {status:"calendar_inspected_no_date_selected",
+                                    visibleDialogs:dialogs.length,
+                                    candidateControls:labelled};
+                        }""")
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
