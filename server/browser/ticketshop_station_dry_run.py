@@ -125,7 +125,7 @@ def main():
                     result["status"]="stations_selected_dry_run"
                     # Dry-run only: select the known test date, never search
                     # connections, checkout, or reserve a seat.
-                    test_day="2026-11-27"
+                    test_day="2026-11-20"
                     editor=page.get_by_role("button",name="Hinfahrt Datum bearbeiten",exact=True)
                     if editor.count()!=1 or not editor.is_visible():
                         result["datePicker"]={"status":"editor_missing_or_ambiguous",
@@ -136,19 +136,19 @@ def main():
                         month=page.get_by_role("button",name="November 2026",exact=True)
                         # WESTbahn's calendar buttons may expose an accessible
                         # name longer than their visible day text. Require an
-                        # exact visible text of "27" and one unique enabled
+                        # exact visible text of "20" and one unique enabled
                         # control, with the requested month heading present.
                         day_locator=page.locator("button").filter(
-                            has_text=__import__("re").compile(r"^\s*27\s*$")
+                            has_text=__import__("re").compile(r"^\s*20\s*$")
                         )
                         day_candidates=page.evaluate(r"""() => {
                             const shown=e=>!!e.getClientRects().length &&
                                 getComputedStyle(e).visibility!=="hidden";
                             return [...document.querySelectorAll("button")]
                                 .filter(e=>shown(e) && (
-                                    (e.textContent||"").trim()==="27" ||
-                                    (e.innerText||"").trim()==="27" ||
-                                    /(?:^|\D)27(?:\D|$)/.test(e.getAttribute("aria-label")||"")
+                                    (e.textContent||"").trim()==="20" ||
+                                    (e.innerText||"").trim()==="20" ||
+                                    /(?:^|\D)20(?:\D|$)/.test(e.getAttribute("aria-label")||"")
                                 )).slice(0,12).map(e=>({
                                     text:(e.innerText||"").trim().slice(0,35),
                                     ariaLabel:(e.getAttribute("aria-label")||"").slice(0,85),
@@ -179,10 +179,10 @@ def main():
                                     dateTime:input.getAttribute("data-date"),
                                     aria:input.getAttribute("aria-label")
                                 } : null;
-                                const accepted=/^(?:27\.11\.2026|27\/11\/2026|2026-11-27|27\. November 2026)$/.test(value||"");
+                                const accepted=/^(?:20\.11\.2026|20\/11\/2026|2026-11-20|20\. November 2026)$/.test(value||"");
                                 return {
                                     status:accepted?"date_field_verified":"date_field_review_required",
-                                    requested:"2026-11-27",
+                                    requested:"2026-11-20",
                                     dateFieldValue:value,
                                     declared:declared
                                 };
@@ -234,6 +234,7 @@ def main():
                                         routePath:location.pathname.slice(0,200),
                                         outboundField:outbound?outbound.value.slice(0,35):null,
                                         requestedDayButtons:labels,
+                                        # Navigation tiles display alternative dates, not the selected travel date.
                                         visibleDateTiles:[...document.querySelectorAll('button')]
                                             .filter(visible).map(e=>({
                                                 label:norm(e.getAttribute('aria-label')||e.innerText).slice(0,70),
