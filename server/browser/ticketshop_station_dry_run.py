@@ -549,6 +549,59 @@ def main():
                                                 };
                                             }""")
 
+                                            # The public tariff label and zero
+                                            # price were confirmed in the previous
+                                            # read-only probe. Match by enclosing
+                                            # label text, never by input position.
+                                            fare_handle=page.evaluate_handle(r"""() => {
+                                                const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                const vis=e=>!!e.getClientRects().length &&
+                                                    getComputedStyle(e).visibility!=="hidden";
+                                                const matches=[...document.querySelectorAll('main input[type=radio]')]
+                                                    .filter(vis).filter(e=>{
+                                                        const label=e.closest("label");
+                                                        const text=norm(label?label.innerText:e.parentElement?.innerText);
+                                                        return /Reservierung\s+KlimaTicket\s+Ö/i.test(text) &&
+                                                               /€\s*0,00/.test(text) &&
+                                                               !/WestFlexpreis|Vollpreis/i.test(text) &&
+                                                               !e.disabled;
+                                                    });
+                                                return matches.length===1 ? matches[0] : null;
+                                            }""")
+                                            fare_radio=fare_handle.as_element()
+                                            if fare_radio is not None and fare_radio.is_visible():
+                                                fare_radio.check(timeout=4500)
+                                                page.wait_for_timeout(500)
+                                                result["climateFareSelection"]=page.evaluate(r"""() => {
+                                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                    const radios=[...document.querySelectorAll('main input[type=radio]')];
+                                                    const matches=radios.filter(e=>{
+                                                        const text=norm(e.closest("label")?.innerText||e.parentElement?.innerText);
+                                                        return /Reservierung\s+KlimaTicket\s+Ö/i.test(text) &&
+                                                               /€\s*0,00/.test(text);
+                                                    });
+                                                    const cart=[...document.querySelectorAll("main button")]
+                                                        .filter(e=>/In den Warenkorb/i.test(e.innerText));
+                                                    return {
+                                                        status:matches.length===1 && matches[0].checked
+                                                            ? "climate_ticket_zero_fare_selected"
+                                                            : "climate_fare_not_verified",
+                                                        matchingFareControls:matches.length,
+                                                        checked:matches.length===1?matches[0].checked:false,
+                                                        cartButtonPresent:cart.length===1,
+                                                        cartButtonClicked:false,
+                                                        reservationMade:false,
+                                                        purchaseExecuted:false
+                                                    };
+                                                }""")
+                                                if result["climateFareSelection"]["checked"]:
+                                                    result["status"]="climate_ticket_fare_selected_dry_run"
+                                            else:
+                                                result["climateFareSelection"]={
+                                                    "status":"climate_fare_radio_missing_or_ambiguous",
+                                                    "cartButtonClicked":False,
+                                                    "purchaseExecuted":False
+                                                }
                                             # Diagnose only the visible structure,
                                             # without reading text-input values,
                                             # account identifiers, or cookie data.
