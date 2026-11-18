@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
-TARGET = "https://westbahn.at/ticketshop/ticket-buchen/ticketshop/"
+TARGET = "https://westbahn.at/ticketshop/ticket-buchen/"
 WORDS = re.compile(
     r"^(?:"
     r".{0,45}(?:KlimaTicket|Comfort|2\+|Sitzplatz|Wagen|Platz|Reservierung|"
