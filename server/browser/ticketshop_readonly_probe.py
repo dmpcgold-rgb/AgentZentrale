@@ -43,6 +43,8 @@ def main():
                 failed_requests = {}
                 blocked_by_host_and_type = {}
                 failed_by_host_and_type = {}
+                failed_westbahn_gets = []
+                westbahn_get_http_errors = []
                 def on_request_failure(request):
                     p = urlsplit(request.url)
                     host_type = "westbahn" if p.hostname in ("westbahn.at", "www.westbahn.at") else "external"
@@ -52,7 +54,23 @@ def main():
                     reason = request.resource_type[:22]
                     group = f"{request.method.upper()}:{site}:{reason}"
                     failed_by_host_and_type[group] = failed_by_host_and_type.get(group, 0) + 1
+                    if request.method.upper() == "GET" and p.hostname in ("westbahn.at", "www.westbahn.at"):
+                        path = p.path[:140]
+                        # Do not expose query strings, cookies or request body.
+                        failed_westbahn_gets.append({"path":path,
+                            "resourceType":request.resource_type[:24]})
                 context.on("requestfailed", on_request_failure)
+                def on_response(response):
+                    if response.status < 400:
+                        return
+                    req = response.request
+                    p = urlsplit(response.url)
+                    if p.hostname in ("westbahn.at", "www.westbahn.at") and req.method.upper() == "GET":
+                        westbahn_get_http_errors.append({
+                            "path":p.path[:140],
+                            "status":response.status,
+                            "resourceType":req.resource_type[:24]})
+                context.on("response", on_response)
                 def guard(route):
                     req = route.request
                     if req.method.upper() not in ("GET", "HEAD"):
@@ -151,7 +169,9 @@ def main():
                     "networkDiagnostics":{"blockedWriteMethods":blocked_methods,
                                           "failedRequestsByMethodAndHost":failed_requests,
                                           "blockedByHostnameAndResourceType":blocked_by_host_and_type,
-                                          "failedByHostnameAndResourceType":failed_by_host_and_type},
+                                          "failedByHostnameAndResourceType":failed_by_host_and_type,
+                                          "failedWestbahnGetPaths":failed_westbahn_gets[:10],
+                                          "westbahnGetHttpErrors":westbahn_get_http_errors[:10]},
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
