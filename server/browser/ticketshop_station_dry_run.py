@@ -686,6 +686,27 @@ def main():
                                     result["connectionOverview"]["bookingCheck"]={
                                         "state":"unknown","safeToBook":False
                                     }
+                # Fail closed on any attempted basket mutation, even if the
+                # interface never explicitly pressed "In den Warenkorb".
+                basket_attempts=[x for x in network["blockedFirstPartyWrites"]
+                                 if x.get("path","").startswith("/api/v1/basket/")]
+                if basket_attempts:
+                    result["status"]="basket_mutation_blocked_after_fare_selection"
+                    result["bookingSafety"]={
+                        "state":"blocked",
+                        "reason":"app_tried_basket_mutation_without_cart_button_click",
+                        "blockedBasketPaths":sorted(set(x["path"] for x in basket_attempts)),
+                        "tariffSelectionVerified":result.get("climateFareSelection",{}).get("checked",False),
+                        "nextAction":"inspect automatic cart behavior and seat-selection flow before any booking",
+                        "allowCartWrites":False,
+                        "purchaseExecuted":False
+                    }
+                else:
+                    result["bookingSafety"]={
+                        "state":"no_basket_mutation_observed",
+                        "allowCartWrites":False,
+                        "purchaseExecuted":False
+                    }
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
