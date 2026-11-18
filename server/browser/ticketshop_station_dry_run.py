@@ -3,7 +3,7 @@
 
 Only exact matching station suggestions may be selected. This does not
 select dates, train, fare, seats, cart, payment, or booking controls.
-Only exact first-party timetable, quote and KlimaTicket-lookup POST endpoints are permitted. Checkout, cart mutations and bookings remain blocked.
+Only exact first-party read/quote endpoints and one basket/add POST are allowed. Checkout, purchase and other writes remain blocked.
 """
 import fcntl
 import json
@@ -33,7 +33,7 @@ def main():
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
-                network={"allowedTimetableReads":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
+                network={"allowedTimetableReads":[],"allowedBasketAdd":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
                          "httpErrors":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
@@ -71,6 +71,23 @@ def main():
                         item={"method":"POST","path":u.path}
                         if item not in network["allowedTimetableReads"]:
                             network["allowedTimetableReads"].append(item)
+                        route.continue_()
+                        return
+                    # User authorized adding this zero-euro ticket to the
+                    # basket, but NOT purchasing. Limit to a single add per run.
+                    safe_cart_add=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and u.path=="/api/v1/basket/add"
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                        and len(network["allowedBasketAdd"])==0
+                    )
+                    if safe_cart_add:
+                        network["allowedBasketAdd"].append({"method":"POST","path":u.path})
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
@@ -686,27 +703,39 @@ def main():
                                     result["connectionOverview"]["bookingCheck"]={
                                         "state":"unknown","safeToBook":False
                                     }
-                # Fail closed on any attempted basket mutation, even if the
-                # interface never explicitly pressed "In den Warenkorb".
-                basket_attempts=[x for x in network["blockedFirstPartyWrites"]
-                                 if x.get("path","").startswith("/api/v1/basket/")]
-                if basket_attempts:
-                    result["status"]="basket_mutation_blocked_after_fare_selection"
-                    result["bookingSafety"]={
-                        "state":"blocked",
-                        "reason":"app_tried_basket_mutation_without_cart_button_click",
-                        "blockedBasketPaths":sorted(set(x["path"] for x in basket_attempts)),
-                        "tariffSelectionVerified":result.get("climateFareSelection",{}).get("checked",False),
-                        "nextAction":"inspect automatic cart behavior and seat-selection flow before any booking",
-                        "allowCartWrites":False,
-                        "purchaseExecuted":False
-                    }
-                else:
-                    result["bookingSafety"]={
-                        "state":"no_basket_mutation_observed",
-                        "allowCartWrites":False,
-                        "purchaseExecuted":False
-                    }
+                basket_added=bool(network["allowedBasketAdd"])
+                result["bookingSafety"]={
+                    "state":"basket_add_requested" if basket_added else "basket_not_modified",
+                    "basketAddRequestAllowed":basket_added,
+                    "basketAddConfirmedByProvider":False,
+                    "maxBasketAddRequestsPerRun":1,
+                    "checkoutAuthorized":False,
+                    "purchaseExecuted":False,
+                    "note":"A request is not proof of cart success; downstream cart and seat-state must be verified."
+                }
+                if basket_added:
+                    result["status"]="basket_add_requested_dry_run"
+                    page.wait_for_timeout(900)
+                    result["postBasketDetails"]=page.evaluate(r"""() => {
+                        const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,100);
+                        const visible=e=>!!e.getClientRects().length &&
+                            getComputedStyle(e).visibility!=="hidden";
+                        const main=document.querySelector("main")||document.body;
+                        const controls=[...main.querySelectorAll("button,[role=button],a[href]")].filter(visible)
+                            .map(e=>({
+                                label:norm(e.getAttribute("aria-label")||e.innerText),
+                                disabled:e.matches(":disabled,[aria-disabled=true]")
+                            })).filter(e=>/Warenkorb|Sitz|Platz|Wagen|Weiter|Auswahl|Reserv|Fertig/i.test(e.label)).slice(0,35);
+                        return {
+                            path:location.pathname.slice(0,160),
+                            seatMapVisible:!![...main.querySelectorAll(
+                                '[class*=seat-map],[class*=seatmap],[data-testid*=seat]'
+                            )].find(visible),
+                            controls,
+                            seatCodeHints:[...new Set((main.innerText.match(/\b(?:233\s*[AD]|191\s*D|182\s*A)\b/gi)||[]))].slice(0,10),
+                            noCheckoutActionClicked:true
+                        };
+                    }""")
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
@@ -715,7 +744,7 @@ def main():
                     "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
                     "browserLocale":page.evaluate("navigator.language"),
                     "selectedDateIsTopField":True,
-                    "note":"Only four narrowly-scoped timetable/quote/ticket-lookup POST fetch paths allowed; booking and checkout writes blocked."
+                    "note":"Four read/quote POST endpoints plus at most one basket/add POST allowed; checkout and purchase writes blocked."
                 }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
