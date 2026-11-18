@@ -236,6 +236,25 @@ def main():
                                         requestedDayButtons:labels,
                                         targetTrainCandidates:cards,
                                         targetTrainCount:cards.length,
+                                        timetableEvidence:(()=>{
+                                            const root=document.querySelector('main')||document.body;
+                                            const body=norm(root.innerText).slice(0,35000);
+                                            const allTimes=[...new Set((body.match(/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g)||[]))].slice(0,80);
+                                            return {
+                                                has1822Anywhere:/\b18:22\b/.test(body),
+                                                has1849Anywhere:/\b18:49\b/.test(body),
+                                                hasTrain1009Anywhere:/\b1009\b/.test(body),
+                                                distinctVisibleTimes:allTimes,
+                                                timeCount:allTimes.length,
+                                                noConnectionsMessage:/keine (?:passenden )?(?:verbindungen|fahrten)|keine ergebnisse|keine züge/i.test(body),
+                                                loadingIndicator:!!root.querySelector('[aria-busy=true],[role=progressbar],.loading,.spinner'),
+                                                visibleMainTextLength:body.length,
+                                                candidateTrainButtons:[...root.querySelectorAll('button,[role=button]')]
+                                                    .filter(visible).map(e=>norm(e.getAttribute('aria-label')||e.innerText))
+                                                    .filter(t=>/\b(?:\d{1,2}:\d{2}|WESTbahn|abfahrt|verbindung)\b/i.test(t))
+                                                    .slice(0,14).map(t=>t.slice(0,90))
+                                            };
+                                        })(),
                                         note:"Observed timetable content only; no live availability or booking authorization."
                                     };
                                 }""")
