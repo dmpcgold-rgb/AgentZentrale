@@ -3,7 +3,7 @@
 
 Only exact matching station suggestions may be selected. This does not
 select dates, train, fare, seats, cart, payment, or booking controls.
-Only the two exact first-party timetable POST endpoints are permitted. Other writes, all checkout and booking actions remain blocked.
+Only exact first-party timetable, quote and KlimaTicket-lookup POST endpoints are permitted. Checkout, cart mutations and bookings remain blocked.
 """
 import fcntl
 import json
@@ -61,7 +61,8 @@ def main():
                         and u.scheme=="https"
                         and u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.port in (None,443)
-                        and u.path in ("/timetable/get-timetable","/timetable/get-day-prices")
+                        and u.path in ("/timetable/get-timetable","/timetable/get-day-prices",
+                                       "/api/v1/prices","/api/v1/klimatickets")
                         and not u.fragment  # WESTbahn uses query parameters for timetable fetches
                         and req.resource_type in ("fetch","xhr")
                         and not req.is_navigation_request()
@@ -540,7 +541,7 @@ def main():
                     "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
                     "browserLocale":page.evaluate("navigator.language"),
                     "selectedDateIsTopField":True,
-                    "note":"Only exact first-party timetable/price POST fetch requests allowed; all other writes blocked."
+                    "note":"Only four narrowly-scoped timetable/quote/ticket-lookup POST fetch paths allowed; booking and checkout writes blocked."
                 }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
