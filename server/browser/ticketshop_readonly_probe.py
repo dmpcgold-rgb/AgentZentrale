@@ -45,6 +45,7 @@ def main():
                 failed_by_host_and_type = {}
                 failed_westbahn_gets = []
                 westbahn_get_http_errors = []
+                westbahn_failed_reasons = []
                 def on_request_failure(request):
                     p = urlsplit(request.url)
                     host_type = "westbahn" if p.hostname in ("westbahn.at", "www.westbahn.at") else "external"
@@ -59,6 +60,13 @@ def main():
                         # Do not expose query strings, cookies or request body.
                         failed_westbahn_gets.append({"path":path,
                             "resourceType":request.resource_type[:24]})
+                        try:
+                            failure = request.failure or "unknown"
+                        except Exception:
+                            failure = "unknown"
+                        # Playwright Chromium networking code only; no request data.
+                        failure_code = str(failure).split(":", 1)[0][:75]
+                        westbahn_failed_reasons.append({"path":path,"failureCode":failure_code})
                 context.on("requestfailed", on_request_failure)
                 def on_response(response):
                     if response.status < 400:
@@ -161,6 +169,19 @@ def main():
                         "path":u.path[:100] if u.hostname in ("westbahn.at","www.westbahn.at") else "redacted",
                         "controls":facts
                     })
+                embedded = page.evaluate(r"""() => ({
+                    documentReadyState:document.readyState,
+                    iframeCount:document.querySelectorAll("iframe").length,
+                    iframeHosts:[...document.querySelectorAll("iframe[src]")].slice(0,10).map(e=>{
+                        try {
+                            const u=new URL(e.getAttribute("src"),location.href);
+                            return u.protocol==='https:' ? u.hostname : "non_https";
+                        } catch { return "unparseable"; }
+                    }),
+                    formCount:document.querySelectorAll("form").length,
+                    embeddedWidgets:document.querySelectorAll('[class*="widget"],[id*="widget"],[data-testid]').length,
+                    scriptCount:document.querySelectorAll("script[src]").length
+                })""")
                 print(json.dumps({
                     "status":"ticketshop_read_only_inspected",
                     "result":observed,
@@ -171,7 +192,9 @@ def main():
                                           "blockedByHostnameAndResourceType":blocked_by_host_and_type,
                                           "failedByHostnameAndResourceType":failed_by_host_and_type,
                                           "failedWestbahnGetPaths":failed_westbahn_gets[:10],
-                                          "westbahnGetHttpErrors":westbahn_get_http_errors[:10]},
+                                          "westbahnGetHttpErrors":westbahn_get_http_errors[:10],
+                                          "westbahnGetFailureCodes":westbahn_failed_reasons[:10]},
+                    "embeddingDiagnostics":embedded,
                     "bookingAuthorized":False,
                     "purchaseExecuted":False,
                     "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
