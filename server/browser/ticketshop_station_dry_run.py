@@ -189,31 +189,55 @@ def main():
                             }""")
                             if result["datePicker"]["status"]=="date_field_verified":
                                 result["status"]="stations_and_date_selected_dry_run"
-                                # Map the connection-search entry after
-                                # confirming the exact trip date. Do not click.
-                                result["connectionSearchControls"]=page.evaluate(r"""() => {
-                                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,95);
+                                # Read only: confirm navigation and match
+                                # route/date/timetable evidence before any
+                                # train-selection click is implemented.
+                                page.wait_for_timeout(700)
+                                result["connectionOverview"]=page.evaluate(r"""() => {
+                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
                                     const visible=e=>!!e.getClientRects().length &&
                                         getComputedStyle(e).display!=="none" &&
                                         getComputedStyle(e).visibility!=="hidden";
-                                    return [...document.querySelectorAll(
-                                        'button,[role=button],input[type=submit],a[href]'
-                                    )].filter(visible).map(e=>({
-                                        tag:e.tagName.toLowerCase(),
-                                        role:(e.getAttribute("role")||"").slice(0,25),
-                                        label:norm(e.getAttribute("aria-label")||e.innerText||
-                                            e.getAttribute("title")||e.getAttribute("value")),
-                                        disabled:e.matches(':disabled,[aria-disabled="true"]'),
-                                        withinForm:!!e.closest("form"),
-                                        hrefPath:(()=>{
-                                            const href=e.getAttribute("href");
-                                            if(!href)return null;
-                                            try{const u=new URL(href,location.href);
-                                                return u.origin===location.origin?
-                                                    u.pathname.slice(0,100):"external";
-                                            }catch{return "invalid";}
-                                        })()
-                                    })).filter(e=>e.label && e.label!=="Frage KI").slice(0,65);
+                                    const inputs=[...document.querySelectorAll("input")];
+                                    const outbound=inputs.find(e=>e.labels &&
+                                        [...e.labels].some(l=>norm(l.textContent)==="Hinfahrt"));
+                                    const labels=[...document.querySelectorAll("button")].filter(visible)
+                                        .map(e=>({
+                                            text:norm(e.getAttribute("aria-label")||e.innerText).slice(0,60),
+                                            disabled:e.matches(':disabled,[aria-disabled=true]')
+                                        })).filter(e=>/20\. November|20\.11|Nach Abfahrtszeit sortieren|Unsere Klassen/i.test(e.text)).slice(0,12);
+                                    const cards=[...document.querySelectorAll("body *")].filter(e=>{
+                                        if (!visible(e)) return false;
+                                        const t=norm(e.innerText);
+                                        return t.length>=5 && t.length<=160 &&
+                                            /18:22/.test(t) &&
+                                            ![...e.children].some(c=>visible(c) &&
+                                                /18:22/.test(norm(c.innerText)) &&
+                                                norm(c.innerText).length<=160);
+                                    }).slice(0,12).map(e=>{
+                                        let node=e;
+                                        for(let i=0;i<5 && node.parentElement;i++){
+                                            if(norm(node.innerText).length>500) break;
+                                            node=node.parentElement;
+                                        }
+                                        const text=norm(node.innerText).slice(0,500);
+                                        return {
+                                            hasDeparture1822:/18:22/.test(text),
+                                            hasArrival1849:/18:49/.test(text),
+                                            hasTrain1009:/\b1009\b/.test(text),
+                                            hasComfort:/Comfort/i.test(text),
+                                            hasEuroZero:/(?:0,00|0\.00|0)\s*(?:€|EUR)/i.test(text),
+                                            visibleTimes:[...new Set((text.match(/\b\d{1,2}:\d{2}\b/g)||[]))].slice(0,10)
+                                        };
+                                    });
+                                    return {
+                                        routePath:location.pathname.slice(0,200),
+                                        outboundField:outbound?outbound.value.slice(0,35):null,
+                                        requestedDayButtons:labels,
+                                        targetTrainCandidates:cards,
+                                        targetTrainCount:cards.length,
+                                        note:"Observed timetable content only; no live availability or booking authorization."
+                                    };
                                 }""")
                 print(json.dumps(result,ensure_ascii=False))
             finally:
