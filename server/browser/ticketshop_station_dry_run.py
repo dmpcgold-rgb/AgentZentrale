@@ -191,7 +191,7 @@ def main():
                             # passenger data, or identifiers outside a small whitelist.
                             import re
                             field_names=re.findall(
-                                r'Content-Disposition:\\s*form-data;[^\\r\\n]*?name="([^"]{1,90})"',
+                                r'Content-Disposition:\s*form-data;[^\r\n]*?name="([^"]{1,90})"',
                                 raw,re.IGNORECASE)
                             safe_categories=("amount","total","price","sum",
                                              "fare","ticket","train","seat",
