@@ -8,6 +8,7 @@ Only exact first-party read/quote endpoints and one basket/add POST are allowed.
 import fcntl
 import json
 import os
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -39,8 +40,53 @@ def main():
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
+                # Approval can be a binding reservation. The opt-in is one-day only.
+                # A durable marker prevents a second attempt even after a crash.
+                approval_marker=root/"approval_attempt_20261120.flag"
+                purchase_opt_in=(
+                    os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+                    and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+                )
+                approval_state={"armed":False,"attempted":False,
+                                "approvedRequestSent":False,"reason":"not_armed"}
+                def parse_zero_total(value):
+                    if isinstance(value,bool):
+                        return False
+                    if isinstance(value,(int,float)):
+                        return Decimal(str(value))==0
+                    if isinstance(value,str):
+                        x=value.strip().replace("€","").replace(" ","")
+                        if x in ("0","0.0","0.00","0,0","0,00"):
+                            return True
+                    return False
+                def basket_total_evidence(payload):
+                    # Accept only a single explicit total in a checkout/basket
+                    # root or its immediate summary. Never trust a line-item
+                    # subtotal or an arbitrary nested zero.
+                    if not isinstance(payload,dict):
+                        return {"verified":False,"reason":"non_object"}
+                    containers=[payload]
+                    for key in ("basket","cart","summary","checkout","order"):
+                        node=payload.get(key)
+                        if isinstance(node,dict):
+                            containers.append(node)
+                    fields=("grandTotal","totalPrice","totalAmount","totalGross",
+                            "totalGrossPrice","finalPrice","total")
+                    candidates=[]
+                    for node in containers:
+                        for key in fields:
+                            if key in node:
+                                candidates.append((key,node[key]))
+                    if len(candidates)!=1:
+                        return {"verified":False,"reason":"total_absent_or_ambiguous",
+                                "totalFieldCount":len(candidates)}
+                    key,value=candidates[0]
+                    return {"verified":parse_zero_total(value),
+                            "reason":"zero_total" if parse_zero_total(value)
+                                   else "nonzero_or_unrecognized_total",
+                            "totalFieldName":key}
                 network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"allowedSeatUpdate":[],"seatUpdateResponses":[],"allowedBasketRead":[],"basketReadResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
-                         "httpErrors":[],"basketAddResponses":[],"firstPartyRequestsByMethod":{}}
+                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
@@ -76,6 +122,18 @@ def main():
                             "status":resp.status,"ok":resp.ok,
                             "contentType":(resp.headers.get("content-type") or "").split(";")[0][:50]
                         })
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.path=="/ticketshop/basket/get" and resp.ok):
+                        try:
+                            quote=basket_total_evidence(resp.json())
+                            network["basketTotalEvidence"].append(quote)
+                        except Exception:
+                            network["basketTotalEvidence"].append({
+                                "verified":False,"reason":"response_not_json"})
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.path=="/ticketshop/basket/approve"):
+                        network["basketApprovalResponses"].append({
+                            "status":resp.status,"ok":resp.ok})
                     if u.hostname in ("westbahn.at","www.westbahn.at") and resp.status>=400:
                         item={"status":resp.status,"path":u.path[:130]}
                         if item not in network["httpErrors"] and len(network["httpErrors"])<15:
@@ -175,6 +233,25 @@ def main():
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
+                        if (req.method.upper()=="POST"
+                            and u.path=="/ticketshop/basket/approve"
+                            and u.scheme=="https"
+                            and u.hostname in ("westbahn.at","www.westbahn.at")
+                            and u.port in (None,443)
+                            and not u.query and not u.fragment
+                            and req.resource_type in ("fetch","xhr")
+                            and not req.is_navigation_request()
+                            and purchase_opt_in and approval_state["armed"]
+                            and not approval_state["attempted"]
+                            and not approval_marker.exists()):
+                            # The marker is written before the one permitted
+                            # attempt, preventing retries after unknown outcomes.
+                            approval_marker.write_text("attempted_2026-11-20\n")
+                            approval_state["attempted"]=True
+                            approval_state["approvedRequestSent"]=True
+                            approval_state["reason"]="one_request_permitted"
+                            route.continue_()
+                            return
                         if (req.method.upper()=="POST" and u.path=="/ticketshop/basket/approve"
                             and u.scheme=="https"
                             and u.hostname in ("westbahn.at","www.westbahn.at")):
@@ -1585,6 +1662,22 @@ def main():
                 result["cartSubmitReadiness"]["userAttestedNoDuplicate"]=bool(
                     user_attested_no_duplicate)
                 result["cartSubmitReadiness"]["automatedInventoryReconciliationPassed"]=False
+                # No approval unless the provider independently exposes a
+                # single explicit zero-valued total in basket/get. Avoid
+                # conflating the selected tariff with the total charge.
+                quotes=network["basketTotalEvidence"]
+                verified_quote=bool(quotes) and quotes[-1].get("verified") is True
+                approval_state["armed"]=bool(
+                    purchase_opt_in and user_attested_no_duplicate
+                    and confirmed_form and zero_fare and seat_update_ok
+                    and verified_quote and not approval_marker.exists()
+                    and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
+                )
+                approval_state["reason"]=(
+                    "armed" if approval_state["armed"]
+                    else ("already_attempted" if approval_marker.exists()
+                          else "provider_total_or_preconditions_not_verified")
+                )
                 if (confirmed_form and zero_fare and seat_update_ok
                     and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
                     and user_attested_no_duplicate):
@@ -1606,7 +1699,7 @@ def main():
                         except Exception as error:
                             result["cartSubmissionDiagnostic"]["status"]="click_failed"
                             result["cartSubmissionDiagnostic"]["errorClass"]=type(error).__name__[:48]
-                        page.wait_for_timeout(950)
+                        page.wait_for_timeout(1500)
                         result["cartSubmissionDiagnostic"]["afterClick"]={
                             "path":urlsplit(page.url).path[:160],
                             "basketAddRequests":len(network["allowedBasketAdd"]),
@@ -1651,6 +1744,17 @@ def main():
                             "awaiting_explicit_one_day_cart_diagnostic_flag"
                             if not user_attested_no_duplicate
                             else "cart_submit_preconditions_not_met")
+                result["purchaseGate"]={
+                    "userOptIn":purchase_opt_in,
+                    "providerBasketQuote":(network["basketTotalEvidence"][-1]
+                                           if network["basketTotalEvidence"]
+                                           else {"verified":False,"reason":"no_quote_response"}),
+                    "approvalState":approval_state,
+                    "approvalResponses":network["basketApprovalResponses"],
+                    "attemptMarkerExists":approval_marker.exists(),
+                    "bookingConfirmedByTickets":False,
+                    "purchaseExecuted":False
+                }
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
@@ -1672,6 +1776,7 @@ def main():
                         "cartSubmitReadiness":result.get("cartSubmitReadiness"),
                         "cartSubmissionDiagnostic":result.get("cartSubmissionDiagnostic"),
                         "blockedFirstPartyWrites":network["blockedFirstPartyWrites"],
+                        "purchaseGate":result["purchaseGate"],
                         "bookingAuthorized":False,
                         "purchaseExecuted":False
                     }
