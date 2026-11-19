@@ -223,7 +223,13 @@ test('weekly booking run never checks or purchases more than five future commute
  assert.equal(ledger.status().rows.length,5);
  assert.ok(ledger.status().rows.every(row=>row.status==='confirmed'&&row.seat==='233A'));
  await ledger.run();
- assert.deepEqual(booked,dayList,'no repeated checkouts on an already booked week');
+ const secondBatch=planDates(now()).filter(date=>!dayList.includes(date)).slice(0,5);
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'next manual run advances only to new unreserved dates within selected horizon');
+ assert.equal(new Set(booked).size,booked.length,'no duplicate checkout of any travel date');
+ await ledger.run();
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'a completed horizon must never trigger a repeated checkout');
 });
 
 test('configured Gmail preflight failure blocks all provider calls before checkout',async()=>{
