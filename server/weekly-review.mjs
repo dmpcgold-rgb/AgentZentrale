@@ -91,8 +91,16 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
   running=true;
   const startedAt=now().toISOString();
   try {
-    const audit=await browser.run('inventory-batch',null,null,days);
-    const result=applyVerifiedBatch(audit,days,westbahn);
+    // Gmail-only weekly reconciliation is supported when the private
+    // read-only account browser is disabled. This is positive evidence
+    // gathering only and cannot authorize purchases.
+    const result=browser
+     ?applyVerifiedBatch(await browser.run('inventory-batch',null,null,days),
+                         days,westbahn)
+     :{status:'email_only_checked',days:days.map(date=>({
+        date,status:'review_required',seats:[],safeToBook:false
+       })),inventoryComplete:false,safeToBook:false,
+       bookingAuthorized:false,ledgerProtectedDates:[],ledgerReviewDates:[]};
     // Reconcile positive email receipts for the same five days. Missing or
     // failed mailbox reads never authorize a new ticket purchase.
     let emailStatus='email_not_configured';
@@ -159,8 +167,9 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
    save();
    try{
      const result=await run();
-     if(result.status!=='inventory_batch_read')
-       throw Error('WESTbahn-Kontobestand konnte nicht geprüft werden. Keine Buchung.');
+     if(result.status!=='inventory_batch_read' &&
+        result.status!=='email_only_checked')
+       throw Error('WESTbahn-Ticketbestand konnte nicht geprüft werden. Keine Buchung.');
      state.lastSuccessWeek=week;
      state.nextRetryAt=null;
      save();
