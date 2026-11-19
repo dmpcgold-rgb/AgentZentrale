@@ -23,9 +23,15 @@ class Discovery(unittest.TestCase):
         self.assertEqual(diagnostic["rejectedSources"]["queryOrFragment"],0)
         self.assertEqual(diagnostic["rejectedSources"]["externalHost"],1)
         self.assertEqual(diagnostic["externalScriptHosts"],["cdn.example.net"])
-        self.assertEqual(diagnostic["queryStrippedFromPublicAssets"],1)
-        self.assertTrue(any(x.endswith("/assets/v.js") for x in urls))
-        self.assertTrue(all("?" not in x for x in urls))
+        self.assertEqual(diagnostic["allowedVersionedAssets"],1)
+        self.assertTrue(any(x.endswith("/assets/v.js?v=1") for x in urls))
+        self.assertTrue(any("?" in x for x in urls))
+    def test_observed_westbahn_asset_queries(self):
+        self.assertTrue(probe.safe_url("https://westbahn.at/a.js?group=main&version=123"))
+        self.assertTrue(probe.safe_url("https://westbahn.at/a.js?disable-minify=1&version=123"))
+        self.assertFalse(probe.safe_url("https://westbahn.at/a.js?disable-minify=1&version=123&token=x"))
+        self.assertFalse(probe.safe_url("https://westbahn.at/a.js?group=main&debug=1"))
+        self.assertFalse(probe.safe_url("https://westbahn.at/a.js?version=%2Ftmp%2Ffoo"))
     def test_no_unsafe_fetch(self):
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?token=secret"))
         self.assertTrue(probe.safe_url("https://westbahn.at/a.js?v=1.2.3"))
