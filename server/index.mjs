@@ -296,9 +296,11 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     const westbahn = await loadWestbahn();
     const browser=createBrowser();
     const review=createWeeklyReview({
-      westbahn,browser,
+      westbahn,browser:browser.status().enabled?browser:null,
       gmailConfirm:createWeeklyGmailConfirmation({env:process.env}),
-      enabled:browser.status().enabled && process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
+      enabled:(browser.status().enabled||
+        process.env.WESTBAHN_GMAIL_CONFIRMATION_ENABLED==='1')&&
+        process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
       file:process.env.WESTBAHN_REVIEW_STATE||'./data/westbahn-review.json'
     });
     setInterval(() => review.tick().catch(e =>
