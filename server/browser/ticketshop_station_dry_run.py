@@ -987,6 +987,48 @@ def main():
                                                 purchaseExecuted:false
                                             };
                                         }""",code)
+                                        # Commit the seat choice to the local
+                                        # ticket form only; never click "In den
+                                        # Warenkorb", payment or ticket purchase.
+                                        if result["prioritySeatChoice"].get("selected"):
+                                            finish=page.get_by_role("button",name="Fertig",exact=True)
+                                            if finish.count()==1 and finish.is_visible():
+                                                finish.click(timeout=4500)
+                                                page.wait_for_timeout(650)
+                                                summary=page.evaluate(r"""(code) => {
+                                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                    const vis=e=>!!e.getClientRects().length &&
+                                                        getComputedStyle(e).visibility!=="hidden";
+                                                    const main=document.querySelector("main")||document.body;
+                                                    const codeButtons=[...main.querySelectorAll("button")]
+                                                        .filter(vis).map(e=>norm(e.getAttribute("aria-label")||e.innerText))
+                                                        .filter(x=>x===code);
+                                                    const dialogs=[...document.querySelectorAll('[role=dialog]')]
+                                                        .filter(vis);
+                                                    return {
+                                                        code,
+                                                        selectedSeatShownInForm:codeButtons.length===1,
+                                                        selectedSeatButtonCount:codeButtons.length,
+                                                        seatDialogStillVisible:dialogs.length>0,
+                                                        cartSubmitClicked:false,
+                                                        purchaseExecuted:false
+                                                    };
+                                                }""",code)
+                                                result["seatFormConfirmation"]=summary
+                                                result["prioritySeatChoice"]["confirmed"]=bool(
+                                                    summary["selectedSeatShownInForm"]
+                                                )
+                                                result["prioritySeatChoice"]["status"]=(
+                                                    "priority_seat_applied_to_form"
+                                                    if summary["selectedSeatShownInForm"]
+                                                    else "seat_form_confirmation_unverified"
+                                                )
+                                            else:
+                                                result["seatFormConfirmation"]={
+                                                    "status":"finish_button_not_unique",
+                                                    "count":finish.count(),
+                                                    "purchaseExecuted":False
+                                                }
                                     else:
                                         result["prioritySeatChoice"]["status"]="seat_control_missing"
                                 else:
