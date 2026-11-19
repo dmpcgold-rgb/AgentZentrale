@@ -2611,6 +2611,31 @@ def main():
                             "errorClass":type(err).__name__[:48],
                             "requestSent":checkout_state["requestSent"],
                             "ticketConfirmed":False}
+                # Optional mailbox reconciliation after the one permitted
+                # createOrder request. Does not run if no request was sent,
+                # never retries the booking, and never exposes ticket links.
+                # Gmail credentials are stored only in private server env.
+                email_confirmation={"status":"email_check_not_enabled",
+                    "ticketConfirmed":False}
+                if (checkout_state["requestSent"]
+                    and os.environ.get("WESTBAHN_GMAIL_CONFIRMATION_ENABLED")=="1"):
+                    from gmail_ticket_confirmation import confirm_from_gmail
+                    from datetime import date
+                    import time
+                    for email_attempt in range(3):
+                        email_confirmation=confirm_from_gmail(
+                            date(2026,11,20), seat_choice.get("code") or "", "1009")
+                        if (email_confirmation.get("ticketConfirmed") is True
+                            or email_confirmation.get("status") in
+                            ("email_not_configured","email_invalid_configuration",
+                             "email_read_unavailable")):
+                            break
+                        if email_attempt<2:
+                            time.sleep(5)
+                    if email_confirmation.get("ticketConfirmed") is True:
+                        checkout_action["ticketConfirmed"]=True
+                        checkout_action["status"]="confirmed_by_westbahn_email"
+                result["emailConfirmation"]=email_confirmation
                 result["checkoutAction"]=checkout_action
                 # Distinguish absence of a seat token in the provider's
                 # basket line-item from the independently confirmed seat in
@@ -2672,7 +2697,11 @@ def main():
                     "selectedDateIsTopField":True,
                     "note":"Read/quote and limited basket/get; one basket/add, seat lookup and one seat update permitted; checkout and purchase blocked."
                 }
-                if checkout_state["requestSent"]:
+                if (result.get("emailConfirmation",{}).get("ticketConfirmed") is True):
+                    result["status"]="booking_confirmed_by_westbahn_email"
+                    result["bookingAuthorized"]=True
+                    result["purchaseExecuted"]=True
+                elif checkout_state["requestSent"]:
                     result["status"]="checkout_request_sent_confirmation_pending"
                     result["bookingAuthorized"]=True
                     result["purchaseExecuted"]=False
