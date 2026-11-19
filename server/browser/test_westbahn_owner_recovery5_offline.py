@@ -16,8 +16,8 @@ START=SRC.index('        prior_approval=root/"approval_attempt_20261120.flag"')
 END=SRC.index('        with sync_playwright() as p:',START)
 BODY=SRC[START:END]
 scope={}
-exec(compile("def check(root,os,json):\\n".replace("\\\\n","\\n")+BODY+
-             "        return locals()\\n".replace("\\\\n","\\n"),
+exec(compile("def check(root,os,json):"+chr(10)+BODY+
+             "        return locals()"+chr(10),
              "<offline-owner-policy>","exec"),scope)
 check=scope["check"]
 
