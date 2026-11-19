@@ -200,6 +200,34 @@ def main():
                                 key.lower() for key in field_names
                                 if key.lower() in safe_categories
                             })
+                            # A multipart field may itself contain JSON. Classify
+                            # nested structure without exposing any values or
+                            # arbitrary names (could include private identifiers).
+                            parts=re.findall(
+                                r'Content-Disposition:\s*form-data;[^\r\n]*?name="[^"]+"[^\r\n]*\r\n(?:[^\r\n]*\r\n)*?\r\n(.*?)(?=\r\n--)',
+                                raw,re.IGNORECASE|re.DOTALL)
+                            nested_types=[]
+                            nested_semantics=set()
+                            def inspect_shape(obj,depth=0):
+                                if depth>3:
+                                    return
+                                if isinstance(obj,dict):
+                                    for k,v in list(obj.items())[:100]:
+                                        low=str(k).lower()
+                                        if low in safe_categories:
+                                            nested_semantics.add(low)
+                                        inspect_shape(v,depth+1)
+                                elif isinstance(obj,list):
+                                    for item in obj[:15]:
+                                        inspect_shape(item,depth+1)
+                            for part in parts[:10]:
+                                try:
+                                    payload=json.loads(part)
+                                    nested_types.append("json_object" if isinstance(payload,dict)
+                                        else "json_array" if isinstance(payload,list) else "json_scalar")
+                                    inspect_shape(payload)
+                                except (ValueError,TypeError):
+                                    nested_types.append("non_json")
                             network["approvalRequestStructure"]={
                                 "method":"POST","path":u.path,
                                 "contentType":req.headers.get("content-type","").split(";")[0][:55],
@@ -208,6 +236,8 @@ def main():
                                              else ("json" if isinstance(parsed,(dict,list))
                                                    else ("empty" if not raw else "opaque"))),
                                 "multipartFieldCount":len(field_names),
+                                "multipartPayloadTypes":nested_types,
+                                "safeNestedSemanticKeys":sorted(nested_semantics),
                                 "safeSemanticFieldNames":semantic_fields,
                                 "hasPriceField":any(k in field_names for k in
                                     ("amount","total","price","sum")),
