@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
-import {createReservationPlanStore,reservationDates} from './reservation-plan.mjs';
+import {createReservationPlanStore,reservationDates,DEFAULT_RESERVATION_PLAN} from './reservation-plan.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
 import {createWeeklyGmailConfirmation} from './gmail-confirmation.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
@@ -219,14 +219,21 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         try { return write(res, 200, westbahn.recordUserReported(body.date, body.seat)); }
         catch (e) { throw new ApiError(409, e.message); }
       }
-      if (is('POST', '/westbahn/settings')) {
+      // Current provider adapter and Gmail matching are fixed to the historic
+      // default route/time/weekdays. Never silently book defaults after the user
+      // saved a different itinerary. Booking requires a separate verified adapter.
+      const planCanUseLegacyAdapter=()=>JSON.stringify(reservationPlan.get())===
+        JSON.stringify({...DEFAULT_RESERVATION_PLAN,weekdays:[...DEFAULT_RESERVATION_PLAN.weekdays]});
+            if (is('POST', '/westbahn/settings')) {
         const body = await readJson(req);
         if (typeof body.enabled !== 'boolean' || (body.enabled && body.confirm !== 'NUR-0-EURO')) throw new ApiError(400, 'Ausdrückliche Freigabe für automatische 0-Euro-Buchungen erforderlich.');
+        if(body.enabled&&!planCanUseLegacyAdapter())throw new ApiError(409,'Persönlicher Fahrplan ist noch nicht für Live-Buchungen freigegeben.');
         try { return write(res, 200, westbahn.setEnabled(body.enabled)); } catch(e) { throw new ApiError(409, e.message); }
       }
       if (is('POST', '/westbahn/run')) {
         const body = await readJson(req);
         if (body.confirm !== 'NUR-0-EURO') throw new ApiError(403, 'Freigabe für 0-Euro-Buchungen fehlt.');
+        if(!planCanUseLegacyAdapter())throw new ApiError(409,'Persönlicher Fahrplan ist noch nicht für Live-Buchungen freigegeben.');
         if (!westbahn.status().providerConnected || westbahn.status().running) throw new ApiError(409, 'Kein Buchungsadapter verbunden oder Lauf bereits aktiv.');
         westbahn.run().catch(e => console.error('WESTbahn-Lauf fehlgeschlagen:', e.message));
         return write(res, 202, {accepted:true,message:'Buchungslauf gestartet. Buchungen erst nach bestätigtem Ergebnis zählen.'});
