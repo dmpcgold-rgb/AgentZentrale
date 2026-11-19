@@ -1233,7 +1233,8 @@ def main():
                 zero_fare=(climate.get("checked") is True
                     and climate.get("matchingFareControls")==1)
                 seat_update_ok=any(x.get("ok") for x in network["seatUpdateResponses"])
-                if confirmed_form and zero_fare and seat_update_ok:
+                if (confirmed_form and zero_fare and seat_update_ok
+                    and result["cartSubmitReadiness"].get("duplicateInventoryGatePassed") is True):
                     cart_btn=page.get_by_role("button",name="In den Warenkorb",exact=True)
                     result["cartSubmissionDiagnostic"].update({
                         "matchedButtons":cart_btn.count(),
@@ -1276,6 +1277,10 @@ def main():
                     result["cartSubmissionDiagnostic"]["seatFormVerified"]=confirmed_form
                     result["cartSubmissionDiagnostic"]["zeroFareVerified"]=zero_fare
                     result["cartSubmissionDiagnostic"]["seatUpdateAccepted"]=seat_update_ok
+                    result["cartSubmissionDiagnostic"]["inventoryGatePassed"]=bool(
+                        result["cartSubmitReadiness"].get("duplicateInventoryGatePassed"))
+                    if confirmed_form and zero_fare and seat_update_ok:
+                        result["cartSubmissionDiagnostic"]["status"]="inventory_reconciliation_required_no_submit"
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
