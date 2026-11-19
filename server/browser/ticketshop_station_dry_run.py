@@ -1380,13 +1380,27 @@ def main():
                                                 }""",code)
                                                 summary["seatUpdateHttpResponses"]=network["seatUpdateResponses"]
                                                 summary["seatUpdateRequestAllowed"]=bool(network["allowedSeatUpdate"])
+                                                update_accepted=any(
+                                                    x.get("ok") for x in network["seatUpdateResponses"]
+                                                )
+                                                summary["formState"]=(
+                                                    "selected_seat_visible" if summary["seatShownInForm"]
+                                                    else "selected_seat_not_verified"
+                                                )
+                                                summary["serverUpdateStatus"]=(
+                                                    "seat_update_http_accepted" if update_accepted
+                                                    else "no_seat_update_request_observed"
+                                                )
                                                 result["seatFormConfirmation"]=summary
                                                 result["prioritySeatChoice"]["confirmed"]=bool(
                                                     result["seatDialogConfirmation"]["clicked"] and
                                                     summary["seatShownInForm"]
                                                 )
+                                                result["prioritySeatChoice"]["serverUpdateVerified"]=update_accepted
                                                 result["prioritySeatChoice"]["status"]=(
-                                                    "priority_seat_applied_to_form"
+                                                    "seat_update_accepted_and_visible_in_form"
+                                                    if result["prioritySeatChoice"]["confirmed"] and update_accepted
+                                                    else "seat_visible_in_form_no_update_observed"
                                                     if result["prioritySeatChoice"]["confirmed"]
                                                     else "seat_dialog_remains_or_selection_not_applied"
                                                 )
