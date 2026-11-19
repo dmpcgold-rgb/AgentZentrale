@@ -328,6 +328,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     const review=createWeeklyReview({
       westbahn,browser:browser.status().enabled?browser:null,
       gmailConfirm:createWeeklyGmailConfirmation({env:process.env}),
+      getPlan:()=>sharedReservationPlan.get(),
       enabled:(browser.status().enabled||
         process.env.WESTBAHN_GMAIL_CONFIRMATION_ENABLED==='1')&&
         process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
