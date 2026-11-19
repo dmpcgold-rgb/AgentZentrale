@@ -996,6 +996,13 @@ def main():
                             "verifiedSingleSeats":0,
                             "candidateCount":len(fallback),
                             "suggestions":fallback[:20],
+                            "candidateSummaryByWagon":[{
+                                "wagon":w["wagon"],
+                                "count":len(w.get("fallbackCandidates",[]))
+                            } for w in result["wagonAvailability"]
+                              if w.get("status")=="wagon_inspected"],
+                            "recommendedForAutomaticSelection":None,
+                            "requiresVisualLayoutVerification":True,
                             "seatClicked":False,
                             "checkoutAuthorized":False,
                             "purchaseExecuted":False,
@@ -1015,6 +1022,19 @@ def main():
                                 w.get("status")=="wagon_inspected"
                                 for w in result["wagonAvailability"])
                             for wagon in (11,8,7)
+                        )
+                        result["fallbackSeatSuggestions"]["preferredAvailability"]=checked
+                        result["fallbackSeatSuggestions"]["allPreferredUnavailable"]=(
+                            all_verified and all(
+                                checked.get(x)=="unavailable"
+                                for x in ("233A","233D","191D","182A")
+                            )
+                        )
+                        result["fallbackSeatSuggestions"]["status"]=(
+                            "preferred_seat_available_fallback_only_informational"
+                            if any(checked.get(x)=="available"
+                                   for x in ("233A","233D","191D","182A"))
+                            else result["fallbackSeatSuggestions"]["status"]
                         )
                         result["prioritySeatChoice"]={
                             "status":"priority_not_verified",
