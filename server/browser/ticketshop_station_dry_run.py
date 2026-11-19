@@ -1706,10 +1706,17 @@ def main():
                 # conflating the selected tariff with the total charge.
                 quotes=network["basketTotalEvidence"]
                 verified_quote=bool(quotes) and quotes[-1].get("verified") is True
+                # A basket/get response collected before the submit may
+                # describe an EMPTY basket. It is unsafe to authorize approval
+                # on this evidence, even when its total is zero. Enable only
+                # after a future version verifies the same date/train/seat and
+                # total against a POST-submit provider basket snapshot.
+                matching_post_submit_basket_verified=False
                 approval_state["armed"]=bool(
                     purchase_opt_in and user_attested_no_duplicate
                     and confirmed_form and zero_fare and seat_update_ok
-                    and verified_quote and not approval_marker.exists()
+                    and verified_quote and matching_post_submit_basket_verified
+                    and not approval_marker.exists()
                     and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
                 )
                 approval_state["reason"]=(
@@ -1785,6 +1792,7 @@ def main():
                             else "cart_submit_preconditions_not_met")
                 result["purchaseGate"]={
                     "userOptIn":purchase_opt_in,
+                    "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
                                            if network["basketTotalEvidence"]
                                            else {"verified":False,"reason":"no_quote_response"}),
