@@ -20,7 +20,7 @@ def validate_expected(expected):
                 "arrival", "train", "seat"}
     if set(expected) != required:
         raise ValueError("invalid_itinerary_fields")
-    if not isinstance(expected["date"], str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", expected["date"]):
+    if not isinstance(expected["date"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", expected["date"]):
         raise ValueError("invalid_date")
     try:
         travel_date = date.fromisoformat(expected["date"])
