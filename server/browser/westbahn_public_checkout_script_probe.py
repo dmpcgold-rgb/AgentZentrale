@@ -5,6 +5,7 @@ No browser profile, cookies, account access, POST, purchase, or checkout
 navigation. Reports bounded static source excerpts for endpoint semantics.
 """
 import html
+from html.parser import HTMLParser
 import json
 import re
 import sys
@@ -47,20 +48,66 @@ def get_public(url):
             raise ValueError("public_asset_too_large")
         return raw.decode("utf-8", errors="replace")
 
-def script_urls(markup):
-    sources = re.findall(
-        r"""<script\b[^>]*?\bsrc\s*=\s*['"]([^'"]+)['"]""",
-        markup, flags=re.IGNORECASE)
-    # Some bundlers also preload scripts before inserting a script tag.
-    sources += re.findall(
-        r"""<link\b[^>]*?\bhref\s*=\s*['"]([^'"]+\.js(?:[^'"]*)?)['"]""",
-        markup, flags=re.IGNORECASE)
-    urls = []
-    for source in sources:
+class AssetInventory(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.sources = []
+        self.script_tags = 0
+        self.inline_script_tags = 0
+        self.external_hosts = set()
+        self.tag_count = 0
+
+    def handle_starttag(self, tag, attrs):
+        self.tag_count += 1
+        a = dict(attrs)
+        if tag == "script":
+            self.script_tags += 1
+            src = a.get("src")
+            if src:
+                self.sources.append(src)
+            else:
+                self.inline_script_tags += 1
+        if tag == "link" and a.get("href"):
+            rel = a.get("rel", "").lower()
+            if "preload" in rel or "modulepreload" in rel or "script" in a.get("as",""):
+                self.sources.append(a["href"])
+
+def discover_assets(markup):
+    parsed = AssetInventory()
+    parsed.feed(markup)
+    candidate_urls = []
+    rejection_counts = {"externalHost": 0, "queryOrFragment": 0,
+                        "nonJavaScript": 0, "invalidScheme": 0}
+    for source in parsed.sources:
         target = urllib.parse.urljoin(HOME, html.unescape(source))
-        if safe_url(target) and target not in urls and target.lower().endswith((".js", ".mjs")):
-            urls.append(target)
-    return urls[:MAX_ASSETS]
+        parts = urllib.parse.urlsplit(target)
+        if parts.scheme != "https" or parts.username or parts.password:
+            rejection_counts["invalidScheme"] += 1
+        elif parts.hostname not in HOSTS:
+            rejection_counts["externalHost"] += 1
+            if parts.hostname:
+                parsed.external_hosts.add(parts.hostname.lower())
+        elif parts.query or parts.fragment:
+            rejection_counts["queryOrFragment"] += 1
+        elif not parts.path.lower().endswith((".js", ".mjs")):
+            rejection_counts["nonJavaScript"] += 1
+        elif safe_url(target) and target not in candidate_urls:
+            candidate_urls.append(target)
+    # Report aggregate counts and hostnames only, never page text,
+    # query parameters, cookies, tokens or private URL paths.
+    return candidate_urls[:MAX_ASSETS], {
+        "htmlLengthBand": ("large" if len(markup)>500000
+                           else "medium" if len(markup)>50000 else "small"),
+        "parsedTagCount": parsed.tag_count,
+        "scriptTagCount": parsed.script_tags,
+        "inlineScriptTagCount": parsed.inline_script_tags,
+        "sourceAttributeCount": len(parsed.sources),
+        "externalScriptHosts": sorted(parsed.external_hosts)[:12],
+        "rejectedSources": rejection_counts
+    }
+
+def script_urls(markup):
+    return discover_assets(markup)[0]
 
 def find_context(script):
     findings=[]
@@ -79,8 +126,10 @@ def main():
             "matches":[],"errors":[],"postRequests":0,"authenticated":False}
     try:
         markup=get_public(HOME)
-        urls=script_urls(markup)
+        urls, discovery = discover_assets(markup)
+        result["discovery"]=discovery
         result["scriptCandidates"]=len(urls)
+        result["htmlEndpointReferences"]=[t for t in TARGETS if t in markup.lower()]
         for url in urls:
             try:
                 js=get_public(url)
