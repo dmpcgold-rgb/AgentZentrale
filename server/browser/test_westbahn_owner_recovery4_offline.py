@@ -34,7 +34,7 @@ class OwnerAttestedFinalRecovery(unittest.TestCase):
         src=SRC.read_text(encoding="utf-8")
         self.assertIn('approval_attempt_20261120_recovery4.flag',src)
         self.assertIn('if fourth_recovery_requested\n                    else third_recovery_marker',src)
-        self.assertIn('or fourth_recovery_marker.exists()',src)
+        self.assertIn('or (fourth_recovery_marker.exists() and not fifth_recovery_requested)',src)
         self.assertIn('os.O_CREAT|os.O_EXCL|os.O_WRONLY',src)
     def test_checkout_marker_blocks_even_authorized_recovery(self):
         _,segment=policy()
