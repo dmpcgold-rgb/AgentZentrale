@@ -19,6 +19,7 @@ on:
       - 'server/browser/test_westbahn_public_script_discovery_offline.py'
       - 'server/browser/test_westbahn_create_order_gate_offline.py'
       - 'server/browser/gmail_ticket_confirmation.py'
+      - 'server/tests/weekly-gmail.test.mjs'
       - 'server/browser/test_gmail_ticket_confirmation_offline.py'
       - '.github/workflows/westbahn-checkout-navigation-regression.yml'
   pull_request:
