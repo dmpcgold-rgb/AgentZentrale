@@ -127,7 +127,7 @@ def main():
                             matchingSeat222D:/(^|[^A-Z0-9])222D([^A-Z0-9]|$)/i.test(text),
                             targetJourneyConfirmed:/Wien Meidling/i.test(text)
                                 && /Wiener Neustadt/i.test(text)
-                                && /20\\.11\\.2026|20\\.\\s*November\\s*2026/i.test(text)
+                                && /20\.11\.2026|20\.\s*November\s*2026/i.test(text)
                                 && /18:22/.test(text),
                             labelledTotals:[...main.querySelectorAll("div,span,p,strong,td")]
                                 .filter(visible).filter(e=>e.children.length<3)
@@ -136,8 +136,8 @@ def main():
                                     /Gesamt(?:preis|summe|betrag)?|Endpreis|Zu zahlen|Summe|Total/i.test(t)
                                     && /(?:€|EUR)/i.test(t))
                                 .slice(0,8).map(t=>({
-                                    hasZeroEuro:/0[,.]00\\s*(?:€|EUR)|(?:€|EUR)\\s*0[,.]00/.test(t),
-                                    hasNonzeroEuro:/[1-9][0-9]*(?:[,.][0-9]{2})?\\s*(?:€|EUR)/.test(t),
+                                    hasZeroEuro:/0[,.]00\s*(?:€|EUR)|(?:€|EUR)\s*0[,.]00/.test(t),
+                                    hasNonzeroEuro:/[1-9][0-9]*(?:[,.][0-9]{2})?\s*(?:€|EUR)/.test(t),
                                     labelType:/Endpreis/i.test(t)?"final":/Zu zahlen/i.test(t)?"payable":"total"
                                 })),
                             actionControls:[...main.querySelectorAll("button,a[href],input[type=submit]")]
