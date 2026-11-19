@@ -3,7 +3,11 @@ import unittest
 from email.message import EmailMessage
 from datetime import date
 from unittest.mock import patch
-from server.browser.gmail_ticket_confirmation import match_ticket, confirm_from_gmail
+import io
+import json
+import sys
+from contextlib import redirect_stdout
+from server.browser.gmail_ticket_confirmation import match_ticket, confirm_from_gmail, main
 
 
 def receipt(*, sender="WESTbahn <service@westbahn.at>", day="Fr 20 Nov",
@@ -42,6 +46,26 @@ class MailMatchingOffline(unittest.TestCase):
         self.assertFalse(self.match(receipt(seat="233A")))
     def test_wrong_email_type_denied(self):
         self.assertFalse(self.match(receipt(subject="WESTbahn Angebote")))
+    def test_weekly_cli_without_seat(self):
+        with patch.object(sys, "argv", ["gmail_ticket_confirmation.py",
+                                        "--dates", "2026-11-20"]):
+            with patch.dict("os.environ", {}, clear=True):
+                buffer=io.StringIO()
+                with redirect_stdout(buffer):
+                    main()
+        result=json.loads(buffer.getvalue())
+        self.assertEqual(result["status"],"email_not_configured")
+        self.assertFalse(result["bookingAuthorized"])
+
+    def test_weekly_rejects_invalid_date(self):
+        with patch.object(sys, "argv", ["gmail_ticket_confirmation.py",
+                                        "--dates", "20.11.2026"]):
+            buffer=io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+        self.assertEqual(json.loads(buffer.getvalue())["status"],
+                         "invalid_confirmation_query")
+
     def test_no_credentials_never_confirms(self):
         with patch.dict("os.environ",{},clear=True):
             value=confirm_from_gmail(date(2026,11,20),"191D","1009")
