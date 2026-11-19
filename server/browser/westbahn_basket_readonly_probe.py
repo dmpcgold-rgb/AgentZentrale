@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only inspection of the current WESTbahn cart; never add or buy.
 
-Uses existing isolated browser profile. Blocks every non-GET/HEAD request.
+Uses existing isolated browser profile. Allows only bounded first-party basket/get POST reads; all mutations blocked.
 Only emits public UI labels, booking route hints and redacted endpoint paths.
 """
 import fcntl
@@ -29,10 +29,25 @@ def main():
             context=p.chromium.launch_persistent_context(str(profile/"chromium"),**opts)
             blocked=[]
             failed=[]
+            basket_reads=[]
+            basket_read_responses=[]
             try:
                 def guard(route):
                     req=route.request
                     u=urlsplit(req.url)
+                    basket_read=(req.method.upper()=="POST" and
+                                 u.scheme=="https" and
+                                 u.hostname in ("westbahn.at","www.westbahn.at") and
+                                 u.port in (None,443) and
+                                 u.path=="/ticketshop/basket/get" and
+                                 not u.query and not u.fragment and
+                                 req.resource_type in ("fetch","xhr") and
+                                 not req.is_navigation_request() and
+                                 len(basket_reads)<4)
+                    if basket_read:
+                        basket_reads.append({"path":u.path,"method":"POST"})
+                        route.continue_()
+                        return
                     if req.method.upper() not in ("GET","HEAD"):
                         item={"method":req.method,"host":u.hostname if u.hostname in
                               ("westbahn.at","www.westbahn.at") else "external",
@@ -52,7 +67,17 @@ def main():
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
                         item={"method":req.method,"path":u.path[:100]}
                         if item not in failed and len(failed)<12: failed.append(item)
+                def on_response(resp):
+                    u=urlsplit(resp.url)
+                    if (u.hostname in ("westbahn.at","www.westbahn.at") and
+                        u.path=="/ticketshop/basket/get"):
+                        basket_read_responses.append({
+                            "status":resp.status,
+                            "ok":resp.ok,
+                            "contentType":(resp.headers.get("content-type") or "").split(";")[0][:45]
+                        })
                 context.route("**/*",guard)
+                context.on("response",on_response)
                 context.on("requestfailed",on_fail)
                 page=context.pages[0] if context.pages else context.new_page()
                 page.goto(URL,wait_until="domcontentloaded",timeout=25000)
@@ -103,6 +128,8 @@ def main():
                 }""")
                 print(json.dumps({"status":"basket_read_only_inspected",
                                   "result":facts,"blockedRequests":blocked,
+                                  "basketReadRequests":basket_reads,
+                                  "basketReadResponses":basket_read_responses,
                                   "failedFirstPartyRequests":failed,
                                   "cartModified":False,"bookingAuthorized":False,
                                   "purchaseExecuted":False},ensure_ascii=False))
