@@ -949,6 +949,26 @@ def main():
                                         y:rect.y+rect.height/2
                                     }:null;
                                 }).filter(Boolean);
+                                // The WESTbahn seat map renders visible
+                                // fixtures separately from seat buttons.
+                                // Inspect likely table/fixture DOM markers,
+                                // but do not infer a verified 2-seat layout
+                                // from CSS names or coordinates alone.
+                                const fixtureNodes=[...root.querySelectorAll(
+                                    '[class*="seat-picker"],[class*="seats-"]'
+                                )].filter(e=>visible(e) && !e.matches('button') &&
+                                    typeof e.className==="string" &&
+                                    /table|tisch|desk/i.test(e.className+" "+
+                                        (e.getAttribute("aria-label")||""))
+                                ).map(e=>{
+                                    const r=e.getBoundingClientRect();
+                                    return {
+                                        classHint:e.className.slice(0,95),
+                                        x:r.x+r.width/2,y:r.y+r.height/2,
+                                        width:Math.round(r.width),
+                                        height:Math.round(r.height)
+                                    };
+                                }).filter(e=>e.width>3 && e.height>3).slice(0,60);
                                 const layoutEvidence=seats.filter(s=>s.available &&
                                     /Fensterplatz/i.test(s.label) &&
                                     /mit Tisch/i.test(s.label) &&
@@ -970,6 +990,13 @@ def main():
                                         code:candidate.code,
                                         status:"geometry_collected_not_verified",
                                         nearbySeats:neighbors,
+                                        nearbyTableMarkers:fixtureNodes.map(t=>({
+                                            classHint:t.classHint,
+                                            dx:Math.round(t.x-current.x),
+                                            dy:Math.round(t.y-current.y),
+                                            width:t.width,height:t.height
+                                        })).filter(t=>Math.abs(t.dx)<140 &&
+                                            Math.abs(t.dy)<165).slice(0,8),
                                         layoutVerification:"requires_explicit_seat_map_review",
                                         fourPersonGroupExcluded:false
                                     };
@@ -1066,6 +1093,7 @@ def main():
                                 if facing_cluster else "layout_not_verified")
                             candidate["excludedFromAutomaticFallback"]=True
                             candidate["layoutEvidence"]={
+                                "nearbyTableMarkers":evidence.get("nearbyTableMarkers",[]),
                                 "facingWindowSeat":opposite_window["code"]
                                     if opposite_window else None,
                                 "facingAisleSeat":opposite_aisle["code"]
