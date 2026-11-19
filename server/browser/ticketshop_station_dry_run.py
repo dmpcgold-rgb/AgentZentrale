@@ -2487,8 +2487,11 @@ def main():
                             except Exception as err:
                                 checkout_action["status"]="click_error"
                                 checkout_action["errorClass"]=type(err).__name__[:48]
-                            finally:
-                                checkout_state["armed"]=False
+                            # Keep the one-shot gate armed through the
+                            # bounded asynchronous request-observation window.
+                            # Playwright click may return before the website's
+                            # XHR/fetch handler runs. The exclusive durable
+                            # marker still prevents a second order attempt.
                             # Navigation/payment UI can update after the
                             # click. Wait without reloading or resubmitting.
                             if checkout_state["requestSent"]:
@@ -2501,6 +2504,7 @@ def main():
                                 page.wait_for_timeout(1800)
                             except Exception:
                                 pass
+                            checkout_state["armed"]=False
                             checkout_action["requestSent"]=checkout_state[
                                 "requestSent"]
                             checkout_action["status"]=(
