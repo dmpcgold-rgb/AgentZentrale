@@ -4,6 +4,7 @@ on:
     paths:
       - 'server/browser/ticketshop_station_dry_run.py'
       - 'server/browser/test_checkout_navigation_race_offline.py'
+      - 'server/browser/test_westbahn_recovery3_offline.py'
       - '.github/workflows/westbahn-checkout-navigation-regression.yml'
   pull_request:
     paths:
@@ -20,4 +21,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Offline checkout review retry tests (no network)
-        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py
+        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py server/browser/test_westbahn_recovery3_offline.py
