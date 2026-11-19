@@ -49,11 +49,11 @@ def get_public(url):
 
 def script_urls(markup):
     sources = re.findall(
-        r"<script\\b[^>]*?\\bsrc\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"]",
+        r"<script\b[^>]*?\bsrc\s*=\s*['\\"]([^'\\"]+)['\\"]",
         markup, flags=re.IGNORECASE)
     # Some bundlers also preload scripts before inserting a script tag.
     sources += re.findall(
-        r"<link\\b[^>]*?\\bhref\\s*=\\s*['\\\"]([^'\\\"]+\\.js(?:[^'\\\"]*)?)['\\\"]",
+        r"<link\b[^>]*?\bhref\s*=\s*['\\"]([^'\\"]+\.js(?:[^'\\"]*)?)['\\"]",
         markup, flags=re.IGNORECASE)
     urls = []
     for source in sources:
@@ -69,7 +69,7 @@ def find_context(script):
         for pos in positions[:6]:
             # Public JS source, limited to a tiny static, printable excerpt.
             excerpt=script[max(0,pos-160):min(len(script),pos+220)]
-            excerpt=re.sub(r"[^\\x20-\\x7e]", " ", excerpt)
+            excerpt=re.sub(r"[^\x20-\x7e]", " ", excerpt)
             findings.append({"endpoint":target,"offset":pos,
                              "sourceExcerpt":excerpt[:380]})
     return findings
