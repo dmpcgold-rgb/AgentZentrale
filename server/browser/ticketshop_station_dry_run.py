@@ -35,7 +35,7 @@ def main():
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
-                network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
+                network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"allowedSeatUpdate":[],"seatUpdateResponses":[],"allowedBasketRead":[],"basketReadResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
                          "httpErrors":[],"basketAddResponses":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
@@ -61,6 +61,15 @@ def main():
                             "method":resp.request.method,
                             "status":resp.status,
                             "ok":resp.ok,
+                            "contentType":(resp.headers.get("content-type") or "").split(";")[0][:50]
+                        })
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.path in ("/ticketshop/rsv/update-seats",
+                                       "/ticketshop/basket/get")):
+                        key=("seatUpdateResponses" if u.path=="/ticketshop/rsv/update-seats"
+                             else "basketReadResponses")
+                        network[key].append({
+                            "status":resp.status,"ok":resp.ok,
                             "contentType":(resp.headers.get("content-type") or "").split(";")[0][:50]
                         })
                     if u.hostname in ("westbahn.at","www.westbahn.at") and resp.status>=400:
@@ -125,6 +134,40 @@ def main():
                     )
                     if safe_seat_lookup:
                         network["allowedSeatLookup"].append({"method":"POST","path":u.path})
+                        route.continue_()
+                        return
+                    # Only these two additional endpoints are permitted:
+                    # read basket contents; apply a single already highlighted
+                    # seat. They cannot invoke checkout or payment.
+                    safe_seat_update=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and u.path=="/ticketshop/rsv/update-seats"
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                        and len(network["allowedSeatUpdate"])==0
+                        and bool(network["allowedSeatLookup"])
+                    )
+                    if safe_seat_update:
+                        network["allowedSeatUpdate"].append({"method":"POST","path":u.path})
+                        route.continue_()
+                        return
+                    safe_basket_read=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and u.path=="/ticketshop/basket/get"
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                        and len(network["allowedBasketRead"])<4
+                    )
+                    if safe_basket_read:
+                        network["allowedBasketRead"].append({"method":"POST","path":u.path})
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
@@ -1092,7 +1135,7 @@ def main():
                                                         result["seatDialogConfirmation"]["errorClass"]=type(error).__name__[:48]
                                                 else:
                                                     result["seatDialogConfirmation"]["status"]="confirm_control_unavailable"
-                                                page.wait_for_timeout(550)
+                                                page.wait_for_timeout(950)
                                                 summary=page.evaluate(r"""(code) => {
                                                     const norm=s=>(s||"").replace(/\s+/g," ").trim();
                                                     const visible=e=>!!e.getClientRects().length &&
@@ -1111,6 +1154,8 @@ def main():
                                                         purchaseExecuted:false
                                                     };
                                                 }""",code)
+                                                summary["seatUpdateHttpResponses"]=network["seatUpdateResponses"]
+                                                summary["seatUpdateRequestAllowed"]=bool(network["allowedSeatUpdate"])
                                                 result["seatFormConfirmation"]=summary
                                                 result["prioritySeatChoice"]["confirmed"]=bool(
                                                     result["seatDialogConfirmation"]["clicked"] and
@@ -1146,7 +1191,7 @@ def main():
                     "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
                     "browserLocale":page.evaluate("navigator.language"),
                     "selectedDateIsTopField":True,
-                    "note":"Only four quote endpoints, one basket/add and one seats lookup POST allowed; seat selection and checkout remain blocked."
+                    "note":"Read/quote and limited basket/get; one basket/add, seat lookup and one seat update permitted; checkout and purchase blocked."
                 }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
