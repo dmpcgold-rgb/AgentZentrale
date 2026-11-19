@@ -98,7 +98,10 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
     state.lastRun={...state.lastRun,status:'blocked_unverified_custom_itinerary',finishedAt:now().toISOString()};
     return status();
    }
-   const upcoming=nextReservationBatch(currentPlan(),{at:now()});
+   const protectedDates=Object.values(state.rows)
+    .filter(row=>['confirmed','uncertain','booking','user_reported','existing_verified'].includes(row.status))
+    .map(row=>row.date);
+   const upcoming=nextReservationBatch(currentPlan(),{at:now(),excludedDates:protectedDates});
    if(!upcoming.length){
     state.lastRun={...state.lastRun,status:'no_planned_dates',finishedAt:now().toISOString()};
     return status();
