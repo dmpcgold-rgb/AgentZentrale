@@ -33,7 +33,7 @@ def main():
                 args["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
             context=p.chromium.launch_persistent_context(str(root/"chromium"),**args)
             try:
-                network={"allowedTimetableReads":[],"allowedBasketAdd":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
+                network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
                          "httpErrors":[],"basketAddResponses":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
@@ -48,6 +48,14 @@ def main():
                     if (u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.path=="/api/v1/basket/add"):
                         network["basketAddResponses"].append({
+                            "method":resp.request.method,
+                            "status":resp.status,
+                            "ok":resp.ok,
+                            "contentType":(resp.headers.get("content-type") or "").split(";")[0][:50]
+                        })
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.path=="/ticketshop/rsv/seats"):
+                        network["seatLookupResponses"].append({
                             "method":resp.request.method,
                             "status":resp.status,
                             "ok":resp.ok,
@@ -98,6 +106,23 @@ def main():
                     )
                     if safe_cart_add:
                         network["allowedBasketAdd"].append({"method":"POST","path":u.path})
+                        route.continue_()
+                        return
+                    # Allow one seat-list request only; no choosing or
+                    # committing any seat, cart checkout, or purchase.
+                    safe_seat_lookup=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and u.path=="/ticketshop/rsv/seats"
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                        and len(network["allowedSeatLookup"])==0
+                    )
+                    if safe_seat_lookup:
+                        network["allowedSeatLookup"].append({"method":"POST","path":u.path})
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
@@ -713,6 +738,16 @@ def main():
                                     result["connectionOverview"]["bookingCheck"]={
                                         "state":"unknown","safeToBook":False
                                     }
+                # Let the seat-list response settle before inspecting
+                # transport status; no additional cart request is initiated.
+                page.wait_for_timeout(850)
+                result["seatLookupDiagnostic"]={
+                    "requestAllowed":bool(network["allowedSeatLookup"]),
+                    "responses":network["seatLookupResponses"],
+                    "seatSelectionMade":False,
+                    "reservationCompleted":False,
+                    "checkoutAuthorized":False
+                }
                 basket_added=bool(network["allowedBasketAdd"])
                 basket_transport_ok=any(x.get("ok") for x in network["basketAddResponses"])
                 result["bookingSafety"]={
@@ -757,7 +792,7 @@ def main():
                     "browserTimezone":page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"),
                     "browserLocale":page.evaluate("navigator.language"),
                     "selectedDateIsTopField":True,
-                    "note":"Four read/quote POST endpoints plus at most one basket/add POST allowed; checkout and purchase writes blocked."
+                    "note":"Only four quote endpoints, one basket/add and one seats lookup POST allowed; seat selection and checkout remain blocked."
                 }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
