@@ -224,7 +224,7 @@ def main():
             if args.date or args.seat:
                 raise ValueError()
             tokens=args.dates.split(",")
-            if any(not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",token) for token in tokens):
+            if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}",token) for token in tokens):
                 raise ValueError()
             output=confirm_week_from_gmail([date.fromisoformat(d) for d in tokens],args.train)
             print(json.dumps(output,ensure_ascii=False))
