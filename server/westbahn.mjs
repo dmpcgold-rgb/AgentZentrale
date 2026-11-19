@@ -64,6 +64,28 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   return status();
  };
 
+
+ // A positive official Gmail receipt can protect a date even if account
+ // pagination is incomplete. A missing email NEVER proves no reservation.
+ // Do not replace an existing conflicting seat or an unknown order outcome.
+ const recordVerifiedEmail=(travelDate,seat)=>{
+  if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||
+     Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||
+     new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)
+   throw Error('Ungültiges E-Mail-Reisedatum.');
+  if(typeof seat!=='string'||!/^[0-9]{3}[A-D]$/.test(seat))
+   throw Error('Ungültiger E-Mail-Sitzplatz.');
+  const previous=state.rows[travelDate];
+  if(previous?.seat&&previous.seat!==seat)
+   throw Error('Abweichender Sitzplatz; keine automatische Überschreibung.');
+  if(previous?.status==='confirmed'&&previous.confirmationSource!=='official_email')
+   return status();
+  if(previous?.status==='confirmed'&&previous.seat===seat)return status();
+  record(travelDate,'confirmed','Offizielle WESTbahn-Ticket-E-Mail mit Datum, Zug und Sitzplatz geprüft. Keine neue Buchung.',{
+    seat,confirmationSource:'official_email'});
+  return status();
+ };
+
  async function run(){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
@@ -120,7 +142,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   return status();
  }
  async function tick(){const c=viennaClock(now());if(!state.enabled||!adapter||running||c.weekday!=='Mon'||c.time<'07:00'||state.lastSchedule===c.date)return false;state.lastSchedule=c.date;save();await run();return true;}
- return {status,setEnabled,run,tick,recordUserReported,recordVerifiedExisting};
+ return {status,setEnabled,run,tick,recordUserReported,recordVerifiedExisting,recordVerifiedEmail};
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
