@@ -59,6 +59,43 @@ def main():
                         if x in ("0","0.0","0.00","0,0","0,00"):
                             return True
                     return False
+                def basket_response_shape(payload):
+                    # Structural debugging only. Never return raw values or
+                    # arbitrary key names from a potentially personal payload.
+                    allowed=("total","price","amount","gross","net","sum",
+                             "currency","basket","cart","summary","checkout",
+                             "order","data","result","items","tickets",
+                             "reservations","cost","fare","payment")
+                    def classify(value):
+                        if isinstance(value,dict):
+                            return "object"
+                        if isinstance(value,list):
+                            return "array"
+                        if isinstance(value,bool):
+                            return "boolean"
+                        if isinstance(value,(int,float)):
+                            return "number"
+                        if isinstance(value,str):
+                            return "string"
+                        return "null_or_other"
+                    def inspect(obj,level=0):
+                        if isinstance(obj,dict):
+                            keys=[k for k in obj if isinstance(k,str)]
+                            known=[{"key":k,"type":classify(obj[k])}
+                                   for k in keys if any(x in k.lower() for x in allowed)]
+                            return {"type":"object","fieldCount":len(keys),
+                                    "monetaryOrContainerFields":known[:20],
+                                    "children":[{"via":k,"structure":inspect(obj[k],level+1)}
+                                                for k in ("data","result","basket","cart",
+                                                          "summary","checkout")
+                                                if level<2 and k in obj
+                                                and isinstance(obj[k],(dict,list))][:6]}
+                        if isinstance(obj,list):
+                            return {"type":"array","length":len(obj),
+                                    "firstItem":inspect(obj[0],level+1)
+                                    if obj and level<2 else None}
+                        return {"type":classify(obj)}
+                    return inspect(payload)
                 def basket_total_evidence(payload):
                     # Accept only a single explicit total in a checkout/basket
                     # root or its immediate summary. Never trust a line-item
@@ -125,7 +162,9 @@ def main():
                     if (u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.path=="/ticketshop/basket/get" and resp.ok):
                         try:
-                            quote=basket_total_evidence(resp.json())
+                            payload=resp.json()
+                            quote=basket_total_evidence(payload)
+                            quote["responseShape"]=basket_response_shape(payload)
                             network["basketTotalEvidence"].append(quote)
                         except Exception:
                             network["basketTotalEvidence"].append({
