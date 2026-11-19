@@ -119,7 +119,7 @@ def main():
                         and not u.query and not u.fragment
                         and req.resource_type in ("fetch","xhr")
                         and not req.is_navigation_request()
-                        and len(network["allowedSeatLookup"])==0
+                        and len(network["allowedSeatLookup"])<4
                     )
                     if safe_seat_lookup:
                         network["allowedSeatLookup"].append({"method":"POST","path":u.path})
@@ -836,6 +836,76 @@ def main():
                                 purchaseExecuted:false
                             };
                         }""")
+                        # Changing wagons only navigates a seat map, and
+                        # does NOT select any seat or confirm any booking.
+                        result["wagonAvailability"]=[]
+                        for wagon in (11,8,7):
+                            wagon_button=page.get_by_role(
+                                "button",name=f"Wagen: {wagon}",exact=True
+                            )
+                            if wagon_button.count()!=1 or not wagon_button.is_enabled():
+                                result["wagonAvailability"].append({
+                                    "wagon":wagon,"status":"wagon_button_missing_or_disabled",
+                                    "count":wagon_button.count()
+                                })
+                                continue
+                            wagon_button.click(timeout=4500)
+                            page.wait_for_timeout(650)
+                            inspected=page.evaluate(r"""(wagon) => {
+                                const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                const visible=e=>!!e.getClientRects().length &&
+                                    getComputedStyle(e).visibility!=="hidden" &&
+                                    getComputedStyle(e).display!=="none";
+                                const root=document.querySelector('[role=dialog]')||
+                                    document.querySelector('main')||document.body;
+                                const wagonButtons=[...root.querySelectorAll(
+                                    'button.west-ui-wagons--wagon'
+                                )].filter(visible);
+                                const active=wagonButtons.filter(e=>e.matches(
+                                    '[aria-selected=true],[aria-pressed=true],.west-ui-wagons--active'
+                                )).map(e=>norm(e.getAttribute("aria-label")||e.innerText));
+                                const seats=[...root.querySelectorAll('button')].filter(e=>
+                                    visible(e) && typeof e.className==="string" &&
+                                    e.className.includes('west-ui-seat-picker--seat')
+                                ).map(e=>{
+                                    const label=norm(e.getAttribute("aria-label")||
+                                        e.getAttribute("title")||e.innerText);
+                                    const match=label.match(/^(\d{2,3}[A-D])\b/i);
+                                    return match?{
+                                        code:match[1].toUpperCase(),
+                                        label:label.slice(0,95),
+                                        available:!e.matches(':disabled,[aria-disabled=true]'),
+                                        selected:e.matches(
+                                            '[aria-selected=true],[aria-pressed=true],.west-ui-seat-picker--selected'
+                                        )
+                                    }:null;
+                                }).filter(Boolean);
+                                const preferred=(wagon===11?["233A","233D"]:
+                                    wagon===8?["191D"]:["182A"]);
+                                return {
+                                    wagon,
+                                    status:active.some(a=>new RegExp(
+                                        'Wagen:\\s*'+wagon+'(?:\\b|$)').test(a))
+                                        ?"wagon_inspected":"wagon_not_verified",
+                                    activeWagons:active.slice(0,4),
+                                    totalSeats:seats.length,
+                                    availableSeats:seats.filter(s=>s.available).length,
+                                    preferred:preferred.map(code=>{
+                                        const seat=seats.find(s=>s.code===code);
+                                        return {
+                                            code,
+                                            status:seat
+                                                ?(seat.available?"available":"unavailable")
+                                                :"not_found_in_visible_wagon",
+                                            label:seat?seat.label:null
+                                        };
+                                    }),
+                                    availableSeatLabels:seats.filter(s=>s.available)
+                                        .slice(0,22).map(s=>s.label),
+                                    seatClicked:false
+                                };
+                            }""",wagon)
+                            result["wagonAvailability"].append(inspected)
                     else:
                         result["seatMapDiagnostic"]={
                             "status":"change_seat_button_not_unique",
