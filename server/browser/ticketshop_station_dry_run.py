@@ -2697,6 +2697,16 @@ def main():
                     "selectedDateIsTopField":True,
                     "note":"Read/quote and limited basket/get; one basket/add, seat lookup and one seat update permitted; checkout and purchase blocked."
                 }
+                # Receipt and account-ticket evidence have different origins.
+                # A confirmed official email is sufficient positive receipt
+                # evidence, but is not evidence that an account page was read.
+                result["purchaseGate"]["confirmedByOfficialEmail"]=bool(
+                    result.get("emailConfirmation",{}).get("ticketConfirmed"))
+                result["purchaseGate"]["ticketConfirmationPending"]=bool(
+                    checkout_state["requestSent"]
+                    and not result["purchaseGate"]["confirmedByOfficialEmail"])
+                result["purchaseGate"]["purchaseExecuted"]=bool(
+                    result["purchaseGate"]["confirmedByOfficialEmail"])
                 if (result.get("emailConfirmation",{}).get("ticketConfirmed") is True):
                     result["status"]="booking_confirmed_by_westbahn_email"
                     result["bookingAuthorized"]=True
@@ -2718,8 +2728,9 @@ def main():
                         "blockedFirstPartyWrites":network["blockedFirstPartyWrites"],
                         "checkoutBlockedRequests":network["checkoutBlockedRequests"],
                         "purchaseGate":result["purchaseGate"],
-                        "bookingAuthorized":bool(checkout_state["requestSent"]),
-                        "purchaseExecuted":False
+                        "emailConfirmation":result.get("emailConfirmation"),
+                        "bookingAuthorized":result.get("bookingAuthorized",False),
+                        "purchaseExecuted":result.get("purchaseExecuted",False)
                     }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
