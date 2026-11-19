@@ -25,7 +25,7 @@ class CheckoutBlockedEndpointEvidence(unittest.TestCase):
         self.assertIn('=="application/json"',SRC)
         self.assertIn('and not checkout_marker.exists()',SRC)
     def test_no_request_payload_logging(self):
-        segment=SRC.split('and CURRENT_STAGE=="one_time_zero_euro_checkout_action"')[1].split('if u.hostname in ("westbahn.at","www.westbahn.at"):',1)[0]
+        segment=SRC.split('# Only endpoint metadata. Never log request bodies,',1)[1].split('network["checkoutBlockedRequests"].append',1)[0]
         self.assertNotIn('req.post_data',segment)
         self.assertNotIn('req.headers',segment)
         self.assertNotIn('req.url',segment)
