@@ -16,7 +16,7 @@ def policy():
     segment=source[beginning:end]
     # Extract executable gate inside a local function, letting tests inspect
     # AST without ever running a checkout or changing persisted data.
-    compiled="def evaluate_policy(root, os, json, sync_playwright):\n"+segment+"    return locals()\n"
+    compiled="def evaluate_policy(root, os, json, sync_playwright):\n"+segment+"        return locals()\n"
     return ast.parse(compiled),segment
 
 class OwnerAttestedFinalRecovery(unittest.TestCase):
