@@ -58,7 +58,7 @@ test('custom itinerary cannot enable legacy, incomplete or read-only adapter',()
  const a=createWestbahn({getPlan:()=>plan,adapter:{
   existing:async()=>({status:'none'})},now});
  assert.equal(a.status().dynamicProviderVerified,false);
- assert.throws(()=>a.setEnabled(true),/verifizierten dynamischen/);
+ assert.throws(()=>a.setEnabled(true),/verifizierten Buchungsadapter/);
  assert.equal(dynamicAdapterReady(fixture()),true);
  const b=fixture();delete b.capabilities.durableIdempotency;
  assert.equal(dynamicAdapterReady(b),false);
