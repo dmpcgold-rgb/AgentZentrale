@@ -194,8 +194,8 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
-export async function loadWestbahn(env=process.env){let adapter=null;if(env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
+export async function loadWestbahn(env=process.env,sharedPlanStore=null){let adapter=null;if(env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
  const gmailConfirm=env.WESTBAHN_GMAIL_CONFIRMATION_ENABLED==='1'
   ?(await import('./gmail-confirmation.mjs')).createWeeklyGmailConfirmation({env}):null;
- const planStore=createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
+ const planStore=sharedPlanStore||createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
  return createWestbahn({adapter,gmailConfirm,getPlan:()=>planStore.get(),file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
