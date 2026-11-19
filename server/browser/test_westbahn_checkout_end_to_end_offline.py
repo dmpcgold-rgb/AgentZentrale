@@ -140,6 +140,11 @@ class CheckoutE2ESimulation(unittest.TestCase):
         result=confirm("Buchung erfolgreich 27.11.2026 Sitz 191D Zug 1009")
         self.assertTrue(result["explicitSuccessMessage"])
         self.assertFalse(result["sameDate"])
+    def test_submitted_order_is_not_misreported_as_ticket(self):
+        source=SOURCE.read_text(encoding="utf-8")
+        self.assertIn('"finalOrderRequestSent":bool(checkout_state["requestSent"])',source)
+        self.assertIn('"ticketConfirmationPending":bool(checkout_state["requestSent"])',source)
+        self.assertIn('"bookingConfirmedByTickets":False',source)
     def test_source_has_durable_once_only_order_marker(self):
         s=SOURCE.read_text(encoding="utf-8")
         self.assertIn('os.O_CREAT|os.O_EXCL|os.O_WRONLY',s)
