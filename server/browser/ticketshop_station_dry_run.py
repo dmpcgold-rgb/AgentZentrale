@@ -2060,13 +2060,32 @@ def main():
                     "finalPriceVerified":False,"purchaseExecuted":False}
                 try:
                     CURRENT_STAGE="checkout_review_read_only"
-                    # Reuse the EXACT page/session from basket approval.
-                    # Re-navigating after approval can discard a volatile cart.
+                    # The approve endpoint initiates asynchronous navigation.
+                    # Wait for its actual checkout URL instead of triggering
+                    # another navigation that can discard the volatile cart.
+                    try:
+                        page.wait_for_url(
+                            lambda url:urlsplit(str(url)).path=="/ticketshop/checkout",
+                            wait_until="domcontentloaded",timeout=12000)
+                    except Exception:
+                        pass
                     if urlsplit(page.url).path!="/ticketshop/checkout":
-                        page.goto("https://westbahn.at/ticketshop/checkout",
-                                  wait_until="domcontentloaded",timeout=20000)
-                    page.wait_for_timeout(900)
-                    result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
+                        # Never force checkout navigation during a pending
+                        # approval; fail closed rather than race page changes.
+                        result["checkoutReviewReadOnly"]={
+                            "status":"checkout_navigation_not_confirmed",
+                            "path":urlsplit(page.url).path[:130],
+                            "finalPriceVerified":False,"purchaseExecuted":False}
+                    else:
+                        try:
+                            page.locator("main").wait_for(state="visible",
+                                                          timeout=8000)
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(400)
+                        for review_try in range(3):
+                            try:
+                                result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
                         const visible=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
                         const norm=s=>(s||"").replace(/\s+/g," ").trim();
@@ -2123,6 +2142,19 @@ def main():
                             purchaseExecuted:false
                         };
                     }""",seat_choice.get("code") or "")
+                                break
+                            except Exception as transient:
+                                if ("context was destroyed" not in str(transient).lower()
+                                    and "navigat" not in str(transient).lower()):
+                                    raise
+                                if review_try==2:
+                                    raise
+                                try:
+                                    page.wait_for_load_state("domcontentloaded",
+                                                             timeout=5000)
+                                except Exception:
+                                    pass
+                                page.wait_for_timeout(250)
                 except Exception as review_error:
                     result["checkoutReviewReadOnly"]={
                         "status":"review_unavailable",
