@@ -3,7 +3,7 @@ import unittest
 from email.message import EmailMessage
 from datetime import date
 from unittest.mock import patch
-from gmail_ticket_confirmation import match_ticket, confirm_from_gmail
+from server.browser.gmail_ticket_confirmation import match_ticket, confirm_from_gmail
 
 
 def receipt(*, sender="WESTbahn <service@westbahn.at>", day="Fr 20 Nov",
@@ -48,7 +48,8 @@ class MailMatchingOffline(unittest.TestCase):
         self.assertEqual(value["status"],"email_not_configured")
         self.assertFalse(value["ticketConfirmed"])
     def test_confirmation_helper_never_writes_mail(self):
-        import inspect, gmail_ticket_confirmation as mod
+        import inspect
+        from server.browser import gmail_ticket_confirmation as mod
         source=inspect.getsource(mod)
         self.assertIn('readonly=True',source)
         self.assertIn('BODY.PEEK[]',source)
