@@ -5,6 +5,7 @@ import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
+import {createWeeklyGmailConfirmation} from './gmail-confirmation.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
 import { safeTripPreview } from './trip-preview.mjs';
 import { planDates } from '../src/core/westbahn.js';
@@ -296,6 +297,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
     const browser=createBrowser();
     const review=createWeeklyReview({
       westbahn,browser,
+      gmailConfirm:createWeeklyGmailConfirmation({env:process.env}),
       enabled:browser.status().enabled && process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
       file:process.env.WESTBAHN_REVIEW_STATE||'./data/westbahn-review.json'
     });
