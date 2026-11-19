@@ -2144,11 +2144,17 @@ def main():
                     }""",seat_choice.get("code") or "")
                                 break
                             except Exception as transient:
-                                if ("context was destroyed" not in str(transient).lower()
-                                    and "navigat" not in str(transient).lower()):
-                                    raise
+                                # Checkout may reload repeatedly during
+                                # async payment-method initialization. Never
+                                # allow read-only diagnosis to abort the run.
                                 if review_try==2:
-                                    raise
+                                    result["checkoutReviewReadOnly"]={
+                                        "status":"navigation_unstable",
+                                        "errorClass":type(transient).__name__[:48],
+                                        "finalPriceVerified":False,
+                                        "purchaseExecuted":False
+                                    }
+                                    break
                                 try:
                                     page.wait_for_load_state("domcontentloaded",
                                                              timeout=5000)
@@ -2156,6 +2162,8 @@ def main():
                                     pass
                                 page.wait_for_timeout(250)
                 except Exception as review_error:
+                    # This is a read-only probe. Its failure must not make
+                    # an already-sent approval result disappear.
                     result["checkoutReviewReadOnly"]={
                         "status":"review_unavailable",
                         "errorClass":type(review_error).__name__[:48],
