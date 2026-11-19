@@ -38,20 +38,29 @@ def main():
         # no-ticket attestation and a one-off recovery flag.
         prior_approval=root/"approval_attempt_20261120.flag"
         recovery_marker=root/"approval_attempt_20261120_recovery1.flag"
+        final_recovery_marker=root/"approval_attempt_20261120_recovery2.flag"
+        final_recovery_requested=(
+            os.environ.get("WESTBAHN_FINAL_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
+            and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+            and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+        )
         recovery_requested=(
             os.environ.get("WESTBAHN_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
             and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
             and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
         )
         if ((root/"checkout_attempt_20261120.flag").exists()
-            or recovery_marker.exists()
-            or (prior_approval.exists() and not recovery_requested)):
+            or final_recovery_marker.exists()
+            or (recovery_marker.exists() and not final_recovery_requested)
+            or (prior_approval.exists() and not recovery_requested
+                and not final_recovery_requested)):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
                 "reason":"checkout_already_attempted"
                     if (root/"checkout_attempt_20261120.flag").exists()
-                    else ("recovery_already_attempted" if recovery_marker.exists()
-                          else "original_approval_marker_present"),
+                    else ("final_recovery_already_attempted"
+                          if final_recovery_marker.exists()
+                          else "recovery_not_authorized_or_already_attempted"),
                 "newSeatSelectionBlocked":True,
                 "newBasketApprovalBlocked":True,
                 "purchaseExecuted":False
@@ -67,7 +76,10 @@ def main():
                 # Approval can be a binding reservation. The opt-in is one-day only.
                 # A durable marker prevents a second attempt even after a crash.
                 approval_marker=(
-                    recovery_marker if prior_approval.exists() and recovery_requested
+                    final_recovery_marker
+                    if recovery_marker.exists() and final_recovery_requested
+                    else recovery_marker
+                    if prior_approval.exists() and recovery_requested
                     else prior_approval
                 )
                 purchase_opt_in=(
@@ -1985,12 +1997,17 @@ def main():
                         except Exception:
                             pass
                         page.wait_for_timeout(700)
+                        try:
+                            current_path=urlsplit(page.url).path[:160]
+                        except Exception:
+                            current_path="navigation_in_progress"
                         result["cartSubmissionDiagnostic"]["afterClick"]={
-                            "path":urlsplit(page.url).path[:160],
+                            "path":current_path,
                             "basketAddRequests":len(network["allowedBasketAdd"]),
-                            "basketAddResponses":network["basketAddResponses"],
-                            "blockedPostPaths":[i["path"] for i in network["blockedFirstPartyWrites"]],
-                            "basketReadResponses":network["basketReadResponses"],
+                            "basketAddResponses":list(network["basketAddResponses"]),
+                            "blockedPostPaths":[i["path"] for i in
+                                network["blockedFirstPartyWrites"]],
+                            "basketReadResponses":list(network["basketReadResponses"]),
                             "cartText":None
                         }
                         try:
@@ -2317,7 +2334,17 @@ if __name__=="__main__":
     try:
         main()
     except Exception as error:
+        # Do not echo network payloads, URLs or user details on failures.
+        # Persisted one-shot markers are checked before any next attempt.
         print(json.dumps({"status":"station_selection_blocked",
                           "errorClass":type(error).__name__[:48],
                           "errorStage":CURRENT_STAGE,
-                          "bookingAuthorized":False,"purchaseExecuted":False}))
+                          "errorSubtype":(
+                              "navigation_race" if "context was destroyed"
+                              in str(error).lower()
+                              else "page_closed" if "target closed"
+                              in str(error).lower()
+                              else "timeout" if "timeout" in str(error).lower()
+                              else "other"),
+                          "bookingAuthorized":"unknown_if_approval_sent",
+                          "purchaseExecuted":"unverified_check_markers"}))
