@@ -1007,9 +1007,14 @@ def main():
                                  for w in result["wagonAvailability"]
                                  if w.get("status")=="wagon_inspected"
                                  for p in w.get("preferred",[])}
+                        # Preferred seats only require their own three
+                        # wagons to be verified. Optional fallback wagons
+                        # must never block a valid preferred-seat selection.
                         all_verified=all(
-                            w.get("status")=="wagon_inspected"
-                            for w in result["wagonAvailability"]
+                            any(w.get("wagon")==wagon and
+                                w.get("status")=="wagon_inspected"
+                                for w in result["wagonAvailability"])
+                            for wagon in (11,8,7)
                         )
                         result["prioritySeatChoice"]={
                             "status":"priority_not_verified",
