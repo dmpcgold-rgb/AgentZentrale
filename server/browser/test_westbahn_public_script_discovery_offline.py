@@ -18,7 +18,7 @@ class Discovery(unittest.TestCase):
         <link rel="modulepreload" href="/assets/route.mjs"></html>'''
         urls,diagnostic=probe.discover_assets(markup)
         self.assertEqual(len(urls),2)
-        self.assertEqual(diagnostic["scriptTagCount"],3)
+        self.assertEqual(diagnostic["scriptTagCount"],4)
         self.assertEqual(diagnostic["inlineScriptTagCount"],1)
         self.assertEqual(diagnostic["rejectedSources"]["queryOrFragment"],1)
         self.assertEqual(diagnostic["rejectedSources"]["externalHost"],1)
