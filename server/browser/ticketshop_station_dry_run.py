@@ -158,6 +158,32 @@ def main():
                             return result
                         return []
                     scalars=collect(item)
+                    # Seat details may be placed inside an opaque array or a
+                    # generic string field rather than a field named "seat".
+                    # Match only an entire, known seat token; don't expose
+                    # other data or infer a completed reservation from it.
+                    import re
+                    allowed_seats={"233A","233D","191D","182A","231D",
+                        "222D","222A","221A","221D","230D","213D","212D",
+                        "210A","210D","209A","209D","206D","205D","204D",
+                        "203D","202D","195D","194D","190D"}
+                    token_re=re.compile(r"(?<![A-Z0-9])(?:"
+                        + "|".join(sorted(allowed_seats)) + r")(?![A-Z0-9])")
+                    seat_hits=sorted(set(
+                        hit.group(0) for key,value in scalars
+                        for hit in token_re.finditer(value.upper())))
+                    seat_key_hits=sorted(set(
+                        hit.group(0) for key,value in scalars
+                        if any(part in key for part in ("seat","platz","place"))
+                        for hit in token_re.finditer(value.upper())))
+                    opaque_arrays={
+                        key:{"count":len(value),
+                             "firstItemType":type(value[0]).__name__
+                             if value else None}
+                        for key,value in item.items()
+                        if isinstance(value,list) and key.lower() in
+                        ("seats","reservations","passengers","tickets",
+                         "segments","connections","places","rsv")}
                     def matches(substr,keys):
                         return any(any(k in key for k in keys)
                                    and substr.lower() in value.lower()
@@ -175,16 +201,10 @@ def main():
                             or matches("20.11.2026",("date","departure","start","travel"))),
                         "matchingDepartureTime":matches("18:22",("departure","time","start")),
                         "matchingTrain":matches("1009",("train","connection","service")),
-                        "matchingSeat_AtResponseTime":any(
-                            any(k in key for k in ("seat","place","platz"))
-                            and any(seat==value.strip().upper()
-                                    for seat in ("233A","233D","191D","182A",
-                                                 "231D","222D","222A","221A",
-                                                 "221D","230D","213D","212D",
-                                                 "210A","210D","209A","209D",
-                                                 "206D","205D","204D","203D",
-                                                 "202D","195D","194D","190D"))
-                            for key,value in scalars),
+                        "matchingSeat_AtResponseTime":bool(seat_key_hits),
+                        "seatTokensAnywhere":seat_hits,
+                        "seatTokensInNamedFields":seat_key_hits,
+                        "knownNestedArrayShapes":opaque_arrays,
                         "recognizedSchemaFields":sorted({
                             key for key,value in scalars
                             if key in ("price","date","departure","departuredate",
