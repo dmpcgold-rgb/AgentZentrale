@@ -11,7 +11,7 @@ const DEFAULT={
 };
 const WEEKDAYS=[['Mo',1],['Di',2],['Mi',3],['Do',4],['Fr',5],['Sa',6],['So',7]];
 const HORIZONS=[['1 Woche','1w'],['2 Wochen','2w'],['4 Wochen','4w'],['2 Monate','2m'],['6 Monate','6m']];
-const TIME=/^(?:[01]\\d|2[0-3]):[0-5]\\d$/;
+const TIME=/^(?:[01]\d|2[0-3]):[0-5]\d$/;
 function Choice({label,active,onPress}){
  return <Pressable
    accessible accessibilityRole="button" accessibilityState={{selected:active}}
