@@ -92,6 +92,7 @@ def discover_assets(markup):
     candidate_urls = []
     rejection_counts = {"externalHost": 0, "queryOrFragment": 0,
                         "nonJavaScript": 0, "invalidScheme": 0}
+    stripped_query_count = 0
     for source in parsed.sources:
         target = urllib.parse.urljoin(HOME, html.unescape(source))
         parts = urllib.parse.urlsplit(target)
@@ -103,10 +104,18 @@ def discover_assets(markup):
                 parsed.external_hosts.add(parts.hostname.lower())
         elif not parts.path.lower().endswith((".js", ".mjs")):
             rejection_counts["nonJavaScript"] += 1
-        elif parts.fragment or not safe_url(target):
+        elif parts.fragment:
             rejection_counts["queryOrFragment"] += 1
-        elif target not in candidate_urls:
-            candidate_urls.append(target)
+        else:
+            # Avoid both leaking and guessing opaque cache-busting query
+            # parameters. Request only the public first-party JS PATH.
+            # No user-supplied query is forwarded to WESTbahn.
+            public_asset=urllib.parse.urlunsplit(
+                (parts.scheme,parts.netloc,parts.path,"",""))
+            if parts.query:
+                stripped_query_count += 1
+            if safe_url(public_asset) and public_asset not in candidate_urls:
+                candidate_urls.append(public_asset)
     # Report aggregate counts and hostnames only, never page text,
     # query parameters, cookies, tokens or private URL paths.
     return candidate_urls[:MAX_ASSETS], {
@@ -116,6 +125,7 @@ def discover_assets(markup):
         "scriptTagCount": parsed.script_tags,
         "inlineScriptTagCount": parsed.inline_script_tags,
         "sourceAttributeCount": len(parsed.sources),
+        "queryStrippedFromPublicAssets": stripped_query_count,
         "externalScriptHosts": sorted(parsed.external_hosts)[:12],
         "rejectedSources": rejection_counts
     }
