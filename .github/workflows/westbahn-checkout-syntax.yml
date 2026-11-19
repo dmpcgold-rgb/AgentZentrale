@@ -1,0 +1,19 @@
+name: WESTbahn checkout Python syntax
+on:
+  push:
+    branches:
+      - fix/westbahn-assigned-seat-entry-20261118
+  pull_request:
+    paths:
+      - 'server/browser/ticketshop_station_dry_run.py'
+      - '.github/workflows/westbahn-checkout-syntax.yml'
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile WESTbahn booking scripts
+        run: python -m py_compile server/browser/ticketshop_station_dry_run.py server/browser/westbahn_basket_readonly_probe.py
