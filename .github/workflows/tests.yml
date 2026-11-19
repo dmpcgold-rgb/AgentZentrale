@@ -24,5 +24,5 @@ jobs:
           python-version: '3.12'
       - run: pip install -r server/browser/requirements.txt
       - run: python -m playwright install --with-deps chromium
-      - run: python -m unittest -v test_worker.py test_dynamic_checkout_guard.py test_dynamic_checkout_dom.py
+      - run: python -m unittest -v test_worker.py test_dynamic_checkout_guard.py test_dynamic_checkout_dom.py test_checkout_guard.py
         working-directory: server/browser
