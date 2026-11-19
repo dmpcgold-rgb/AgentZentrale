@@ -1065,11 +1065,34 @@ def main():
                                                             .slice(0,18)
                                                     };
                                                 }""")
-                                                # Escape is a non-booking UI action.
-                                                # Check after it whether the seat remains
-                                                # in the form. Do not click purchase/cart.
-                                                page.keyboard.press("Escape")
-                                                page.wait_for_timeout(450)
+                                                # Confirm ONLY the chosen seat within the
+                                                # seat dialog. This is not a checkout action.
+                                                # Never click the obscured page-level "Fertig".
+                                                confirm=page.locator('[role="dialog"]').get_by_role(
+                                                    "button",name="Bestätigen",exact=True
+                                                )
+                                                result["seatDialogConfirmation"]={
+                                                    "buttonCount":confirm.count(),
+                                                    "seatCode":code,
+                                                    "clicked":False,
+                                                    "cartSubmitted":False,
+                                                    "purchaseExecuted":False
+                                                }
+                                                if (result["seatDialogControls"]["visibleDialogs"]==1
+                                                    and confirm.count()==1
+                                                    and confirm.is_visible()
+                                                    and confirm.is_enabled()):
+                                                    CURRENT_STAGE="confirming_seat_in_dialog"
+                                                    try:
+                                                        confirm.click(timeout=4000,no_wait_after=True)
+                                                        result["seatDialogConfirmation"]["clicked"]=True
+                                                        result["seatDialogConfirmation"]["status"]="clicked"
+                                                    except Exception as error:
+                                                        result["seatDialogConfirmation"]["status"]="click_failed"
+                                                        result["seatDialogConfirmation"]["errorClass"]=type(error).__name__[:48]
+                                                else:
+                                                    result["seatDialogConfirmation"]["status"]="confirm_control_unavailable"
+                                                page.wait_for_timeout(550)
                                                 summary=page.evaluate(r"""(code) => {
                                                     const norm=s=>(s||"").replace(/\s+/g," ").trim();
                                                     const visible=e=>!!e.getClientRects().length &&
@@ -1090,11 +1113,12 @@ def main():
                                                 }""",code)
                                                 result["seatFormConfirmation"]=summary
                                                 result["prioritySeatChoice"]["confirmed"]=bool(
+                                                    result["seatDialogConfirmation"]["clicked"] and
                                                     summary["seatShownInForm"]
                                                 )
                                                 result["prioritySeatChoice"]["status"]=(
                                                     "priority_seat_applied_to_form"
-                                                    if summary["seatShownInForm"]
+                                                    if result["prioritySeatChoice"]["confirmed"]
                                                     else "seat_dialog_remains_or_selection_not_applied"
                                                 )
                                             else:
