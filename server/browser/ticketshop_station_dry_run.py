@@ -1031,6 +1031,50 @@ def main():
                             if w.get("status")=="wagon_inspected"
                             for candidate in w.get("fallbackLayoutEvidence",[])
                         ]
+                        # Conservatively flag facing 2+2 clusters seen in
+                        # the DOM geometry. This is an indication, not proof
+                        # of the actual table layout. Never auto-select them.
+                        layout_by_code={(e["wagon"],e["code"]):e
+                                        for e in layout_evidence}
+                        for candidate in fallback:
+                            evidence=layout_by_code.get(
+                                (candidate["wagon"],candidate["code"]),{})
+                            label=candidate["label"]
+                            direction=("in Fahrtrichtung" if "in Fahrtrichtung" in label
+                                       else "gegen Fahrtrichtung"
+                                       if "gegen Fahrtrichtung" in label else None)
+                            opposite=("gegen Fahrtrichtung"
+                                      if direction=="in Fahrtrichtung"
+                                      else "in Fahrtrichtung"
+                                      if direction=="gegen Fahrtrichtung" else None)
+                            neighbors=evidence.get("nearbySeats",[])
+                            # Nearby opposite-facing window and aisle seats,
+                            # aligned in the same transverse row.
+                            opposite_window=next((n for n in neighbors
+                                if opposite and opposite in n["label"]
+                                and "Fensterplatz" in n["label"]
+                                and 35<=abs(n["dy"])<=115
+                                and abs(n["dx"])<=25),None)
+                            opposite_aisle=next((n for n in neighbors
+                                if opposite_window and opposite in n["label"]
+                                and "Gangplatz" in n["label"]
+                                and abs(n["dy"]-opposite_window["dy"])<=22
+                                and 25<=abs(n["dx"])<=85),None)
+                            facing_cluster=bool(opposite_window and opposite_aisle)
+                            candidate["layoutClassification"]=(
+                                "suspected_four_seat_table"
+                                if facing_cluster else "layout_not_verified")
+                            candidate["excludedFromAutomaticFallback"]=True
+                            candidate["layoutEvidence"]={
+                                "facingWindowSeat":opposite_window["code"]
+                                    if opposite_window else None,
+                                "facingAisleSeat":opposite_aisle["code"]
+                                    if opposite_aisle else None,
+                                "classificationOnlyNotProof":True
+                            }
+                        suspected_four_count=sum(
+                            c["layoutClassification"]=="suspected_four_seat_table"
+                            for c in fallback)
                         fallback.sort(key=lambda c:(
                             {11:0,10:1,9:2,8:3,7:4}.get(c["wagon"],5),
                             c["code"]
@@ -1040,8 +1084,11 @@ def main():
                                 if fallback else "no_table_window_candidates_found",
                             "criteria":"enabled window seat with table, not WESTcafe or folding seat",
                             "fourPersonGroupsExcluded":False,
+                            "allFallbacksBlockedPendingLayoutVerification":True,
                             "verifiedSingleSeats":0,
                             "candidateCount":len(fallback),
+                            "suspectedFourSeatGroups":suspected_four_count,
+                            "unverifiedTableLayouts":len(fallback)-suspected_four_count,
                             "layoutEvidence":layout_evidence[:20],
                             "suggestions":fallback[:20],
                             "candidateSummaryByWagon":[{
