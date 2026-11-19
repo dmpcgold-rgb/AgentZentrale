@@ -39,6 +39,13 @@ def main():
         prior_approval=root/"approval_attempt_20261120.flag"
         recovery_marker=root/"approval_attempt_20261120_recovery1.flag"
         final_recovery_marker=root/"approval_attempt_20261120_recovery2.flag"
+        third_recovery_marker=root/"approval_attempt_20261120_recovery3.flag"
+        # Explicitly one additional attempt after the original and both recoveries.
+        third_recovery_requested=(
+            os.environ.get("WESTBAHN_THIRD_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
+            and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+            and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+        )
         final_recovery_requested=(
             os.environ.get("WESTBAHN_FINAL_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
             and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
@@ -50,16 +57,18 @@ def main():
             and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
         )
         if ((root/"checkout_attempt_20261120.flag").exists()
-            or final_recovery_marker.exists()
-            or (recovery_marker.exists() and not final_recovery_requested)
+            or third_recovery_marker.exists()
+            or (final_recovery_marker.exists() and not third_recovery_requested)
+            or (recovery_marker.exists() and not final_recovery_requested
+                and not third_recovery_requested)
             or (prior_approval.exists() and not recovery_requested
-                and not final_recovery_requested)):
+                and not final_recovery_requested and not third_recovery_requested)):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
                 "reason":"checkout_already_attempted"
                     if (root/"checkout_attempt_20261120.flag").exists()
-                    else ("final_recovery_already_attempted"
-                          if final_recovery_marker.exists()
+                    else ("third_recovery_already_attempted"
+                          if third_recovery_marker.exists()
                           else "recovery_not_authorized_or_already_attempted"),
                 "newSeatSelectionBlocked":True,
                 "newBasketApprovalBlocked":True,
@@ -76,7 +85,9 @@ def main():
                 # Approval can be a binding reservation. The opt-in is one-day only.
                 # A durable marker prevents a second attempt even after a crash.
                 approval_marker=(
-                    final_recovery_marker
+                    third_recovery_marker
+                    if final_recovery_marker.exists() and third_recovery_requested
+                    else final_recovery_marker
                     if recovery_marker.exists() and final_recovery_requested
                     else recovery_marker
                     if prior_approval.exists() and recovery_requested
@@ -2410,6 +2421,10 @@ if __name__=="__main__":
                                   "WESTBAHN_BROWSER_PROFILE",
                                   "./data/westbahn-browser")).resolve().joinpath(
                                   "approval_attempt_20261120_recovery2.flag").exists(),
+                              "recovery3":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "approval_attempt_20261120_recovery3.flag").exists(),
                               "checkout":Path(os.environ.get(
                                   "WESTBAHN_BROWSER_PROFILE",
                                   "./data/westbahn-browser")).resolve().joinpath(
