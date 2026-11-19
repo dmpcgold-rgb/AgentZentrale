@@ -12,6 +12,7 @@ import GitHubScreen from './src/screens/GitHubScreen';
 import { T } from './src/theme';
 import HubScreen from './src/screens/HubScreen';
 import WestbahnScreen from './src/screens/WestbahnScreen';
+import WestbahnPlanScreen from './src/screens/WestbahnPlanScreen';
 import TasksScreen from './src/screens/TasksScreen';
 import ApprovalsScreen from './src/screens/ApprovalsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -51,6 +52,7 @@ export default function App() {
           <Stack.Screen name="Einstellungen" component={SettingsScreen} />
           <Stack.Screen name="Verlauf" component={HistoryScreen} />
           <Stack.Screen name="WESTbahn" component={WestbahnScreen} />
+          <Stack.Screen name="WESTbahn-Plan" component={WestbahnPlanScreen} options={{title:"Reservierungsplan"}} />
         </Stack.Navigator>
       </NavigationContainer>
       </RemoteProvider>
