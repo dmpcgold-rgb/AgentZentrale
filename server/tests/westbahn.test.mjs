@@ -197,6 +197,10 @@ test('weekly booking run never checks or purchases more than five future commute
  const adapter={
   existing:async({date})=>{
    checked.push(date);
+   if(booked.includes(date))
+    return {status:'confirmed',accountVerified:true,inventoryComplete:true,
+      receiptSource:'provider_account',
+      receipt:receipt({...trip(date),seat:'233A',bookingId:'booking-'+date})};
    return {status:'none',accountVerified:true,inventoryComplete:true};
   },
   search:async({date})=>({
