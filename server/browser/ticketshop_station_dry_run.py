@@ -403,7 +403,19 @@ def main():
                             and not approval_marker.exists()):
                             # The marker is written before the one permitted
                             # attempt, preventing retries after unknown outcomes.
-                            approval_marker.write_text("attempted_2026-11-20\n")
+                            # Exclusive, persistent attempt marker prevents
+                            # any second approval even if process crashes.
+                            try:
+                                fd=os.open(str(approval_marker),
+                                    os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+                                with os.fdopen(fd,"w") as marker:
+                                    marker.write("attempted_2026-11-20\\n")
+                                    marker.flush()
+                                    os.fsync(marker.fileno())
+                            except FileExistsError:
+                                approval_state["reason"]="already_attempted"
+                                route.abort()
+                                return
                             approval_state["attempted"]=True
                             approval_state["approvedRequestSent"]=True
                             approval_state["reason"]="one_request_permitted"
@@ -1819,21 +1831,29 @@ def main():
                 result["cartSubmitReadiness"]["userAttestedNoDuplicate"]=bool(
                     user_attested_no_duplicate)
                 result["cartSubmitReadiness"]["automatedInventoryReconciliationPassed"]=False
-                # No approval unless the provider independently exposes a
-                # single explicit zero-valued total in basket/get. Avoid
-                # conflating the selected tariff with the total charge.
+                # One-off release of the cart APPROVE transition, not an
+                # authorization for payment or further checkout mutations.
+                # The user specifically approved the one zero-euro reservation.
                 quotes=network["basketTotalEvidence"]
                 verified_quote=bool(quotes) and quotes[-1].get("verified") is True
-                # A basket/get response collected before the submit may
-                # describe an EMPTY basket. It is unsafe to authorize approval
-                # on this evidence, even when its total is zero. Enable only
-                # after a future version verifies the same date/train/seat and
-                # total against a POST-submit provider basket snapshot.
-                matching_post_submit_basket_verified=False
+                latest_preapprove_item=(quotes[-1].get("itemEvidence",{})
+                    if quotes else {})
+                selected_code=seat_choice.get("code")
+                # The basket/get response is matched against the selected seat.
+                # The item price is NOT a verified checkout final total.
+                matching_post_submit_basket_verified=bool(
+                    latest_preapprove_item.get("itemCount")==1
+                    and latest_preapprove_item.get("numericPriceIsZero") is True
+                    and latest_preapprove_item.get("matchingDepartureDate") is True
+                    and latest_preapprove_item.get("matchingDepartureTime") is True
+                    and latest_preapprove_item.get("matchingTrain") is True
+                    and latest_preapprove_item.get("seatTokensAnywhere")==[selected_code]
+                    and latest_preapprove_item.get("seatTokensInNamedFields")==[selected_code]
+                )
                 approval_state["armed"]=bool(
                     purchase_opt_in and user_attested_no_duplicate
                     and confirmed_form and zero_fare and seat_update_ok
-                    and verified_quote and matching_post_submit_basket_verified
+                    and matching_post_submit_basket_verified
                     and not approval_marker.exists()
                     and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
                 )
@@ -1889,6 +1909,8 @@ def main():
                             "path":"/ticketshop/basket/approve",
                             "attemptObserved":approval_blocked,
                             "requestBlocked":approval_blocked,
+                            "requestSent":approval_state["approvedRequestSent"],
+                            "responseStatuses":network["basketApprovalResponses"],
                             "semanticsVerified":False,
                             "finalPriceVerified":False,
                             "mayCompleteReservation":True,
@@ -1981,6 +2003,7 @@ def main():
                         seat_choice.get("code") in
                         latest_item.get("seatTokensAnywhere",[])),
                     "providerFinalTotalConfirmed":verified_quote,
+                    "oneItemApprovalGatePassed":matching_post_submit_basket_verified,
                     "readyToCommit":False,
                     "reason":"basket_item_price_not_checkout_final_total"
                 }
@@ -1989,6 +2012,8 @@ def main():
                     "checkoutReviewReadOnly":result["checkoutReviewReadOnly"],
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
+                    "approvalIsPotentiallyBinding":True,
+                    "checkoutAndPaymentWritesAllowed":False,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
                                            if network["basketTotalEvidence"]
                                            else {"verified":False,"reason":"no_quote_response"}),
