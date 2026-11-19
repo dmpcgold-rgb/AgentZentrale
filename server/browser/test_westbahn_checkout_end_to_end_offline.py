@@ -32,7 +32,7 @@ const fn=JSON.parse(process.argv[1]);
 const data=JSON.parse(process.argv[2]);
 globalThis.document={querySelector:s=>s==="main"?{innerText:data.text}:null};
 globalThis.location={pathname:data.path};
-process.stdout.write(JSON.stringify(Function("return ("+fn+")")(data.seat)));
+process.stdout.write(JSON.stringify(Function("return ("+fn+")")()(data.seat)));
 """
     p=subprocess.run(["node","-e",script,json.dumps(confirmation_js()),
                       json.dumps({"text":text,"seat":selected,"path":path})],
