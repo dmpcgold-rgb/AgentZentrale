@@ -1983,9 +1983,16 @@ def main():
                     and latest_preapprove_item.get("seatTokensAnywhere")==[selected_code]
                     and latest_preapprove_item.get("seatTokensInNamedFields")==[selected_code]
                 )
+                # Some provider seat selectors update the server-side basket
+                # directly without emitting a separate seat-update request.
+                # A fresh, uniquely matching basket/get line item provides
+                # stronger evidence than the absence of that request.
+                seat_server_confirmed=bool(
+                    seat_update_ok or matching_post_submit_basket_verified
+                )
                 approval_state["armed"]=bool(
                     purchase_opt_in and user_attested_no_duplicate
-                    and confirmed_form and zero_fare and seat_update_ok
+                    and confirmed_form and zero_fare and seat_server_confirmed
                     and matching_post_submit_basket_verified
                     and not approval_marker.exists()
                     and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
@@ -1995,7 +2002,8 @@ def main():
                     else ("already_attempted" if approval_marker.exists()
                           else "provider_total_or_preconditions_not_verified")
                 )
-                if (confirmed_form and zero_fare and seat_update_ok
+                if (confirmed_form and zero_fare and seat_server_confirmed
+                    and matching_post_submit_basket_verified
                     and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
                     and user_attested_no_duplicate):
                     cart_btn=page.get_by_role("button",name="In den Warenkorb",exact=True)
@@ -2004,7 +2012,8 @@ def main():
                         "zeroFareVerified":True,
                         "seatCode":seat_choice.get("code"),
                         "basketAddRequestsBeforeClick":len(network["allowedBasketAdd"]),
-                        "seatUpdateAccepted":True
+                        "seatUpdateAccepted":seat_update_ok,
+                        "seatServerConfirmedByBasket":matching_post_submit_basket_verified
                     })
                     if (cart_btn.count()==1 and cart_btn.is_visible()
                         and cart_btn.is_enabled()):
@@ -2078,9 +2087,10 @@ def main():
                     result["cartSubmissionDiagnostic"]["seatFormVerified"]=confirmed_form
                     result["cartSubmissionDiagnostic"]["zeroFareVerified"]=zero_fare
                     result["cartSubmissionDiagnostic"]["seatUpdateAccepted"]=seat_update_ok
+                    result["cartSubmissionDiagnostic"]["seatServerConfirmedByBasket"]=matching_post_submit_basket_verified
                     result["cartSubmissionDiagnostic"]["inventoryGatePassed"]=bool(
                         result["cartSubmitReadiness"].get("duplicateInventoryGatePassed"))
-                    if confirmed_form and zero_fare and seat_update_ok:
+                    if confirmed_form and zero_fare and seat_server_confirmed:
                         result["cartSubmissionDiagnostic"]["status"]=(
                             "awaiting_explicit_one_day_cart_diagnostic_flag"
                             if not user_attested_no_duplicate
@@ -2538,8 +2548,8 @@ def main():
                     "timeMatches":latest_item.get("matchingDepartureTime") is True,
                     "trainMatches":latest_item.get("matchingTrain") is True,
                     "seatCode":seat_choice.get("code"),
-                    "seatIndependentlyConfirmedInForm":bool(
-                        confirmed_form and seat_update_ok),
+                    "seatIndependentlyConfirmedInForm":bool(confirmed_form),
+                    "seatVerifiedByServerBasket":matching_post_submit_basket_verified,
                     "seatEncodedInBasketResponse":bool(
                         seat_choice.get("code") in
                         latest_item.get("seatTokensAnywhere",[])),
