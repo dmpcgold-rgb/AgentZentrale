@@ -2397,5 +2397,23 @@ if __name__=="__main__":
                               in str(error).lower()
                               else "timeout" if "timeout" in str(error).lower()
                               else "other"),
+                          "approvalMarkerState":{
+                              "original":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "approval_attempt_20261120.flag").exists(),
+                              "recovery1":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "approval_attempt_20261120_recovery1.flag").exists(),
+                              "recovery2":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "approval_attempt_20261120_recovery2.flag").exists(),
+                              "checkout":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "checkout_attempt_20261120.flag").exists()
+                          },
                           "bookingAuthorized":"unknown_if_approval_sent",
                           "purchaseExecuted":"unverified_check_markers"}))
