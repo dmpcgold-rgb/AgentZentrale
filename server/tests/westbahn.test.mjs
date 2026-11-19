@@ -46,7 +46,7 @@ function provider({price=0,fail=false,invalidReceipt=false,already=false,
  };
 }
 test('Vienna DST and Monday schedule; weekdays only, six calendar months',()=>{assert.equal(viennaClock(now()).time,'07:00');assert.equal(viennaClock(new Date('2026-07-06T05:00:00Z')).time,'07:00');const dates=planDates(now());assert.equal(dates[0],day);assert.equal(dates.at(-1),'2027-05-14');assert.ok(dates.every(d=>![0,6].includes(new Date(d+'T00:00:00Z').getUTCDay())));assert.equal(planDates(new Date('2026-11-16T18:00:00Z'))[0],'2026-11-17');});
-test('already reserved week excluded; first search starts 17 November',async()=>{const before=()=>new Date('2026-11-10T21:00:00Z');const dates=planDates(before());assert.deepEqual(dates.slice(0,5),['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23']);assert.equal(planDates(new Date('2026-11-20T20:00:00Z'))[0],'2026-11-23');const visited=[];const a=createWestbahn({now:before,adapter:{existing:async({date})=>{visited.push(date);return {status:'unknown'};}}});await a.run();assert.deepEqual(visited,dates);});
+test('already reserved week excluded; first search starts 17 November',async()=>{const before=()=>new Date('2026-11-10T21:00:00Z');const dates=planDates(before());assert.deepEqual(dates.slice(0,5),['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23']);assert.equal(planDates(new Date('2026-11-20T20:00:00Z'))[0],'2026-11-23');const visited=[];const a=createWestbahn({now:before,adapter:{existing:async({date})=>{visited.push(date);return {status:'unknown'};}}});await a.run();assert.deepEqual(visited,dates.slice(0,5));assert.equal(a.status().planned.length,5);});
 test('preferred seats beat alternatives; four seats and unknown layouts rejected',()=>{assert.equal(RULES.origin,'Wien Meidling');assert.equal(RULES.destination,'Wiener Neustadt Hbf');assert.equal(RULES.departure,'18:22');assert.equal(chooseSeat([seat('191D'),seat('233D')]).id,'233D');assert.equal(chooseSeat([seat('182A'),seat('191D')]).id,'191D');assert.equal(chooseSeat([seat('999A'),seat('182A')]).id,'182A');assert.equal(chooseSeat([seat('233D'),seat('191D'),seat('233A'),seat('233A','opposite-table',4)]).id,'233A');assert.equal(chooseSeat([seat('233A','opposite-table',4),seat('193B'),seat('999A')]).id,'193B');assert.equal(chooseSeat([seat('233A','unknown'),seat('233D','opposite-table',4)]),null);assert.equal(chooseSeat([seat('222A','offset'),seat('333A')]).id,'333A');});
 test('only exact zero-euro quote and confirmed receipt accepted',()=>{assert.ok(validateQuote(quote(),day,'233A'));for(const q of [quote({totalCents:1}),quote({departure:'18:23'}),quote({class:'2'}),quote({seat:'233D'}),quote({currency:'USD'}),quote({quantity:2}),quote({productType:'train_ticket'})])assert.equal(validateQuote(q,day,'233A'),false);assert.ok(confirmedReceipt(receipt(),day,'233A'));assert.equal(confirmedReceipt(receipt({bookingId:''}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({confirmed:false}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({quantity:2}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({productType:'train_ticket'}),day,'233A'),false);});
 test('no live provider: scheduling and execution fail closed',async()=>{const a=createWestbahn({now});assert.equal(a.status().providerConnected,false);assert.throws(()=>a.setEnabled(true));await assert.rejects(a.run());assert.equal(await a.tick(),false);});
@@ -189,4 +189,35 @@ test('reported booking validation rejects corrupt input and conflicting updates'
  a.recordUserReported(day,'191D');
  assert.doesNotThrow(()=>a.recordUserReported(day,'191D'));
  assert.throws(()=>a.recordUserReported(day,'233A'));
+});
+
+test('weekly booking run never checks or purchases more than five future commute days',async()=>{
+ const dayList=planDates(now()).slice(0,5);
+ const checked=[],booked=[];
+ const adapter={
+  existing:async({date})=>{
+   checked.push(date);
+   return {status:'none',accountVerified:true,inventoryComplete:true};
+  },
+  search:async({date})=>({
+   status:'available',...trip(date),connectionId:'week-'+date,
+   seats:[seat('191D'),seat('233D'),seat('233A')]
+  }),
+  quote:async({date,seat:chosen})=>quote({...trip(date),seat:chosen,quoteId:date}),
+  book:async({quoteId,idempotencyKey,maxTotalCents})=>{
+   assert.equal(maxTotalCents,0);
+   assert.match(idempotencyKey,/^agentzentrale-westbahn-2026-11-\d\d-1822$/);
+   booked.push(quoteId);
+   return receipt({...trip(quoteId),seat:'233A',bookingId:'booking-'+quoteId});
+  }
+ };
+ const ledger=createWestbahn({now,adapter});
+ await ledger.run();
+ assert.deepEqual(booked,dayList);
+ assert.deepEqual([...new Set(checked)],dayList);
+ assert.equal(checked.length,10);
+ assert.equal(ledger.status().rows.length,5);
+ assert.ok(ledger.status().rows.every(row=>row.status==='confirmed'&&row.seat==='233A'));
+ await ledger.run();
+ assert.deepEqual(booked,dayList,'no repeated checkouts on an already booked week');
 });
