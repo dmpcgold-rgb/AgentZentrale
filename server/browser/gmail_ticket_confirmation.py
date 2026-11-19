@@ -142,13 +142,95 @@ def confirm_from_gmail(expected_date, seat, train, *, max_messages=35):
                 "bookingAuthorized": False}
 
 
+
+def confirm_week_from_gmail(dates, train="1009"):
+    """Read one mailbox snapshot for up to five weekdays; never book anything.
+
+    Positive email matches are protective evidence. Missing messages do not
+    establish availability and must never release a booking lock.
+    """
+    if not isinstance(dates, list) or not 1 <= len(dates) <= 5:
+        return {"status":"invalid_confirmation_query","confirmed":[],
+                "bookingAuthorized":False}
+    if len(set(dates)) != len(dates) or any(not isinstance(d, date) for d in dates):
+        return {"status":"invalid_confirmation_query","confirmed":[],
+                "bookingAuthorized":False}
+    user=os.environ.get("WESTBAHN_GMAIL_ADDRESS","").strip()
+    secret=os.environ.get("WESTBAHN_GMAIL_APP_PASSWORD","").replace(" ","")
+    if not user or not secret:
+        return {"status":"email_not_configured","confirmed":[],
+                "bookingAuthorized":False}
+    if not re.fullmatch(r"[\\w.+-]+@gmail\\.com",user,re.I):
+        return {"status":"email_invalid_configuration","confirmed":[],
+                "bookingAuthorized":False}
+    found={}
+    conflicted=set()
+    try:
+        with imaplib.IMAP4_SSL(MAILBOX_HOST,993,timeout=18) as mail:
+            mail.login(user,secret)
+            ok,_=mail.select("INBOX",readonly=True)
+            if ok!="OK":
+                return {"status":"email_read_unavailable","confirmed":[],
+                        "bookingAuthorized":False}
+            after=(min(dates)-timedelta(days=90)).strftime("%d-%b-%Y")
+            ok,rows=mail.uid("SEARCH",None,"SINCE",after)
+            if ok!="OK" or not rows:
+                return {"status":"email_read_unavailable","confirmed":[],
+                        "bookingAuthorized":False}
+            for uid in reversed(rows[0].split()[-150:]):
+                ok,records=mail.uid("FETCH",uid,"(BODY.PEEK[])")
+                if ok!="OK":
+                    continue
+                raw=next((part[1] for part in records
+                          if isinstance(part,tuple) and len(part)==2
+                          and isinstance(part[1],bytes)),None)
+                if not raw:
+                    continue
+                message=BytesParser(policy=policy.default).parsebytes(raw)
+                if not sender_trusted(message):
+                    continue
+                text=plain_text(message)
+                # One unambiguous seat code per official confirmation email.
+                seats=set(re.findall(r"\\bSitz\\s*:?\\s*(\\d{3}[A-D])\\b",text,re.I))
+                if len(seats)!=1:
+                    continue
+                seat=next(iter(seats)).upper()
+                for travel_day in dates:
+                    if match_ticket(message,travel_day,seat,train):
+                        key=travel_day.isoformat()
+                        if key in found and found[key]!=seat:
+                            conflicted.add(key)
+                        else:
+                            found[key]=seat
+            confirmed=[{"date":key,"seat":seat,"source":"official_email"}
+                       for key,seat in sorted(found.items()) if key not in conflicted]
+            return {"status":"email_week_checked","confirmed":confirmed,
+                    "conflictingDates":sorted(conflicted),
+                    "bookingAuthorized":False,"mailboxComplete":False}
+    except (imaplib.IMAP4.error,OSError,TimeoutError,ValueError):
+        return {"status":"email_read_unavailable","confirmed":[],
+                "bookingAuthorized":False}
+
+
 def main():
     cli = argparse.ArgumentParser()
-    cli.add_argument("--date", required=True)
+    cli.add_argument("--date")
+    cli.add_argument("--dates")
     cli.add_argument("--seat", required=True)
     cli.add_argument("--train", default="1009")
     args = cli.parse_args()
     try:
+        if args.dates:
+            if args.date or args.seat:
+                raise ValueError()
+            tokens=args.dates.split(",")
+            if any(not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",token) for token in tokens):
+                raise ValueError()
+            output=confirm_week_from_gmail([date.fromisoformat(d) for d in tokens],args.train)
+            print(json.dumps(output,ensure_ascii=False))
+            return
+        if not args.date or not args.seat:
+            raise ValueError()
         day = date.fromisoformat(args.date)
         if not re.fullmatch(r"\d{2,4}[A-Z]", args.seat, re.I):
             raise ValueError()
