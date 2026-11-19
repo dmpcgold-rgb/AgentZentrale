@@ -33,16 +33,24 @@ def main():
         except BlockingIOError:
             print(json.dumps({"status":"profile_busy","bookingAuthorized":False}))
             return
-        # Fail closed before touching the ticketshop if an earlier
-        # one-shot approval may already have created a reservation.
-        if (root/"approval_attempt_20261120.flag").exists():
+        # Never erase or reuse the original approval marker. One separate
+        # recovery attempt is permitted only with the owner's explicit
+        # no-ticket attestation and a one-off recovery flag.
+        prior_approval=root/"approval_attempt_20261120.flag"
+        recovery_marker=root/"approval_attempt_20261120_recovery1.flag"
+        recovery_requested=(
+            os.environ.get("WESTBAHN_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
+            and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+            and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+        )
+        if recovery_marker.exists() or (prior_approval.exists() and not recovery_requested):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
-                "reason":"one_time_approval_marker_present",
+                "reason":"recovery_already_attempted" if recovery_marker.exists()
+                    else "original_approval_marker_present",
                 "newSeatSelectionBlocked":True,
                 "newBasketApprovalBlocked":True,
-                "purchaseExecuted":False,
-                "nextStep":"check_meine_tickets_and_previous_attempt"
+                "purchaseExecuted":False
             }))
             return
         with sync_playwright() as p:
@@ -54,13 +62,20 @@ def main():
             try:
                 # Approval can be a binding reservation. The opt-in is one-day only.
                 # A durable marker prevents a second attempt even after a crash.
-                approval_marker=root/"approval_attempt_20261120.flag"
+                approval_marker=(
+                    recovery_marker if prior_approval.exists() and recovery_requested
+                    else prior_approval
+                )
                 purchase_opt_in=(
                     os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
                     and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
                 )
                 approval_state={"armed":False,"attempted":False,
                                 "approvedRequestSent":False,"reason":"not_armed"}
+                checkout_state={"armed":False,"attempted":False,
+                                "requestSent":False,"path":None,
+                                "reason":"not_armed"}
+                checkout_marker=root/"checkout_attempt_20261120.flag"
                 def parse_zero_total(value):
                     if isinstance(value,bool):
                         return False
@@ -252,7 +267,7 @@ def main():
                                    else "nonzero_or_unrecognized_total",
                             "totalFieldName":key}
                 network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"allowedSeatUpdate":[],"seatUpdateResponses":[],"allowedBasketRead":[],"basketReadResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
-                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"paymentMethodReads":[],"firstPartyRequestsByMethod":{}}
+                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"paymentMethodReads":[],"checkoutOrderResponses":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
@@ -302,6 +317,10 @@ def main():
                     if (u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.path=="/ticketshop/basket/approve"):
                         network["basketApprovalResponses"].append({
+                            "status":resp.status,"ok":resp.ok})
+                    if (u.hostname in ("westbahn.at","www.westbahn.at")
+                        and checkout_state["path"]==u.path):
+                        network["checkoutOrderResponses"].append({
                             "status":resp.status,"ok":resp.ok})
                     if u.hostname in ("westbahn.at","www.westbahn.at") and resp.status>=400:
                         item={"status":resp.status,"path":u.path[:130]}
@@ -418,6 +437,46 @@ def main():
                     if safe_payment_methods_read:
                         network["paymentMethodReads"].append({
                             "method":"POST","path":u.path})
+                        route.continue_()
+                        return
+                    # Permit ONE terminal order request, only while a
+                    # verified zero-EUR checkout confirmation is being clicked.
+                    # No arbitrary payment requests, no retries.
+                    final_post=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("fetch","xhr")
+                        and not req.is_navigation_request()
+                        and (u.path.startswith("/ticketshop/") or
+                             u.path.startswith("/api/v1/"))
+                        and any(term in u.path.lower() for term in
+                            ("/order/","/booking/","/checkout/","/purchase/",
+                             "/payment/complete","/payment/confirm"))
+                        and not any(term in u.path.lower() for term in
+                            ("cancel","delete","remove","refund","method",
+                             "charge","capture","card","pay-with","tokenize"))
+                        and checkout_state["armed"]
+                        and not checkout_state["attempted"]
+                        and not checkout_marker.exists()
+                    )
+                    if final_post:
+                        try:
+                            fd=os.open(str(checkout_marker),
+                                os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+                            with os.fdopen(fd,"w") as marker:
+                                marker.write("one_final_order_request")
+                                marker.flush()
+                                os.fsync(marker.fileno())
+                        except FileExistsError:
+                            route.abort()
+                            return
+                        checkout_state["attempted"]=True
+                        checkout_state["requestSent"]=True
+                        checkout_state["path"]=u.path
+                        checkout_state["reason"]="one_verified_zero_euro_order_request"
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
