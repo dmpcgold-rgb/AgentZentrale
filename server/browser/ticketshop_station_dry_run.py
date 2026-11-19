@@ -175,6 +175,26 @@ def main():
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
+                        if (req.method.upper()=="POST" and u.path=="/ticketshop/basket/approve"
+                            and u.scheme=="https"
+                            and u.hostname in ("westbahn.at","www.westbahn.at")):
+                            # Observe only structural metadata. Never log request bodies,
+                            # customer data, tokens, or payment details; never send approval.
+                            raw=req.post_data or ""
+                            parsed=None
+                            try:
+                                parsed=json.loads(raw) if raw else None
+                            except (ValueError,TypeError):
+                                pass
+                            network["approvalRequestStructure"]={
+                                "method":"POST","path":u.path,
+                                "contentType":req.headers.get("content-type","").split(";")[0][:55],
+                                "bodyFormat":("json" if isinstance(parsed,(dict,list))
+                                              else ("empty" if not raw else "opaque")),
+                                "topLevelKeys":sorted(k[:48] for k in parsed.keys())[:30]
+                                                if isinstance(parsed,dict) else [],
+                                "wasSent":False
+                            }
                         if u.hostname in ("westbahn.at","www.westbahn.at"):
                             item={"method":req.method,"path":u.path[:130],
                                   "resourceType":req.resource_type,
@@ -1559,6 +1579,7 @@ def main():
                             p["path"]=="/ticketshop/basket/approve"
                             for p in network["blockedFirstPartyWrites"])
                         result["cartSubmissionDiagnostic"]["approvalEndpoint"]={
+                            "requestStructure":network.get("approvalRequestStructure"),
                             "path":"/ticketshop/basket/approve",
                             "attemptObserved":approval_blocked,
                             "requestBlocked":approval_blocked,
