@@ -906,6 +906,93 @@ def main():
                                 };
                             }""",wagon)
                             result["wagonAvailability"].append(inspected)
+                        # Choose only a uniquely available, verified priority
+                        # seat in the UI; never click "Fertig" or check out.
+                        checked={p["code"]:p["status"]
+                                 for w in result["wagonAvailability"]
+                                 if w.get("status")=="wagon_inspected"
+                                 for p in w.get("preferred",[])}
+                        all_verified=all(
+                            w.get("status")=="wagon_inspected"
+                            for w in result["wagonAvailability"]
+                        )
+                        result["prioritySeatChoice"]={
+                            "status":"priority_not_verified",
+                            "checked":checked,
+                            "seatClicked":False,
+                            "confirmed":False
+                        }
+                        if all_verified and all(
+                            x in checked for x in ("233A","233D","191D","182A")
+                        ):
+                            priority=(
+                                ("233A",11),("233D",11),
+                                ("191D",8),("182A",7)
+                            )
+                            picked=next(
+                                ((code,wagon) for code,wagon in priority
+                                 if checked[code]=="available"),None
+                            )
+                            if picked:
+                                code,wagon=picked
+                                target_wagon=page.get_by_role(
+                                    "button",name=f"Wagen: {wagon}",exact=True
+                                )
+                                if (target_wagon.count()==1
+                                    and target_wagon.is_enabled()):
+                                    target_wagon.click(timeout=4500)
+                                    page.wait_for_timeout(450)
+                                    seat=page.evaluate_handle(r"""(code) => {
+                                        const root=document.querySelector('[role=dialog]')||
+                                            document.querySelector("main")||document.body;
+                                        const visible=e=>!!e.getClientRects().length &&
+                                            getComputedStyle(e).visibility!=="hidden";
+                                        const seats=[...root.querySelectorAll(
+                                            'button.west-ui-seat-picker--seat'
+                                        )].filter(e=>{
+                                            const label=(e.getAttribute("aria-label")||
+                                                e.getAttribute("title")||e.innerText||"").trim();
+                                            return visible(e) && !e.disabled &&
+                                                label.toUpperCase().startsWith(code.toUpperCase()+",");
+                                        });
+                                        return seats.length===1?seats[0]:null;
+                                    }""",code)
+                                    seat_el=seat.as_element()
+                                    if seat_el is not None and seat_el.is_enabled():
+                                        seat_el.click(timeout=4500)
+                                        page.wait_for_timeout(400)
+                                        result["prioritySeatChoice"]=page.evaluate(r"""(code) => {
+                                            const root=document.querySelector('[role=dialog]')||
+                                                document.querySelector("main")||document.body;
+                                            const seats=[...root.querySelectorAll(
+                                                'button.west-ui-seat-picker--seat'
+                                            )];
+                                            const matching=seats.filter(e=>
+                                                (e.getAttribute("aria-label")||
+                                                e.getAttribute("title")||
+                                                e.innerText||"").trim().toUpperCase()
+                                                .startsWith(code.toUpperCase()+","));
+                                            const selected=matching.length===1 &&
+                                                matching[0].matches(
+                                                    '[aria-selected=true],[aria-pressed=true],.west-ui-seat-picker--selected'
+                                                );
+                                            return {
+                                                status:selected?"priority_seat_highlighted":
+                                                    "seat_click_not_verified",
+                                                code,
+                                                selected,
+                                                seatClicked:true,
+                                                confirmed:false,
+                                                cartSubmitted:false,
+                                                purchaseExecuted:false
+                                            };
+                                        }""",code)
+                                    else:
+                                        result["prioritySeatChoice"]["status"]="seat_control_missing"
+                                else:
+                                    result["prioritySeatChoice"]["status"]="target_wagon_unavailable"
+                            else:
+                                result["prioritySeatChoice"]["status"]="no_preferred_seat_available"
                     else:
                         result["seatMapDiagnostic"]={
                             "status":"change_seat_button_not_unique",
