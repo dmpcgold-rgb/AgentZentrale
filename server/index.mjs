@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
+import {createReservationPlanStore,reservationDates} from './reservation-plan.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
 import {createWeeklyGmailConfirmation} from './gmail-confirmation.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
@@ -18,6 +19,7 @@ const MAX_PROMPT = 1800;
 const MAX_PROPOSALS = 25;
 
 export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null } = {}) {
+  const reservationPlan=createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
   const attempts = new Map();
   let dailyUsage = { day: '', count: 0 };
   const configuredToken = env.AGENTZENTRALE_ACCESS_TOKEN || '';
@@ -189,6 +191,25 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           }
           return write(res,200,{...result,ledgerProtected:verified});
         } catch(e){throw new ApiError(409,e.message);}
+      }
+      if (is('GET', '/westbahn/reservation-plan')){
+        const plan=reservationPlan.get();
+        return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
+          activeForLiveBooking:false,
+          message:'Einstellungen gespeichert; automatische Live-Buchungen benötigen einen für diese Strecke und Zeit verifizierten Anbieteradapter.'});
+      }
+      if (is('POST', '/westbahn/reservation-plan')){
+        const body=await readJson(req);
+        try{
+          // Changing the plan while unattended booking is active would be
+          // misleading because the current provider adapter is fixed-route.
+          if(westbahn.status().automatic||westbahn.status().running)
+            throw new ApiError(409,'Automatische Buchungen vor dem Ändern der Fahrtdaten deaktivieren.');
+          const plan=reservationPlan.save(body);
+          return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
+            activeForLiveBooking:false,
+            message:'Reservierungsplan gespeichert. Bis zur Verifizierung wird keine Buchung mit diesen neuen Angaben ausgelöst.'});
+        }catch(e){throw e instanceof ApiError?e:new ApiError(400,e.message);}
       }
       if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
       if (is('POST', '/westbahn/known-booking')) {
