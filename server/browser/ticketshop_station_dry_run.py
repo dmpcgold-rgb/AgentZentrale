@@ -240,7 +240,7 @@ def main():
                                    else "nonzero_or_unrecognized_total",
                             "totalFieldName":key}
                 network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"allowedSeatUpdate":[],"seatUpdateResponses":[],"allowedBasketRead":[],"basketReadResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
-                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"firstPartyRequestsByMethod":{}}
+                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"paymentMethodReads":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
@@ -387,6 +387,25 @@ def main():
                     )
                     if safe_basket_read:
                         network["allowedBasketRead"].append({"method":"POST","path":u.path})
+                        route.continue_()
+                        return
+                    # WESTbahn uses this POST to fetch payment-method
+                    # OPTIONS while rendering checkout. It is a read of
+                    # available methods, not payment initiation.
+                    safe_payment_methods_read=(
+                        req.method.upper()=="POST"
+                        and u.scheme=="https"
+                        and u.hostname in ("westbahn.at","www.westbahn.at")
+                        and u.port in (None,443)
+                        and u.path=="/ticketshop/payment/payment-methods"
+                        and not u.query and not u.fragment
+                        and req.resource_type in ("xhr","fetch")
+                        and not req.is_navigation_request()
+                        and len(network["paymentMethodReads"])<2
+                    )
+                    if safe_payment_methods_read:
+                        network["paymentMethodReads"].append({
+                            "method":"POST","path":u.path})
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
@@ -1937,8 +1956,11 @@ def main():
                     "finalPriceVerified":False,"purchaseExecuted":False}
                 try:
                     CURRENT_STAGE="checkout_review_read_only"
-                    page.goto("https://westbahn.at/ticketshop/checkout",
-                              wait_until="domcontentloaded",timeout=20000)
+                    # Reuse the EXACT page/session from basket approval.
+                    # Re-navigating after approval can discard a volatile cart.
+                    if urlsplit(page.url).path!="/ticketshop/checkout":
+                        page.goto("https://westbahn.at/ticketshop/checkout",
+                                  wait_until="domcontentloaded",timeout=20000)
                     page.wait_for_timeout(900)
                     result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
                         const visible=e=>!!e.getClientRects().length &&
@@ -1973,6 +1995,24 @@ def main():
                             targetTimeVisible:/18:22/.test(text),
                             targetTrainVisible:/\b1009\b/.test(text),
                             labelledPriceCandidates:prices.slice(0,8),
+                            checkoutActions:[...main.querySelectorAll("button,input[type=submit],a[href]")]
+                                .filter(visible).filter(e=>!e.disabled)
+                                .map(e=>{
+                                    const t=norm(e.getAttribute("aria-label")||
+                                        e.innerText||e.value||"");
+                                    const category=/bestellen|kaufen|zahlungspflichtig|verbindlich/i.test(t)
+                                        ?"potentially_binding"
+                                        :/weiter|fortfahren|fortsetzen/i.test(t)
+                                        ?"continue"
+                                        :/bezahlen|zahlung|zahlungsart/i.test(t)
+                                        ?"payment"
+                                        :/anmelden|einloggen/i.test(t)
+                                        ?"login":"other";
+                                    return {category,kind:e.tagName.toLowerCase(),
+                                        isSubmit:e.type==="submit",
+                                        inForm:!!e.closest("form")};
+                                }).filter(x=>x.category!=="other").slice(0,12),
+                            paymentOptionsRequestBlocked:false,
                             finalPriceVerified:false,
                             purchaseExecuted:false
                         };
@@ -1984,6 +2024,34 @@ def main():
                         "finalPriceVerified":False,
                         "purchaseExecuted":False
                     }
+                # Do not misreport a pre-checkout line-item price as
+                # completion. Checkout must show precisely one zero-euro
+                # total and the matching date, train and seat.
+                review=result["checkoutReviewReadOnly"]
+                total_candidates=review.get("labelledPriceCandidates",[])
+                checkout_verified=bool(
+                    approval_state["approvedRequestSent"]
+                    and any(r.get("ok") is True for r in network["basketApprovalResponses"])
+                    and review.get("status")=="read_only_reviewed"
+                    and review.get("emptyCart") is False
+                    and review.get("selectedSeatVisible") is True
+                    and review.get("targetDateVisible") is True
+                    and review.get("targetTrainVisible") is True
+                    and review.get("targetTimeVisible") is True
+                    and len(total_candidates)==1
+                    and total_candidates[0].get("containsZero") is True
+                    and total_candidates[0].get("containsNonzero") is False
+                )
+                review["zeroEuroTripReviewVerified"]=checkout_verified
+                review["paymentOptionsReadRequests"]=len(
+                    network["paymentMethodReads"])
+                review["nextStep"]=(
+                    "inspect_checkout_controls_before_binding_purchase"
+                    if checkout_verified else "checkout_not_verified_stop"
+                )
+                # A checkout verification alone cannot safely authorize a
+                # purchase without identifying the provider's final mutation.
+                # All order/payment POST routes remain blocked.
                 # Distinguish absence of a seat token in the provider's
                 # basket line-item from the independently confirmed seat in
                 # the reservation form. Never turn either into a final-price
@@ -2010,6 +2078,9 @@ def main():
                 result["purchaseGate"]={
                     "bookingEvidence":result["bookingEvidence"],
                     "checkoutReviewReadOnly":result["checkoutReviewReadOnly"],
+                    "sameBrowserSession":True,
+                    "checkoutReviewTripAndZeroEuroVerified":checkout_verified,
+                    "nextBindingCheckoutActionAllowed":False,
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "approvalIsPotentiallyBinding":True,
