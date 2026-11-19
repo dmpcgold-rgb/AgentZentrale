@@ -1807,7 +1807,24 @@ def main():
                                                         result["seatDialogConfirmation"]["errorClass"]=type(error).__name__[:48]
                                                 else:
                                                     result["seatDialogConfirmation"]["status"]="confirm_control_unavailable"
-                                                page.wait_for_timeout(950)
+                                                # An accepted seat-update request may finish
+                                                # before the provider's modal UI settles.
+                                                # Wait only for the modal to disappear; do
+                                                # not force-close it or infer confirmation
+                                                # from an obstructed background control.
+                                                seat_dialog_closed=False
+                                                if result["seatDialogConfirmation"]["clicked"]:
+                                                    try:
+                                                        page.wait_for_function(r"""() => {
+                                                            const visible=e=>!!e.getClientRects().length &&
+                                                                getComputedStyle(e).visibility!=="hidden";
+                                                            return [...document.querySelectorAll('[role=dialog]')]
+                                                                .filter(visible).length===0;
+                                                        }""",timeout=6500,polling=200)
+                                                        seat_dialog_closed=True
+                                                    except Exception as wait_error:
+                                                        result["seatDialogConfirmation"]["closeWaitErrorClass"]=type(wait_error).__name__[:48]
+                                                result["seatDialogConfirmation"]["dialogClosedAfterConfirm"]=seat_dialog_closed
                                                 summary=page.evaluate(r"""(code) => {
                                                     const norm=s=>(s||"").replace(/\s+/g," ").trim();
                                                     const visible=e=>!!e.getClientRects().length &&
