@@ -1908,7 +1908,30 @@ def main():
                             "awaiting_explicit_one_day_cart_diagnostic_flag"
                             if not user_attested_no_duplicate
                             else "cart_submit_preconditions_not_met")
+                # Distinguish absence of a seat token in the provider's
+                # basket line-item from the independently confirmed seat in
+                # the reservation form. Never turn either into a final-price
+                # assertion or automatically bypass the approval gate.
+                latest_item=(network["basketTotalEvidence"][-1].get("itemEvidence",{})
+                             if network["basketTotalEvidence"] else {})
+                result["bookingEvidence"]={
+                    "oneBasketItem":latest_item.get("itemCount")==1,
+                    "lineItemPriceZero":latest_item.get("numericPriceIsZero") is True,
+                    "dateMatches":latest_item.get("matchingDepartureDate") is True,
+                    "timeMatches":latest_item.get("matchingDepartureTime") is True,
+                    "trainMatches":latest_item.get("matchingTrain") is True,
+                    "seatCode":seat_choice.get("code"),
+                    "seatIndependentlyConfirmedInForm":bool(
+                        confirmed_form and seat_update_ok),
+                    "seatEncodedInBasketResponse":bool(
+                        seat_choice.get("code") in
+                        latest_item.get("seatTokensAnywhere",[])),
+                    "providerFinalTotalConfirmed":verified_quote,
+                    "readyToCommit":False,
+                    "reason":"basket_item_price_not_checkout_final_total"
+                }
                 result["purchaseGate"]={
+                    "bookingEvidence":result["bookingEvidence"],
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
