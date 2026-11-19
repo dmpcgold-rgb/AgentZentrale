@@ -7,7 +7,7 @@ from dynamic_checkout_guard import audit_dynamic_cart, dynamic_cart_facts
 TRIP = dict(date="2026-11-24", origin="Wien Meidling",
             destination="Wiener Neustadt Hbf", departure="18:22",
             arrival="18:49", train="1009", seat="233A")
-HTML = """<!doctype html><html><body><main><section>
+HTML = """<!doctype html><html><head><meta charset="utf-8"></head><body><main><section>
 <h2>Warenkorb</h2>
 <p>Wien Meidling – Wiener Neustadt Hbf</p>
 <p>24.11.2026 Zug 1009, 18:22 – 18:49 Uhr</p>
