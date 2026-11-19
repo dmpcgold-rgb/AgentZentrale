@@ -36,8 +36,18 @@ def safe_url(url):
                                       strict_parsing=True, max_num_fields=2)
     except ValueError:
         return False
-    return (len(pairs)==1 and pairs[0][0].lower() in ("v","ver","version")
-            and bool(re.fullmatch(r"[A-Za-z0-9._-]{1,80}",pairs[0][1])))
+    names=[key.lower() for key,value in pairs]
+    allowed=(names in (["v"],["ver"],["version"],
+                       ["group","version"],["disable-minify","version"]))
+    if not allowed or len(set(names))!=len(names):
+        return False
+    for key,value in pairs:
+        # disable-minify is occasionally a flag without a value.
+        if not re.fullmatch(r"[A-Za-z0-9._-]{0,80}",value):
+            return False
+        if not value and key.lower()!="disable-minify":
+            return False
+    return True
 
 class SameOriginOnly(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
@@ -92,7 +102,7 @@ def discover_assets(markup):
     candidate_urls = []
     rejection_counts = {"externalHost": 0, "queryOrFragment": 0,
                         "nonJavaScript": 0, "invalidScheme": 0}
-    stripped_query_count = 0
+    retained_query_count = 0
     for source in parsed.sources:
         target = urllib.parse.urljoin(HOME, html.unescape(source))
         parts = urllib.parse.urlsplit(target)
@@ -106,16 +116,14 @@ def discover_assets(markup):
             rejection_counts["nonJavaScript"] += 1
         elif parts.fragment:
             rejection_counts["queryOrFragment"] += 1
-        else:
-            # Avoid both leaking and guessing opaque cache-busting query
-            # parameters. Request only the public first-party JS PATH.
-            # No user-supplied query is forwarded to WESTbahn.
-            public_asset=urllib.parse.urlunsplit(
-                (parts.scheme,parts.netloc,parts.path,"",""))
+        elif not safe_url(target):
+            rejection_counts["queryOrFragment"] += 1
+        elif target not in candidate_urls:
+            # The original HTML supplied this same-origin, allowlisted
+            # versioned script URL. Removing its query returned HTTP errors.
+            candidate_urls.append(target)
             if parts.query:
-                stripped_query_count += 1
-            if safe_url(public_asset) and public_asset not in candidate_urls:
-                candidate_urls.append(public_asset)
+                retained_query_count += 1
     # Report aggregate counts and hostnames only, never page text,
     # query parameters, cookies, tokens or private URL paths.
     return candidate_urls[:MAX_ASSETS], {
@@ -125,7 +133,7 @@ def discover_assets(markup):
         "scriptTagCount": parsed.script_tags,
         "inlineScriptTagCount": parsed.inline_script_tags,
         "sourceAttributeCount": len(parsed.sources),
-        "queryStrippedFromPublicAssets": stripped_query_count,
+        "queryRetainedForPublicAssets": retained_query_count,
         "externalScriptHosts": sorted(parsed.external_hosts)[:12],
         "rejectedSources": rejection_counts
     }
@@ -163,8 +171,11 @@ def main():
                     result["matches"].append({"scriptPath":urllib.parse.urlsplit(url).path,
                                                "findings":findings})
             except (ValueError,urllib.error.URLError,TimeoutError,OSError) as exc:
-                result["errors"].append({"scriptPath":urllib.parse.urlsplit(url).path,
-                                         "errorClass":type(exc).__name__})
+                record={"scriptPath":urllib.parse.urlsplit(url).path,
+                        "errorClass":type(exc).__name__}
+                if isinstance(exc,urllib.error.HTTPError):
+                    record["httpStatus"]=exc.code
+                result["errors"].append(record)
     except (ValueError,urllib.error.URLError,TimeoutError,OSError) as exc:
         result["status"]="public_page_fetch_failed"
         result["errors"].append({"errorClass":type(exc).__name__})
