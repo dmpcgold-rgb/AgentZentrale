@@ -21,9 +21,23 @@ MAX_BYTES = 8 * 1024 * 1024
 
 def safe_url(url):
     parsed = urllib.parse.urlsplit(url)
-    return (parsed.scheme == "https" and parsed.hostname in HOSTS
+    if not (parsed.scheme == "https" and parsed.hostname in HOSTS
             and parsed.port in (None, 443) and not parsed.username
-            and not parsed.password and not parsed.query and not parsed.fragment)
+            and not parsed.password and not parsed.fragment):
+        return False
+    if not parsed.query:
+        return True
+    # Public script assets commonly carry a cache-busting version.
+    # Never follow unrecognized, sensitive, or free-form URL parameters.
+    if not parsed.path.lower().endswith((".js", ".mjs")) or len(parsed.query)>110:
+        return False
+    try:
+        pairs = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True,
+                                      strict_parsing=True, max_num_fields=2)
+    except ValueError:
+        return False
+    return (len(pairs)==1 and pairs[0][0].lower() in ("v","ver","version")
+            and bool(re.fullmatch(r"[A-Za-z0-9._-]{1,80}",pairs[0][1])))
 
 class SameOriginOnly(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
@@ -87,11 +101,11 @@ def discover_assets(markup):
             rejection_counts["externalHost"] += 1
             if parts.hostname:
                 parsed.external_hosts.add(parts.hostname.lower())
-        elif parts.query or parts.fragment:
-            rejection_counts["queryOrFragment"] += 1
         elif not parts.path.lower().endswith((".js", ".mjs")):
             rejection_counts["nonJavaScript"] += 1
-        elif safe_url(target) and target not in candidate_urls:
+        elif parts.fragment or not safe_url(target):
+            rejection_counts["queryOrFragment"] += 1
+        elif target not in candidate_urls:
             candidate_urls.append(target)
     # Report aggregate counts and hostnames only, never page text,
     # query parameters, cookies, tokens or private URL paths.
