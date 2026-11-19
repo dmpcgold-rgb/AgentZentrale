@@ -40,6 +40,15 @@ def main():
         recovery_marker=root/"approval_attempt_20261120_recovery1.flag"
         final_recovery_marker=root/"approval_attempt_20261120_recovery2.flag"
         third_recovery_marker=root/"approval_attempt_20261120_recovery3.flag"
+        fourth_recovery_marker=root/"approval_attempt_20261120_recovery4.flag"
+        # Strictly one last owner-attested attempt; all earlier markers stay.
+        # This is not an automatic retry after an unknown checkout outcome.
+        fourth_recovery_requested=(
+            os.environ.get("WESTBAHN_OWNER_AUTHORIZED_FINAL_RECOVERY4_20261120")=="1"
+            and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+            and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+            and third_recovery_marker.exists()
+        )
         # Explicitly one additional attempt after the original and both recoveries.
         third_recovery_requested=(
             os.environ.get("WESTBAHN_THIRD_RECOVERY_AFTER_NO_TICKET_20261120")=="1"
@@ -57,17 +66,22 @@ def main():
             and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
         )
         if ((root/"checkout_attempt_20261120.flag").exists()
-            or third_recovery_marker.exists()
-            or (final_recovery_marker.exists() and not third_recovery_requested)
+            or fourth_recovery_marker.exists()
+            or (third_recovery_marker.exists() and not fourth_recovery_requested)
+            or (final_recovery_marker.exists()
+                and not third_recovery_requested and not fourth_recovery_requested)
             or (recovery_marker.exists() and not final_recovery_requested
-                and not third_recovery_requested)
+                and not third_recovery_requested and not fourth_recovery_requested)
             or (prior_approval.exists() and not recovery_requested
-                and not final_recovery_requested and not third_recovery_requested)):
+                and not final_recovery_requested and not third_recovery_requested
+                and not fourth_recovery_requested)):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
                 "reason":"checkout_already_attempted"
                     if (root/"checkout_attempt_20261120.flag").exists()
-                    else ("third_recovery_already_attempted"
+                    else ("fourth_recovery_already_attempted"
+                          if fourth_recovery_marker.exists()
+                          else "third_recovery_already_attempted"
                           if third_recovery_marker.exists()
                           else "recovery_not_authorized_or_already_attempted"),
                 "newSeatSelectionBlocked":True,
@@ -85,7 +99,9 @@ def main():
                 # Approval can be a binding reservation. The opt-in is one-day only.
                 # A durable marker prevents a second attempt even after a crash.
                 approval_marker=(
-                    third_recovery_marker
+                    fourth_recovery_marker
+                    if fourth_recovery_requested
+                    else third_recovery_marker
                     if final_recovery_marker.exists() and third_recovery_requested
                     else final_recovery_marker
                     if recovery_marker.exists() and final_recovery_requested
@@ -2624,6 +2640,10 @@ if __name__=="__main__":
                                   "WESTBAHN_BROWSER_PROFILE",
                                   "./data/westbahn-browser")).resolve().joinpath(
                                   "approval_attempt_20261120_recovery3.flag").exists(),
+                              "recovery4":Path(os.environ.get(
+                                  "WESTBAHN_BROWSER_PROFILE",
+                                  "./data/westbahn-browser")).resolve().joinpath(
+                                  "approval_attempt_20261120_recovery4.flag").exists(),
                               "checkout":Path(os.environ.get(
                                   "WESTBAHN_BROWSER_PROFILE",
                                   "./data/westbahn-browser")).resolve().joinpath(

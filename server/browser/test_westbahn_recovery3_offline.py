@@ -24,13 +24,13 @@ def locate():
     for node in ast.walk(MAIN):
         if isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name):
             n=node.targets[0].id
-            if n in ("third_recovery_marker","final_recovery_marker","recovery_marker","prior_approval","third_recovery_requested","recovery_requested","final_recovery_requested"):
+            if n in ("fourth_recovery_marker","fourth_recovery_requested","third_recovery_marker","final_recovery_marker","recovery_marker","prior_approval","third_recovery_requested","recovery_requested","final_recovery_requested"):
                 ass[n]=node.value
             if n=="approval_marker":
                 selector=node.value
         if isinstance(node,ast.If) and "previous_approval_attempt_requires_inventory_check" in ast.get_source_segment(SOURCE.read_text(encoding="utf-8"),node)[:1200]:
             guard=node.test
-    assert len(ass)==7 and guard is not None and selector is not None
+    assert len(ass)==9 and guard is not None and selector is not None
     return ass,guard,selector
 
 class Recovery3GateTests(unittest.TestCase):
@@ -47,7 +47,8 @@ class Recovery3GateTests(unittest.TestCase):
                 (root/"checkout_attempt_20261120.flag").touch()
             env={"root":root,"os":os}
             old={k:os.environ.get(k) for k in flags}
-            names=("WESTBAHN_THIRD_RECOVERY_AFTER_NO_TICKET_20261120",
+            names=("WESTBAHN_OWNER_AUTHORIZED_FINAL_RECOVERY4_20261120",
+                   "WESTBAHN_THIRD_RECOVERY_AFTER_NO_TICKET_20261120",
                    "WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120",
                    "WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")
             old.update({k:os.environ.get(k) for k in names})
@@ -56,6 +57,7 @@ class Recovery3GateTests(unittest.TestCase):
                     os.environ.pop(k,None)
                 os.environ.update(flags)
                 for n in ("prior_approval","recovery_marker","final_recovery_marker","third_recovery_marker",
+                          "fourth_recovery_marker","fourth_recovery_requested",
                           "third_recovery_requested","recovery_requested","final_recovery_requested"):
                     env[n]=eval(one(self.assignments[n]),env)
                 blocked=eval(one(self.guard),env)
