@@ -1183,6 +1183,36 @@ def main():
                             "status":"change_seat_button_not_unique",
                             "count":change.count(),"seatClicked":False
                         }
+                # Observe only the final cart-submit affordance after the
+                # verified seat update. It must not be clicked while the
+                # independent ticket inventory is not reconciled.
+                result["cartSubmitReadiness"]={
+                    "status":"seat_not_verified",
+                    "clicked":False,
+                    "duplicateInventoryGatePassed":False,
+                    "checkoutAuthorized":False
+                }
+                if result.get("prioritySeatChoice",{}).get("confirmed"):
+                    result["cartSubmitReadiness"]=page.evaluate(r"""() => {
+                        const vis=e=>!!e.getClientRects().length &&
+                            getComputedStyle(e).visibility!=="hidden";
+                        const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                        const buttons=[...document.querySelectorAll("main button")].filter(e=>
+                            vis(e) && norm(e.innerText)==="In den Warenkorb");
+                        return {
+                            status:buttons.length===1?"ready_for_inventory_gate":"button_missing_or_ambiguous",
+                            matchingButtons:buttons.length,
+                            enabled:buttons.length===1?!buttons[0].disabled:false,
+                            formPresent:buttons.length===1?!!buttons[0].closest("form"):false,
+                            buttonType:buttons.length===1?buttons[0].type:null,
+                            seat191DInForm:[...document.querySelectorAll("main button")].filter(vis)
+                                .some(e=>norm(e.innerText)==="191D"),
+                            clicked:false,
+                            duplicateInventoryGatePassed:false,
+                            checkoutAuthorized:false,
+                            purchaseExecuted:false
+                        };
+                    }""")
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
