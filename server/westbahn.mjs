@@ -90,7 +90,9 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
-   for(const date of planDates(now())){
+   // A single scheduled cycle may consider at most five upcoming weekdays.
+   // The six-month planning horizon is for visibility, never for bulk checkout.
+   for(const date of planDates(now()).slice(0,5)){
     const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported','existing_verified'].includes(existing.status))continue;
     try{
      const before=await adapter.existing({date,...RULES});
