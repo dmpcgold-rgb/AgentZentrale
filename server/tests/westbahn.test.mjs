@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RULES,planDates,chooseSeat,validateQuote,confirmedReceipt,viennaClock} from '../../src/core/westbahn.js';
 import {createWestbahn,verifiedAccountReadback} from '../westbahn.mjs';
+import {DEFAULT_RESERVATION_PLAN,reservationDates} from '../reservation-plan.mjs';
 const now=()=>new Date('2026-11-16T06:00:00Z');
 const day='2026-11-17';
 const seat=(id,layout='opposite-table',groupSize=2)=>({id,layout,groupSize,available:true,class:'2+'});
@@ -223,7 +224,7 @@ test('weekly booking run never checks or purchases more than five future commute
  assert.equal(ledger.status().rows.length,5);
  assert.ok(ledger.status().rows.every(row=>row.status==='confirmed'&&row.seat==='233A'));
  await ledger.run();
- const secondBatch=planDates(now()).filter(date=>!dayList.includes(date)).slice(0,5);
+ const secondBatch=reservationDates(DEFAULT_RESERVATION_PLAN,now()).filter(date=>!dayList.includes(date)).slice(0,5);
  assert.deepEqual(booked,[...dayList,...secondBatch],
    'next manual run advances only to new unreserved dates within selected horizon');
  assert.equal(new Set(booked).size,booked.length,'no duplicate checkout of any travel date');
