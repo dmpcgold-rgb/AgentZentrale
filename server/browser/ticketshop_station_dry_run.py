@@ -110,12 +110,20 @@ def main():
                                     "children":[{"via":k,"structure":inspect(obj[k],level+1)}
                                                 for k in ("data","result","basket","cart",
                                                           "summary","checkout")
-                                                if level<2 and k in obj
-                                                and isinstance(obj[k],(dict,list))][:6]}
+                                                if level<3 and k in obj
+                                                and isinstance(obj[k],(dict,list))][:6],
+                                    "unnamedContainerShapes":[
+                                        {"type":classify(obj[k]),
+                                         "structure":inspect(obj[k],level+1)}
+                                        for k in keys
+                                        if level<3 and not any(x in k.lower()
+                                            for x in allowed)
+                                        and isinstance(obj[k],(dict,list))
+                                    ][:3]}
                         if isinstance(obj,list):
                             return {"type":"array","length":len(obj),
                                     "firstItem":inspect(obj[0],level+1)
-                                    if obj and level<2 else None}
+                                    if obj and level<4 else None}
                         return {"type":classify(obj)}
                     return inspect(payload)
                 def basket_total_evidence(payload):
