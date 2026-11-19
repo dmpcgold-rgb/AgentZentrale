@@ -1431,6 +1431,23 @@ def main():
                     "checkoutAuthorized":False
                 }
                 if result.get("prioritySeatChoice",{}).get("confirmed"):
+                    # Seat updates temporarily replace the submit text with
+                    # "Wird geladen...". Observe readiness without clicking.
+                    CURRENT_STAGE="cart_submit_readiness_wait"
+                    cart_wait_completed=False
+                    try:
+                        page.wait_for_function(r"""() => {
+                            const norm=s=>(s||"").replace(/\\s+/g," ").trim();
+                            const visible=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden";
+                            return [...document.querySelectorAll('button[type="submit"],input[type="submit"]')]
+                                .some(e=>visible(e)&&!e.disabled&&!!e.closest("form")&&
+                                    norm(e.getAttribute("aria-label")||e.innerText||e.textContent||e.value)
+                                    ==="In den Warenkorb");
+                        }""",timeout=10000,polling=250)
+                        cart_wait_completed=True
+                    except Exception as wait_error:
+                        cart_wait_error=type(wait_error).__name__
                     result["cartSubmitReadiness"]=page.evaluate(r"""(selectedCode) => {
                         const vis=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
@@ -1462,6 +1479,9 @@ def main():
                             purchaseExecuted:false
                         };
                     }""",result["prioritySeatChoice"]["code"])
+                    result["cartSubmitReadiness"]["waitForReadyCompleted"]=cart_wait_completed
+                    if not cart_wait_completed:
+                        result["cartSubmitReadiness"]["waitErrorClass"]=cart_wait_error
                 # Controlled cart-submit diagnostic: the user previously
                 # authorized adding one zero-euro seat to a cart, but NOT
                 # checkout or a completed booking. The network gate still
