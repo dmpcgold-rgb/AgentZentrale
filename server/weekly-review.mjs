@@ -52,7 +52,7 @@ export function applyVerifiedBatch(batch,days,westbahn){
 // The read-only review runs every Monday at 07:00 Vienna time, without an
 // unattended checkout. It stores only dates, statuses and seat codes.
 export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
- file=null,enabled=true}={}){
+ file=null,enabled=true,gmailConfirm=null}={}){
  let running=false;
  let state={lastSchedule:null,lastRun:null,lastSuccessWeek:null,
             attemptsThisWeek:0,nextRetryAt:null};
@@ -93,13 +93,38 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
   try {
     const audit=await browser.run('inventory-batch',null,null,days);
     const result=applyVerifiedBatch(audit,days,westbahn);
+    // Reconcile positive email receipts for the same five days. Missing or
+    // failed mailbox reads never authorize a new ticket purchase.
+    let emailStatus='email_not_configured';
+    const emailConfirmedDates=[],emailReviewDates=[];
+    if(typeof gmailConfirm==='function'){
+     try{
+      const mail=await gmailConfirm(days);
+      emailStatus=mail?.status||'email_read_unavailable';
+      if(mail?.status==='email_week_checked' &&
+         mail.bookingAuthorized===false && Array.isArray(mail.confirmed)){
+       for(const ticket of mail.confirmed){
+        if(!days.includes(ticket.date)||!SINGLE_SEAT.test(ticket.seat)||
+           ticket.source!=='official_email')continue;
+        try{
+         const ledger=westbahn.recordVerifiedEmail(ticket.date,ticket.seat);
+         const saved=ledger.rows.find(x=>x.date===ticket.date);
+         if(saved?.status==='confirmed'&&saved.seat===ticket.seat)
+          emailConfirmedDates.push(ticket.date);
+         else emailReviewDates.push(ticket.date);
+        }catch{emailReviewDates.push(ticket.date);}
+       }
+      }
+     }catch{emailStatus='email_read_unavailable';}
+    }
     state.lastRun={startedAt,finishedAt:now().toISOString(),status:result.status,
+      emailStatus,emailConfirmedDates,emailReviewDates,
       days:result.days.map(x=>({date:x.date,status:x.status,seats:x.seats})),
       ledgerProtectedDates:result.ledgerProtectedDates,
       ledgerReviewDates:result.ledgerReviewDates,coverage:result.coverage||null,
       inventoryComplete:false,safeToBook:false,bookingAuthorized:false};
     save();
-    return result;
+    return {...result,emailStatus,emailConfirmedDates,emailReviewDates};
   }catch{
     state.lastRun={startedAt,finishedAt:now().toISOString(),status:'review_failed',
       days:days.map(date=>({date,status:'review_required',seats:[]})),
