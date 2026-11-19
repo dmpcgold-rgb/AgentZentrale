@@ -1977,14 +1977,24 @@ def main():
                         except Exception as error:
                             result["cartSubmissionDiagnostic"]["status"]="click_failed"
                             result["cartSubmissionDiagnostic"]["errorClass"]=type(error).__name__[:48]
-                        page.wait_for_timeout(1500)
+                        # The approve response may navigate the page during
+                        # this diagnostic. Wait for navigation to settle.
+                        try:
+                            page.wait_for_load_state("domcontentloaded",
+                                                     timeout=6000)
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(700)
                         result["cartSubmissionDiagnostic"]["afterClick"]={
                             "path":urlsplit(page.url).path[:160],
                             "basketAddRequests":len(network["allowedBasketAdd"]),
                             "basketAddResponses":network["basketAddResponses"],
                             "blockedPostPaths":[i["path"] for i in network["blockedFirstPartyWrites"]],
                             "basketReadResponses":network["basketReadResponses"],
-                            "cartText":page.evaluate(r"""(seatCode) => {
+                            "cartText":None
+                        }
+                        try:
+                            result["cartSubmissionDiagnostic"]["afterClick"]["cartText"]=page.evaluate(r"""(seatCode) => {
                                 const m=document.querySelector("main")||document.body;
                                 const t=(m.innerText||"").replace(/\s+/g," ");
                                 return {
@@ -1994,7 +2004,9 @@ def main():
                                     hasCheckoutWords:/Warenkorb|Kasse|Checkout/i.test(t)
                                 };
                             }""",seat_choice.get("code"))
-                        }
+                        except Exception as diagnostic_error:
+                            result["cartSubmissionDiagnostic"]["afterClick"][
+                                "cartTextErrorClass"]=type(diagnostic_error).__name__[:48]
                         approval_blocked=any(
                             p["path"]=="/ticketshop/basket/approve"
                             for p in network["blockedFirstPartyWrites"])
