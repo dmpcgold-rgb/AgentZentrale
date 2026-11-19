@@ -33,6 +33,18 @@ def main():
         except BlockingIOError:
             print(json.dumps({"status":"profile_busy","bookingAuthorized":False}))
             return
+        # Fail closed before touching the ticketshop if an earlier
+        # one-shot approval may already have created a reservation.
+        if (root/"approval_attempt_20261120.flag").exists():
+            print(json.dumps({
+                "status":"previous_approval_attempt_requires_inventory_check",
+                "reason":"one_time_approval_marker_present",
+                "newSeatSelectionBlocked":True,
+                "newBasketApprovalBlocked":True,
+                "purchaseExecuted":False,
+                "nextStep":"check_meine_tickets_and_previous_attempt"
+            }))
+            return
         with sync_playwright() as p:
             args={"headless":True,"accept_downloads":False,"timeout":20000,
                   "locale":"de-AT","timezone_id":"Europe/Vienna"}
