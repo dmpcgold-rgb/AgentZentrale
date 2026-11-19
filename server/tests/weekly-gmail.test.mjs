@@ -95,3 +95,20 @@ test('email absence never marks date free or initiates booking',async()=>{
  assert.equal(output.safeToBook,false);
  assert.equal(ledger.status().rows.length,0);
 });
+
+test('Monday 07 Gmail-only mode works without active account browser',async()=>{
+ const ledger=createWestbahn({now});
+ const review=createWeeklyReview({now,westbahn:ledger,browser:null,
+   gmailConfirm:async requested=>({status:'email_week_checked',
+     bookingAuthorized:false,conflictingDates:[],
+     confirmed:[{date:requested[1],seat:'233D',source:'official_email'}]})});
+ const result=await review.tick();
+ assert.equal(result,true);
+ const row=ledger.status().rows.find(x=>x.date===days[1]);
+ assert.equal(row.status,'confirmed');
+ assert.equal(row.seat,'233D');
+ assert.equal(review.status().purchaseEnabled,false);
+ assert.equal(review.status().lastRun.emailStatus,'email_week_checked');
+ assert.equal(review.status().lastRun.status,'email_only_checked');
+ assert.equal(await review.tick(),false);
+});
