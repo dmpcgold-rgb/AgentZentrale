@@ -2245,7 +2245,7 @@ def main():
                                     e.innerText||e.value||"")
                             })).filter(x=>visible(x.element)&&
                                 !x.element.disabled &&
-                                /(?:kostenlos\s*(?:bestellen|buchen|kaufen)|(?:jetzt|verbindlich)\s*(?:bestellen|buchen|kaufen)|bestellung\s*abschlie(?:ßen|ssen)|buchung\s*abschlie(?:ßen|ssen))/i.test(x.label)
+                                /(?:zahlungspflichtig\s+bestellen|kostenlos\s*(?:bestellen|buchen|kaufen)|(?:jetzt|verbindlich)\s*(?:bestellen|buchen|kaufen)|bestellung\s*abschlie(?:ßen|ssen)|buchung\s*abschlie(?:ßen|ssen))/i.test(x.label)
                                 && !/ticket\s*kaufen|neues\s*ticket/i.test(x.label));
                             // Links are not equivalent to final-order buttons.
                             // In particular, /ticketshop/ticket-buchen/ starts
@@ -2270,9 +2270,24 @@ def main():
                             const unchecked=[...document.querySelectorAll(
                                 'input[type="checkbox"][required]')]
                                 .filter(e=>!e.checked && !e.disabled);
+                            const disabledCheckoutButtons=controls.filter(e=>
+                                visible(e) && e.disabled &&
+                                /zahlungspflichtig\s+bestellen/i.test(
+                                    norm(e.getAttribute("aria-label")||
+                                        e.innerText||e.value||"")));
+                            const termsCheckboxes=[...document.querySelectorAll(
+                                'input[type="checkbox"]')].filter(e=>{
+                                    const surrounding=norm(
+                                        e.closest("label")?.innerText||
+                                        e.parentElement?.innerText||"");
+                                    return /allgemeine[n]?\s+geschäftsbedingungen|\bAGB\b/i.test(surrounding);
+                                });
                             return {candidateCount:candidates.length,
                                 candidateIndex:candidates.length===1
                                     ?candidates[0].index:null,
+                                disabledCheckoutButtonCount:disabledCheckoutButtons.length,
+                                termsCheckboxCount:termsCheckboxes.length,
+                                uncheckedTermsCount:termsCheckboxes.filter(e=>!e.checked).length,
                                 newTicketLinkCount:newTicketLinks.length,
                                 unverifiedCheckoutLinkCount:checkoutLinks.length,
                                 uncheckedRequiredCount:unchecked.length};
@@ -2283,11 +2298,16 @@ def main():
                             "uncheckedRequiredCount":action.get(
                                 "uncheckedRequiredCount"),
                             "newTicketLinkCount":action.get("newTicketLinkCount",0),
+                            "disabledCheckoutButtonCount":action.get(
+                                "disabledCheckoutButtonCount",0),
+                            "termsCheckboxCount":action.get("termsCheckboxCount",0),
+                            "uncheckedTermsCount":action.get("uncheckedTermsCount",0),
                             "unverifiedCheckoutLinkCount":action.get(
                                 "unverifiedCheckoutLinkCount",0)
                         })
                         if (action.get("candidateCount")==1
-                            and action.get("uncheckedRequiredCount")==0):
+                            and action.get("uncheckedRequiredCount")==0
+                            and action.get("uncheckedTermsCount")==0):
                             checkout_state["armed"]=True
                             CURRENT_STAGE="one_time_zero_euro_checkout_action"
                             try:
@@ -2334,7 +2354,11 @@ def main():
                             # unverified provider flow. Never treat it as a
                             # binding final-order action without endpoint proof.
                             checkout_action["status"]=(
-                                "new_ticket_link_not_checkout_action"
+                                "terms_not_accepted"
+                                if action.get("uncheckedTermsCount",0)>0
+                                else "checkout_button_disabled"
+                                if action.get("disabledCheckoutButtonCount",0)>0
+                                else "new_ticket_link_not_checkout_action"
                                 if action.get("newTicketLinkCount",0)>0
                                 and action.get("unverifiedCheckoutLinkCount",0)==0
                                 else "unverified_checkout_link_requires_mapping"
