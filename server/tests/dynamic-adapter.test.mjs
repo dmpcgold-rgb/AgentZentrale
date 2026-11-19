@@ -25,7 +25,7 @@ function fixture({inventoryComplete=true,price=0,misroute=false,
  const receipt={...trip,seat:'233A',bookingId:'PROVIDER-1',
   confirmed:true,currency:'EUR',totalCents:0};
  const adapter={
-  capabilities,
+  capabilities:{...capabilities},
   get count(){return count},
   get reads(){return accountReads},
   get bookings(){return bookings},
