@@ -2123,6 +2123,78 @@ def main():
                 # A checkout verification alone cannot safely authorize a
                 # purchase without identifying the provider's final mutation.
                 # All order/payment POST routes remain blocked.
+                # Attempt a terminal checkout click only when the
+                # provider checkout itself displays the expected route,
+                # date, train, seat and one unambiguous zero-EUR total.
+                # Never accept an unchecked mandatory terms control or
+                # ambiguous/multiple purchase buttons.
+                checkout_action={"status":"not_attempted",
+                    "requestSent":False,"ticketConfirmed":False}
+                if (checkout_verified and purchase_opt_in
+                    and not checkout_marker.exists()
+                    and approval_state["approvedRequestSent"]):
+                    try:
+                        action=page.evaluate(r"""() => {
+                            const visible=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden";
+                            const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                            const controls=[...document.querySelectorAll(
+                                "button,input[type=submit]")];
+                            const candidates=controls.map((e,index)=>({
+                                index,element:e,
+                                label:norm(e.getAttribute("aria-label")||
+                                    e.innerText||e.value||"")
+                            })).filter(x=>visible(x.element)&&
+                                !x.element.disabled &&
+                                /(?:kostenlos\s*(?:bestellen|buchen|kaufen)|(?:jetzt|verbindlich)\s*(?:bestellen|buchen|kaufen)|bestellung\s*abschlie(?:ßen|ssen)|buchung\s*abschlie(?:ßen|ssen))/i.test(x.label)
+                                && !/ticket\s*kaufen|neues\s*ticket/i.test(x.label));
+                            const unchecked=[...document.querySelectorAll(
+                                'input[type="checkbox"][required]')]
+                                .filter(e=>!e.checked && !e.disabled);
+                            return {candidateCount:candidates.length,
+                                candidateIndex:candidates.length===1
+                                    ?candidates[0].index:null,
+                                uncheckedRequiredCount:unchecked.length};
+                        }""")
+                        checkout_action.update({
+                            "status":"candidate_inspected",
+                            "candidateCount":action.get("candidateCount"),
+                            "uncheckedRequiredCount":action.get(
+                                "uncheckedRequiredCount")
+                        })
+                        if (action.get("candidateCount")==1
+                            and action.get("uncheckedRequiredCount")==0):
+                            checkout_state["armed"]=True
+                            CURRENT_STAGE="one_time_zero_euro_checkout_action"
+                            try:
+                                page.locator("button,input[type=submit]").nth(
+                                    action["candidateIndex"]).click(
+                                        timeout=7000,no_wait_after=True)
+                                checkout_action["status"]="button_clicked"
+                            except Exception as err:
+                                checkout_action["status"]="click_error"
+                                checkout_action["errorClass"]=type(err).__name__[:48]
+                            finally:
+                                checkout_state["armed"]=False
+                            page.wait_for_timeout(1800)
+                            checkout_action["requestSent"]=checkout_state[
+                                "requestSent"]
+                            checkout_action["requestResponses"]=network[
+                                "checkoutOrderResponses"]
+                            checkout_action["currentPath"]=urlsplit(
+                                page.url).path[:130]
+                            # Confirmation is NOT inferred from HTTP 200.
+                            # Ticket listing/inventory must independently confirm.
+                            checkout_action["ticketConfirmed"]=False
+                        else:
+                            checkout_action["status"]="no_unambiguous_final_action"
+                    except Exception as err:
+                        checkout_state["armed"]=False
+                        checkout_action={"status":"inspection_error",
+                            "errorClass":type(err).__name__[:48],
+                            "requestSent":checkout_state["requestSent"],
+                            "ticketConfirmed":False}
+                result["checkoutAction"]=checkout_action
                 # Distinguish absence of a seat token in the provider's
                 # basket line-item from the independently confirmed seat in
                 # the reservation form. Never turn either into a final-price
@@ -2152,6 +2224,9 @@ def main():
                     "sameBrowserSession":True,
                     "checkoutReviewTripAndZeroEuroVerified":checkout_verified,
                     "nextBindingCheckoutActionAllowed":False,
+                    "checkoutAction":result["checkoutAction"],
+                    "checkoutState":checkout_state,
+                    "checkoutAttemptMarkerExists":checkout_marker.exists(),
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "approvalIsPotentiallyBinding":True,
