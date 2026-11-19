@@ -2191,8 +2191,27 @@ def main():
                                 "checkoutOrderResponses"]
                             checkout_action["currentPath"]=urlsplit(
                                 page.url).path[:130]
-                            # Confirmation is NOT inferred from HTTP 200.
-                            # Ticket listing/inventory must independently confirm.
+                            # Capture only explicit confirmation indicators
+                            # on the SAME session after the one order request.
+                            # Do not expose names, ticket IDs or raw page text.
+                            checkout_action["confirmationPage"]=page.evaluate(
+                                r"""(selected) => {
+                                    const main=document.querySelector("main")||document.body;
+                                    const txt=(main.innerText||"").replace(/\s+/g," ");
+                                    const success=/Buchung erfolgreich|Bestellung erfolgreich|Vielen Dank für (?:Ihre|deine) Buchung|Reservierung erfolgreich/i.test(txt);
+                                    const seat=new RegExp("(^|[^A-Za-z0-9])"+
+                                        selected+"([^A-Za-z0-9]|$)","i").test(txt);
+                                    return {
+                                        explicitSuccessMessage:success,
+                                        sameDate:/20\.11\.2026|20\. November 2026/.test(txt),
+                                        sameSeat:seat,
+                                        sameTrain:/\b1009\b/.test(txt),
+                                        path:location.pathname.slice(0,130),
+                                        independentlyVerifiedInTicketList:false
+                                    };
+                                }""",seat_choice.get("code") or "")
+                            # The confirmed ticket list remains the source
+                            # of truth. A success message alone is insufficient.
                             checkout_action["ticketConfirmed"]=False
                         else:
                             checkout_action["status"]="no_unambiguous_final_action"
