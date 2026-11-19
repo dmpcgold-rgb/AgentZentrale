@@ -23,6 +23,9 @@ class Discovery(unittest.TestCase):
         self.assertEqual(diagnostic["rejectedSources"]["queryOrFragment"],0)
         self.assertEqual(diagnostic["rejectedSources"]["externalHost"],1)
         self.assertEqual(diagnostic["externalScriptHosts"],["cdn.example.net"])
+        self.assertEqual(diagnostic["queryStrippedFromPublicAssets"],1)
+        self.assertTrue(any(x.endswith("/assets/v.js") for x in urls))
+        self.assertTrue(all("?" not in x for x in urls))
     def test_no_unsafe_fetch(self):
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?token=secret"))
         self.assertTrue(probe.safe_url("https://westbahn.at/a.js?v=1.2.3"))

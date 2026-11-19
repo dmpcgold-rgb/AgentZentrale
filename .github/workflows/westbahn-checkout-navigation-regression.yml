@@ -21,6 +21,8 @@ on:
     paths:
       - 'server/browser/ticketshop_station_dry_run.py'
       - 'server/browser/test_checkout_navigation_race_offline.py'
+      - 'server/browser/westbahn_public_checkout_script_probe.py'
+      - 'server/browser/test_westbahn_public_script_discovery_offline.py'
       - '.github/workflows/westbahn-checkout-navigation-regression.yml'
   workflow_dispatch:
 jobs:
