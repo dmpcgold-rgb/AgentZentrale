@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 URL = "https://westbahn.at/ticketshop/ticket-buchen/"
 ORIGIN = "Wien Meidling"
@@ -1042,49 +1042,61 @@ def main():
                                                             '[role=dialog]')].filter(vis).length
                                                     };
                                                 }""")
-                                                try:
-                                                    finish.click(timeout=3500,no_wait_after=True)
-                                                    result["finishButtonDiagnostic"]["clickOutcome"]="clicked"
-                                                except PlaywrightTimeoutError:
-                                                    result["finishButtonDiagnostic"]["clickOutcome"]="timeout"
-                                                    result["prioritySeatChoice"]["status"]="finish_button_click_timeout"
-                                                    result["seatFormConfirmation"]={
-                                                        "status":"finish_click_blocked",
-                                                        "chosenCode":code,
-                                                        "confirmed":False,
-                                                        "cartSubmitted":False,
-                                                        "purchaseExecuted":False
-                                                    }
-                                                if result["finishButtonDiagnostic"]["clickOutcome"]=="clicked":
-                                                    page.wait_for_timeout(650)
-                                                    summary=page.evaluate(r"""(code) => {
-                                                        const norm=s=>(s||"").replace(/\s+/g," ").trim();
-                                                        const vis=e=>!!e.getClientRects().length &&
-                                                            getComputedStyle(e).visibility!=="hidden";
-                                                        const main=document.querySelector("main")||document.body;
-                                                        const codeButtons=[...main.querySelectorAll("button")]
-                                                            .filter(vis).map(e=>norm(e.getAttribute("aria-label")||e.innerText))
-                                                            .filter(x=>x===code);
-                                                        const dialogs=[...document.querySelectorAll('[role=dialog]')]
-                                                            .filter(vis);
-                                                        return {
-                                                            code,
-                                                            selectedSeatShownInForm:codeButtons.length===1,
-                                                            selectedSeatButtonCount:codeButtons.length,
-                                                            seatDialogStillVisible:dialogs.length>0,
-                                                            cartSubmitClicked:false,
-                                                            purchaseExecuted:false
-                                                        };
-                                                    }""",code)
-                                                    result["seatFormConfirmation"]=summary
-                                                    result["prioritySeatChoice"]["confirmed"]=bool(
-                                                        summary["selectedSeatShownInForm"]
-                                                    )
-                                                    result["prioritySeatChoice"]["status"]=(
-                                                        "priority_seat_applied_to_form"
-                                                        if summary["selectedSeatShownInForm"]
-                                                        else "seat_form_confirmation_unverified"
-                                                    )
+                                                # "Fertig" belongs to the underlying page,
+                                                # not the active seat dialog. Never click
+                                                # an off-screen/background control.
+                                                result["finishButtonDiagnostic"]["clickOutcome"]="skipped_background_control"
+                                                result["seatDialogControls"]=page.evaluate(r"""() => {
+                                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                    const vis=e=>!!e.getClientRects().length &&
+                                                        getComputedStyle(e).visibility!=="hidden";
+                                                    const dialogs=[...document.querySelectorAll('[role=dialog]')].filter(vis);
+                                                    return {
+                                                        visibleDialogs:dialogs.length,
+                                                        controls:dialogs.flatMap(d=>[...d.querySelectorAll(
+                                                            'button,[role=button],[aria-label]'
+                                                        )].filter(vis).map(e=>({
+                                                            tag:e.tagName.toLowerCase(),
+                                                            label:norm(e.getAttribute('aria-label')||
+                                                                e.getAttribute('title')||e.innerText).slice(0,75),
+                                                            type:(e.getAttribute('type')||'').slice(0,16),
+                                                            disabled:e.matches(':disabled,[aria-disabled=true]')
+                                                        }))).filter(c=>/Schließen|Zurück|Fertig|Übernehmen|Bestätigen|Abbrechen|Auswahl|Wagen/i.test(c.label))
+                                                            .slice(0,18)
+                                                    };
+                                                }""")
+                                                # Escape is a non-booking UI action.
+                                                # Check after it whether the seat remains
+                                                # in the form. Do not click purchase/cart.
+                                                page.keyboard.press("Escape")
+                                                page.wait_for_timeout(450)
+                                                summary=page.evaluate(r"""(code) => {
+                                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                    const visible=e=>!!e.getClientRects().length &&
+                                                        getComputedStyle(e).visibility!=="hidden";
+                                                    const dialogs=[...document.querySelectorAll('[role=dialog]')].filter(visible);
+                                                    const main=document.querySelector("main")||document.body;
+                                                    const buttons=[...main.querySelectorAll("button")].filter(visible);
+                                                    const matching=buttons.filter(e=>
+                                                        norm(e.getAttribute("aria-label")||e.innerText)===code);
+                                                    return {
+                                                        code,
+                                                        visibleDialogCount:dialogs.length,
+                                                        seatShownInForm:dialogs.length===0 && matching.length===1,
+                                                        matchingButtonCount:matching.length,
+                                                        cartSubmitClicked:false,
+                                                        purchaseExecuted:false
+                                                    };
+                                                }""",code)
+                                                result["seatFormConfirmation"]=summary
+                                                result["prioritySeatChoice"]["confirmed"]=bool(
+                                                    summary["seatShownInForm"]
+                                                )
+                                                result["prioritySeatChoice"]["status"]=(
+                                                    "priority_seat_applied_to_form"
+                                                    if summary["seatShownInForm"]
+                                                    else "seat_dialog_remains_or_selection_not_applied"
+                                                )
                                             else:
                                                 result["seatFormConfirmation"]={
                                                     "status":"finish_button_not_unique",
