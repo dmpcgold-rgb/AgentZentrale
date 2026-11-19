@@ -225,3 +225,55 @@ test('weekly booking run never checks or purchases more than five future commute
  await ledger.run();
  assert.deepEqual(booked,dayList,'no repeated checkouts on an already booked week');
 });
+
+test('configured Gmail preflight failure blocks all provider calls before checkout',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ let providerCalls=0;
+ const adapter={
+  existing:async()=>{providerCalls++;return {status:'none',accountVerified:true,inventoryComplete:true};},
+  search:async()=>{providerCalls++;throw Error('blocked')},
+  quote:async()=>{providerCalls++;throw Error('blocked')},
+  book:async()=>{providerCalls++;throw Error('blocked')}
+ };
+ const agent=createWestbahn({now:clock,adapter,
+  gmailConfirm:async()=>({status:'email_read_unavailable',confirmed:[],bookingAuthorized:false})});
+ await agent.run();
+ assert.equal(providerCalls,0);
+ assert.equal(agent.status().lastRun.status,'blocked_email_unavailable');
+ assert.equal(agent.status().rows.length,0);
+});
+
+test('Gmail-confirmed reservation is skipped even in same cycle as new bookings',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ const planned=planDates(clock()).slice(0,5),calls=[];
+ const agent=createWestbahn({now:clock,adapter:{
+  existing:async({date})=>{calls.push(date);return {status:'unknown'};},
+  search:async()=>{throw Error('not reachable')},
+  quote:async()=>{throw Error('not reachable')},
+  book:async()=>{throw Error('not reachable')}
+ },gmailConfirm:async days=>{
+  assert.deepEqual(days,planned);
+  return {status:'email_week_checked',bookingAuthorized:false,conflictingDates:[],
+          confirmed:[{date:planned[0],seat:'233A',source:'official_email'}]};
+ }});
+ await agent.run();
+ assert.deepEqual(calls,planned.slice(1));
+ assert.equal(agent.status().rows.find(r=>r.date===planned[0]).status,'confirmed');
+ assert.equal(agent.status().rows.find(r=>r.date===planned[0]).seat,'233A');
+});
+
+test('conflicting Gmail result blocks entire purchasing cycle',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z'),planned=planDates(clock());
+ let calls=0;
+ const a=createWestbahn({now:clock,adapter:{
+  existing:async()=>{calls++;throw Error('should not call')},
+  search:async()=>{calls++;throw Error('should not call')},
+  quote:async()=>{calls++;throw Error('should not call')},
+  book:async()=>{calls++;throw Error('should not call')}
+ },gmailConfirm:async()=>({
+  status:'email_week_checked',bookingAuthorized:false,conflictingDates:[planned[0]],
+  confirmed:[]})});
+ await a.run();
+ assert.equal(calls,0);
+ assert.equal(a.status().lastRun.status,'blocked_email_unavailable');
+});
