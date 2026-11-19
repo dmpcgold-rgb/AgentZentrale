@@ -1908,6 +1908,60 @@ def main():
                             "awaiting_explicit_one_day_cart_diagnostic_flag"
                             if not user_attested_no_duplicate
                             else "cart_submit_preconditions_not_met")
+                # Inspect the public checkout review screen without any writes.
+                # This is a READ-ONLY probe: no payment buttons or forms clicked.
+                # It may legitimately be empty while basket/approve is blocked.
+                result["checkoutReviewReadOnly"]={"status":"not_attempted",
+                    "finalPriceVerified":False,"purchaseExecuted":False}
+                try:
+                    CURRENT_STAGE="checkout_review_read_only"
+                    page.goto("https://westbahn.at/ticketshop/checkout",
+                              wait_until="domcontentloaded",timeout=20000)
+                    page.wait_for_timeout(900)
+                    result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
+                        const visible=e=>!!e.getClientRects().length &&
+                            getComputedStyle(e).visibility!=="hidden";
+                        const norm=s=>(s||"").replace(/\\s+/g," ").trim();
+                        const main=document.querySelector("main")||document.body;
+                        const text=norm(main.innerText||"");
+                        // Only return booleans and explicitly labelled price
+                        // snippets (never raw text, customer names or forms).
+                        const prices=[];
+                        for(const e of [...main.querySelectorAll("div,span,p,strong,b,td")]){
+                            if(!visible(e) || e.children.length>2)continue;
+                            const t=norm(e.innerText||"");
+                            if(t.length>95 || t.length<3)continue;
+                            if(/(?:Gesamt(?:betrag|preis|summe)?|Endpreis|Zu zahlen|Total|Summe)/i.test(t)
+                              && /(?:€|EUR)/i.test(t)){
+                                prices.push({
+                                  labelType:/Endpreis/i.test(t)?"final":
+                                    /Zu zahlen/i.test(t)?"payable":"total",
+                                  containsZero:/\\b0[,.]00\\s*(?:€|EUR)|(?:€|EUR)\\s*0[,.]00\\b/.test(t),
+                                  containsNonzero:/\\b[1-9][0-9]*(?:[,.][0-9]{2})?\\s*(?:€|EUR)/.test(t)
+                                });
+                            }
+                        }
+                        return {
+                            status:"read_only_reviewed",
+                            path:location.pathname,
+                            emptyCart:/Warenkorb\\s+ist\\s+leer/i.test(text),
+                            selectedSeatVisible:new RegExp("(^|[^A-Za-z0-9])"+
+                                selected+"([^A-Za-z0-9]|$)").test(text),
+                            targetDateVisible:/20\\.11\\.2026|20\\. November 2026/.test(text),
+                            targetTimeVisible:/18:22/.test(text),
+                            targetTrainVisible:/\\b1009\\b/.test(text),
+                            labelledPriceCandidates:prices.slice(0,8),
+                            finalPriceVerified:false,
+                            purchaseExecuted:false
+                        };
+                    }""",seat_choice.get("code") or "")
+                except Exception as review_error:
+                    result["checkoutReviewReadOnly"]={
+                        "status":"review_unavailable",
+                        "errorClass":type(review_error).__name__[:48],
+                        "finalPriceVerified":False,
+                        "purchaseExecuted":False
+                    }
                 # Distinguish absence of a seat token in the provider's
                 # basket line-item from the independently confirmed seat in
                 # the reservation form. Never turn either into a final-price
@@ -1932,6 +1986,7 @@ def main():
                 }
                 result["purchaseGate"]={
                     "bookingEvidence":result["bookingEvidence"],
+                    "checkoutReviewReadOnly":result["checkoutReviewReadOnly"],
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
