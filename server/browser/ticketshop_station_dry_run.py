@@ -1213,6 +1213,69 @@ def main():
                             purchaseExecuted:false
                         };
                     }""")
+                # Controlled cart-submit diagnostic: the user previously
+                # authorized adding one zero-euro seat to a cart, but NOT
+                # checkout or a completed booking. The network gate still
+                # allows at most one basket/add request in the entire run.
+                # Any subsequent mutation required by the submit is blocked
+                # and reported, not retried or implicitly authorized.
+                result["cartSubmissionDiagnostic"]={
+                    "status":"not_attempted",
+                    "cartButtonClicked":False,
+                    "checkoutAuthorized":False,
+                    "purchaseExecuted":False
+                }
+                seat_choice=result.get("prioritySeatChoice",{})
+                climate=result.get("climateFareSelection",{})
+                seat_form=result.get("seatFormConfirmation",{})
+                confirmed_form=(seat_choice.get("confirmed") is True
+                    and seat_form.get("seatShownInForm") is True)
+                zero_fare=(climate.get("checked") is True
+                    and climate.get("matchingFareControls")==1)
+                seat_update_ok=any(x.get("ok") for x in network["seatUpdateResponses"])
+                if confirmed_form and zero_fare and seat_update_ok:
+                    cart_btn=page.get_by_role("button",name="In den Warenkorb",exact=True)
+                    result["cartSubmissionDiagnostic"].update({
+                        "matchedButtons":cart_btn.count(),
+                        "zeroFareVerified":True,
+                        "seatCode":seat_choice.get("code"),
+                        "basketAddRequestsBeforeClick":len(network["allowedBasketAdd"]),
+                        "seatUpdateAccepted":True
+                    })
+                    if (cart_btn.count()==1 and cart_btn.is_visible()
+                        and cart_btn.is_enabled()):
+                        CURRENT_STAGE="cart_submit_diagnostic"
+                        try:
+                            cart_btn.click(timeout=4000,no_wait_after=True)
+                            result["cartSubmissionDiagnostic"]["cartButtonClicked"]=True
+                            result["cartSubmissionDiagnostic"]["status"]="clicked_network_gated"
+                        except Exception as error:
+                            result["cartSubmissionDiagnostic"]["status"]="click_failed"
+                            result["cartSubmissionDiagnostic"]["errorClass"]=type(error).__name__[:48]
+                        page.wait_for_timeout(950)
+                        result["cartSubmissionDiagnostic"]["afterClick"]={
+                            "path":urlsplit(page.url).path[:160],
+                            "basketAddRequests":len(network["allowedBasketAdd"]),
+                            "basketAddResponses":network["basketAddResponses"],
+                            "blockedPostPaths":[i["path"] for i in network["blockedFirstPartyWrites"]],
+                            "basketReadResponses":network["basketReadResponses"],
+                            "cartText":page.evaluate(r"""() => {
+                                const m=document.querySelector("main")||document.body;
+                                const t=(m.innerText||"").replace(/\s+/g," ");
+                                return {
+                                    containsEmptyCart:/Warenkorb\s+ist\s+leer/i.test(t),
+                                    containsSeat191D:/\b191D\b/.test(t),
+                                    hasCheckoutWords:/Warenkorb|Kasse|Checkout/i.test(t)
+                                };
+                            }""")
+                        }
+                    else:
+                        result["cartSubmissionDiagnostic"]["status"]="cart_button_unavailable"
+                else:
+                    result["cartSubmissionDiagnostic"]["status"]="preconditions_not_verified"
+                    result["cartSubmissionDiagnostic"]["seatFormVerified"]=confirmed_form
+                    result["cartSubmissionDiagnostic"]["zeroFareVerified"]=zero_fare
+                    result["cartSubmissionDiagnostic"]["seatUpdateAccepted"]=seat_update_ok
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
