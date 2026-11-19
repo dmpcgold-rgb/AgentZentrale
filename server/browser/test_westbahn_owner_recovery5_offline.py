@@ -49,7 +49,7 @@ class Recovery5Safety(unittest.TestCase):
             env.pop(flag)
             blocked,_=self.evaluate(env)
             self.assertIsNone(blocked)
-        self.assertIsNone(self.evaluate(self.flags(),past=False)[0])
+        self.assertFalse(self.evaluate(self.flags(),past=False)[0]["fifth_recovery_requested"])
     def test_fifth_attempt_marker_is_not_reusable(self):
         result,out=self.evaluate(self.flags(),fifth=True)
         self.assertIsNone(result)
