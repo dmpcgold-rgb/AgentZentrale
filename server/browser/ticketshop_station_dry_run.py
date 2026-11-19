@@ -1431,7 +1431,7 @@ def main():
                     "checkoutAuthorized":False
                 }
                 if result.get("prioritySeatChoice",{}).get("confirmed"):
-                    result["cartSubmitReadiness"]=page.evaluate(r"""() => {
+                    result["cartSubmitReadiness"]=page.evaluate(r"""(selectedCode) => {
                         const vis=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
                         const norm=s=>(s||"").replace(/\s+/g," ").trim();
@@ -1443,14 +1443,15 @@ def main():
                             enabled:buttons.length===1?!buttons[0].disabled:false,
                             formPresent:buttons.length===1?!!buttons[0].closest("form"):false,
                             buttonType:buttons.length===1?buttons[0].type:null,
-                            seat191DInForm:[...document.querySelectorAll("main button")].filter(vis)
-                                .some(e=>norm(e.innerText)==="191D"),
+                            selectedSeatCode:selectedCode,
+                            selectedSeatInForm:[...document.querySelectorAll("main button")].filter(vis)
+                                .some(e=>norm(e.getAttribute("aria-label")||e.innerText)===selectedCode),
                             clicked:false,
                             duplicateInventoryGatePassed:false,
                             checkoutAuthorized:false,
                             purchaseExecuted:false
                         };
-                    }""")
+                    }""",result["prioritySeatChoice"]["code"])
                 # Controlled cart-submit diagnostic: the user previously
                 # authorized adding one zero-euro seat to a cart, but NOT
                 # checkout or a completed booking. The network gate still
