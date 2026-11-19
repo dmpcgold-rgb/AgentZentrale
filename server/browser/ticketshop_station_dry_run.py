@@ -83,7 +83,7 @@ def main():
                           if fourth_recovery_marker.exists()
                           else "third_recovery_already_attempted"
                           if third_recovery_marker.exists()
-                          else "recovery_not_authorized_or_already_attempted")),
+                          else "recovery_not_authorized_or_already_attempted"),
                 "newSeatSelectionBlocked":True,
                 "newBasketApprovalBlocked":True,
                 "purchaseExecuted":False
