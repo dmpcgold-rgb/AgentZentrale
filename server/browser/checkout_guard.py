@@ -47,11 +47,16 @@ def cart_facts(page):
     }""")
 
 
-def audit_cart(page, day, seat):
+def audit_cart(page, day, seat, journey=None):
     """Only a matching one-item cart with entirely zero prices is suitable.
 
     No control handles or private page text leave this function.
     """
+    if journey is not None:
+        if not isinstance(journey, dict) or journey.get("date") != day or journey.get("seat") != seat:
+            return {"verified": False, "reason": "intent_mismatch", "bookingAuthorized": False}
+        from dynamic_checkout_guard import audit_dynamic_cart
+        return audit_dynamic_cart(page, journey)
     try:
         expected=date.fromisoformat(day)
     except (ValueError, TypeError):

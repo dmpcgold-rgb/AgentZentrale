@@ -25,6 +25,17 @@ class AuditTests(unittest.TestCase):
                         {'checkboxCount':2},{'submitCount':2}):
             with self.subTest(changes=changes), patch('checkout_guard.cart_facts',return_value=dict(valid(),**changes)):
                 self.assertFalse(audit_cart(Mock(),DAY,SEAT)['verified'])
+    def test_dynamic_intent_requires_matching_date_and_seat(self):
+        itinerary=dict(date=DAY,origin="Wien Meidling",
+                       destination="Wiener Neustadt Hbf",departure="18:22",
+                       arrival="18:49",train="1009",seat=SEAT)
+        with patch("dynamic_checkout_guard.audit_dynamic_cart",
+                   return_value={"verified":True,"bookingAuthorized":False}) as check:
+            self.assertTrue(audit_cart(Mock(),DAY,SEAT,itinerary)["verified"])
+            self.assertFalse(audit_cart(Mock(),DAY,"233A",itinerary)["verified"])
+            self.assertFalse(audit_cart(Mock(),"2026-11-18",SEAT,itinerary)["verified"])
+            check.assert_called_once()
+
     def test_invalid_input_no_browser_use(self):
         with patch('checkout_guard.cart_facts') as facts:
             self.assertFalse(audit_cart(Mock(),'2026-11-45',SEAT)['verified'])
