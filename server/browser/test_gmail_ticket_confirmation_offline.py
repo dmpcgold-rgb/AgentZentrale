@@ -47,6 +47,29 @@ class MailMatchingOffline(unittest.TestCase):
             value=confirm_from_gmail(date(2026,11,20),"191D","1009")
         self.assertEqual(value["status"],"email_not_configured")
         self.assertFalse(value["ticketConfirmed"])
+    def test_week_cli_does_not_require_seat(self):
+        import subprocess, sys, os
+        child = subprocess.run([
+            sys.executable, "-m", "server.browser.gmail_ticket_confirmation",
+            "--dates", "2026-11-20", "--train", "1009"
+        ],capture_output=True,text=True,check=True,timeout=10,
+          env={**os.environ, "WESTBAHN_GMAIL_ADDRESS":"",
+               "WESTBAHN_GMAIL_APP_PASSWORD":""})
+        import json
+        result=json.loads(child.stdout)
+        self.assertEqual(result["status"],"email_not_configured")
+        self.assertEqual(result["confirmed"],[])
+        self.assertFalse(result["bookingAuthorized"])
+    def test_week_cli_rejects_incompatible_single_seat_args(self):
+        import subprocess, sys
+        child=subprocess.run([
+          sys.executable,"-m","server.browser.gmail_ticket_confirmation",
+          "--dates","2026-11-20","--seat","191D"
+        ],capture_output=True,text=True,check=True,timeout=10)
+        import json
+        result=json.loads(child.stdout)
+        self.assertEqual(result["status"],"invalid_confirmation_query")
+
     def test_confirmation_helper_never_writes_mail(self):
         import inspect
         from server.browser import gmail_ticket_confirmation as mod

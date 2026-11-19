@@ -160,7 +160,7 @@ def confirm_week_from_gmail(dates, train="1009"):
     if not user or not secret:
         return {"status":"email_not_configured","confirmed":[],
                 "bookingAuthorized":False}
-    if not re.fullmatch(r"[\\w.+-]+@gmail\\.com",user,re.I):
+    if not re.fullmatch(r"[\w.+-]+@gmail\.com",user,re.I):
         return {"status":"email_invalid_configuration","confirmed":[],
                 "bookingAuthorized":False}
     found={}
@@ -191,7 +191,7 @@ def confirm_week_from_gmail(dates, train="1009"):
                     continue
                 text=plain_text(message)
                 # One unambiguous seat code per official confirmation email.
-                seats=set(re.findall(r"\\bSitz\\s*:?\\s*(\\d{3}[A-D])\\b",text,re.I))
+                seats=set(re.findall(r"\bSitz\s*:?\s*(\d{3}[A-D])\b",text,re.I))
                 if len(seats)!=1:
                     continue
                 seat=next(iter(seats)).upper()
@@ -216,7 +216,7 @@ def main():
     cli = argparse.ArgumentParser()
     cli.add_argument("--date")
     cli.add_argument("--dates")
-    cli.add_argument("--seat", required=True)
+    cli.add_argument("--seat")
     cli.add_argument("--train", default="1009")
     args = cli.parse_args()
     try:
@@ -224,7 +224,7 @@ def main():
             if args.date or args.seat:
                 raise ValueError()
             tokens=args.dates.split(",")
-            if any(not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",token) for token in tokens):
+            if any(not re.fullmatch(r"\d{4}-\d{2}-\d{2}",token) for token in tokens):
                 raise ValueError()
             output=confirm_week_from_gmail([date.fromisoformat(d) for d in tokens],args.train)
             print(json.dumps(output,ensure_ascii=False))
