@@ -195,7 +195,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       if (is('GET', '/westbahn/reservation-plan')){
         const plan=reservationPlan.get();
         return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
-          activeForLiveBooking:false,
+          activeForLiveBooking:westbahn.status().providerConnected && (isLegacyReservationPlan(plan) || westbahn.status().dynamicProviderVerified),
           message:'Einstellungen gespeichert; automatische Live-Buchungen benötigen einen für diese Strecke und Zeit verifizierten Anbieteradapter.'});
       }
       if (is('POST', '/westbahn/reservation-plan')){
@@ -207,7 +207,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
             throw new ApiError(409,'Automatische Buchungen vor dem Ändern der Fahrtdaten deaktivieren.');
           const plan=reservationPlan.save(body);
           return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
-            activeForLiveBooking:false,
+            activeForLiveBooking:westbahn.status().providerConnected && (isLegacyReservationPlan(plan) || westbahn.status().dynamicProviderVerified),
             message:'Reservierungsplan gespeichert. Bis zur Verifizierung wird keine Buchung mit diesen neuen Angaben ausgelöst.'});
         }catch(e){throw e instanceof ApiError?e:new ApiError(400,e.message);}
       }
