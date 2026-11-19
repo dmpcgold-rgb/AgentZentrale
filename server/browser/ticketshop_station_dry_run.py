@@ -2449,6 +2449,19 @@ def main():
                                 else checkout_action["status"])
                             checkout_action["requestResponses"]=network[
                                 "checkoutOrderResponses"]
+                            # HTTP transport success is NOT a booking
+                            # confirmation. Distinguish rejected responses,
+                            # accepted transport and missing response without
+                            # ever retrying the possibly binding request.
+                            order_responses=network["checkoutOrderResponses"]
+                            if checkout_state["requestSent"]:
+                                checkout_action["status"]=(
+                                    "final_order_http_rejected_no_retry"
+                                    if any(r.get("ok") is False for r in order_responses)
+                                    else "final_order_http_accepted_ticket_unverified"
+                                    if any(r.get("ok") is True for r in order_responses)
+                                    else "final_order_response_unknown_no_retry"
+                                )
                             checkout_action["currentPath"]=urlsplit(
                                 page.url).path[:130]
                             # Capture only explicit confirmation indicators
