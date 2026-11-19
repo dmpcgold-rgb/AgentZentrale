@@ -1502,8 +1502,23 @@ def main():
                 zero_fare=(climate.get("checked") is True
                     and climate.get("matchingFareControls")==1)
                 seat_update_ok=any(x.get("ok") for x in network["seatUpdateResponses"])
+                # Explicit one-day owner attestation: the user inspected
+                # "Meine Tickets" and confirmed no existing 20 Nov booking.
+                # This is NOT an automated inventory reconciliation and
+                # authorizes only a single cart-button diagnostic, not payment.
+                user_attested_no_duplicate=(
+                    os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+                    and result.get("datePicker",{}).get("dateFieldValue")=="20.11.2026"
+                    and result.get("train1009Diagnostic",{}).get("rows",[])
+                    and any(r.get("has1009") and r.get("has1822") and r.get("has1849")
+                            for r in result["train1009Diagnostic"]["rows"])
+                )
+                result["cartSubmitReadiness"]["userAttestedNoDuplicate"]=bool(
+                    user_attested_no_duplicate)
+                result["cartSubmitReadiness"]["automatedInventoryReconciliationPassed"]=False
                 if (confirmed_form and zero_fare and seat_update_ok
-                    and result["cartSubmitReadiness"].get("duplicateInventoryGatePassed") is True):
+                    and result["cartSubmitReadiness"].get("status")=="ready_for_inventory_gate"
+                    and user_attested_no_duplicate):
                     cart_btn=page.get_by_role("button",name="In den Warenkorb",exact=True)
                     result["cartSubmissionDiagnostic"].update({
                         "matchedButtons":cart_btn.count(),
@@ -1549,7 +1564,10 @@ def main():
                     result["cartSubmissionDiagnostic"]["inventoryGatePassed"]=bool(
                         result["cartSubmitReadiness"].get("duplicateInventoryGatePassed"))
                     if confirmed_form and zero_fare and seat_update_ok:
-                        result["cartSubmissionDiagnostic"]["status"]="inventory_reconciliation_required_no_submit"
+                        result["cartSubmissionDiagnostic"]["status"]=(
+                            "awaiting_explicit_one_day_cart_diagnostic_flag"
+                            if not user_attested_no_duplicate
+                            else "cart_submit_preconditions_not_met")
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
