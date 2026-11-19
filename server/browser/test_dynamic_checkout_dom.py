@@ -2,7 +2,7 @@
 import os
 import unittest
 from playwright.sync_api import sync_playwright
-from dynamic_checkout_guard import audit_dynamic_cart
+from dynamic_checkout_guard import audit_dynamic_cart, dynamic_cart_facts
 
 TRIP = dict(date="2026-11-24", origin="Wien Meidling",
             destination="Wiener Neustadt Hbf", departure="18:22",
@@ -42,7 +42,7 @@ class OfflineDynamicDOMTests(unittest.TestCase):
                 status=200, content_type="text/html", body=HTML))
             page.goto("https://westbahn.at/ticketshop/checkout")
             result = audit_dynamic_cart(page, TRIP)
-            self.assertTrue(result["verified"], result)
+            self.assertTrue(result["verified"], {"audit":result, "facts":dynamic_cart_facts(page, TRIP), "text":page.locator("section").inner_text()})
             self.assertFalse(result["bookingAuthorized"])
             for patch in (
                 dict(date="2026-11-25"), dict(train="1010"),
