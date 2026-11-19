@@ -126,6 +126,73 @@ def main():
                                     if obj and level<4 else None}
                         return {"type":classify(obj)}
                     return inspect(payload)
+                def basket_item_evidence(payload):
+                    # Return booleans and safe schema labels only, never values.
+                    # A line-item price alone is not the provider's final total.
+                    data=payload.get("data") if isinstance(payload,dict) else None
+                    arrays=[(key,value) for key,value in data.items()
+                            if isinstance(value,list)] if isinstance(data,dict) else []
+                    if len(arrays)!=1:
+                        return {"verified":False,"reason":"item_array_missing_or_ambiguous",
+                                "arrays":len(arrays)}
+                    items=arrays[0][1]
+                    if len(items)!=1 or not isinstance(items[0],dict):
+                        return {"verified":False,"reason":"requires_exactly_one_item",
+                                "itemCount":len(items)}
+                    item=items[0]
+                    def collect(obj,depth=0):
+                        if depth>3:
+                            return []
+                        if isinstance(obj,dict):
+                            result=[]
+                            for key,value in list(obj.items())[:80]:
+                                if isinstance(value,(str,int,float)) and not isinstance(value,bool):
+                                    result.append((str(key).lower(),str(value)))
+                                elif isinstance(value,(dict,list)):
+                                    result.extend(collect(value,depth+1))
+                            return result
+                        if isinstance(obj,list):
+                            result=[]
+                            for value in obj[:8]:
+                                result.extend(collect(value,depth+1))
+                            return result
+                        return []
+                    scalars=collect(item)
+                    def matches(substr,keys):
+                        return any(any(k in key for k in keys)
+                                   and substr.lower() in value.lower()
+                                   for key,value in scalars)
+                    price=item.get("price")
+                    return {
+                        "verified":False,
+                        "itemCount":1,
+                        "numericPriceIsZero":(
+                            isinstance(price,(int,float)) and not isinstance(price,bool)
+                            and Decimal(str(price))==0),
+                        "priceFieldType":type(price).__name__,
+                        "matchingDepartureDate":(
+                            matches("2026-11-20",("date","departure","start","travel"))
+                            or matches("20.11.2026",("date","departure","start","travel"))),
+                        "matchingDepartureTime":matches("18:22",("departure","time","start")),
+                        "matchingTrain":matches("1009",("train","connection","service")),
+                        "matchingSeat_AtResponseTime":any(
+                            any(k in key for k in ("seat","place","platz"))
+                            and any(seat==value.strip().upper()
+                                    for seat in ("233A","233D","191D","182A",
+                                                 "231D","222D","222A","221A",
+                                                 "221D","230D","213D","212D",
+                                                 "210A","210D","209A","209D",
+                                                 "206D","205D","204D","203D",
+                                                 "202D","195D","194D","190D"))
+                            for key,value in scalars),
+                        "recognizedSchemaFields":sorted({
+                            key for key,value in scalars
+                            if key in ("price","date","departure","departuredate",
+                                       "departuretime","train","trainnumber",
+                                       "seat","seatnumber","place","tariff",
+                                       "currency","from","to")})[:20],
+                        "reason":"line_item_not_final_total_or_booking_confirmation"
+                    }
                 def basket_total_evidence(payload):
                     # Accept only a single explicit total in a checkout/basket
                     # root or its immediate summary. Never trust a line-item
@@ -195,6 +262,7 @@ def main():
                             payload=resp.json()
                             quote=basket_total_evidence(payload)
                             quote["responseShape"]=basket_response_shape(payload)
+                            quote["itemEvidence"]=basket_item_evidence(payload)
                             network["basketTotalEvidence"].append(quote)
                         except Exception:
                             network["basketTotalEvidence"].append({
