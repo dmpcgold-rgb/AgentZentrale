@@ -1,0 +1,23 @@
+name: WESTbahn offline checkout navigation regression
+on:
+  push:
+    paths:
+      - 'server/browser/ticketshop_station_dry_run.py'
+      - 'server/browser/test_checkout_navigation_race_offline.py'
+      - '.github/workflows/westbahn-checkout-navigation-regression.yml'
+  pull_request:
+    paths:
+      - 'server/browser/ticketshop_station_dry_run.py'
+      - 'server/browser/test_checkout_navigation_race_offline.py'
+      - '.github/workflows/westbahn-checkout-navigation-regression.yml'
+  workflow_dispatch:
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline checkout review retry tests (no network)
+        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py
