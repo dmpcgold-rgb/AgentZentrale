@@ -2233,6 +2233,55 @@ def main():
                     and not checkout_marker.exists()
                     and approval_state["approvedRequestSent"]):
                     try:
+                        # The owner explicitly opted into automatic acceptance
+                        # of the WESTbahn AGB. Only for the already-verified
+                        # one-shot zero-euro checkout, never for other pages.
+                        # Do not accept unrelated checkboxes or force hidden
+                        # controls. The final order guard remains unchanged.
+                        checkout_action["termsAutoAcceptance"]={
+                            "status":"not_enabled"}
+                        if os.environ.get("WESTBAHN_AUTO_ACCEPT_AGB")=="1":
+                            terms=page.evaluate(r"""() => {
+                                const boxes=[...document.querySelectorAll(
+                                    'input[type="checkbox"]')];
+                                const matches=boxes.map((e,index)=>{
+                                    const linked=e.id?[...document.querySelectorAll('label')]
+                                        .filter(label=>label.htmlFor===e.id)
+                                        .map(label=>label.innerText).join(" "):"";
+                                    const text=(e.closest('label')?.innerText||
+                                        linked||e.parentElement?.innerText||
+                                        e.getAttribute('aria-label')||"")
+                                        .replace(/\\s+/g," ").trim();
+                                    return {index,checked:e.checked,disabled:e.disabled,
+                                        matched:/ich\\s+akzeptiere\\s+die\\s+allgemeinen\\s+geschäftsbedingungen/i.test(text)};
+                                }).filter(e=>e.matched);
+                                return {
+                                    matchingCount:matches.length,
+                                    index:matches.length===1?matches[0].index:null,
+                                    checked:matches.length===1?matches[0].checked:false,
+                                    disabled:matches.length===1?matches[0].disabled:true
+                                };
+                            }""")
+                            checkout_action["termsAutoAcceptance"]={
+                                "status":"ambiguous_or_missing",
+                                "matchingCount":terms.get("matchingCount")}
+                            if terms.get("matchingCount")==1:
+                                if terms.get("checked") is True:
+                                    checkout_action["termsAutoAcceptance"]={
+                                        "status":"already_accepted"}
+                                elif terms.get("disabled") is not True:
+                                    try:
+                                        terms_box=page.locator(
+                                            'input[type="checkbox"]').nth(
+                                            terms["index"])
+                                        terms_box.check(timeout=5000)
+                                        checkout_action["termsAutoAcceptance"]={
+                                            "status":"checked" if terms_box.is_checked()
+                                                else "not_verified"}
+                                    except Exception as terms_err:
+                                        checkout_action["termsAutoAcceptance"]={
+                                            "status":"check_failed",
+                                            "errorClass":type(terms_err).__name__[:48]}
                         action=page.evaluate(r"""() => {
                             const visible=e=>!!e.getClientRects().length &&
                                 getComputedStyle(e).visibility!=="hidden";
