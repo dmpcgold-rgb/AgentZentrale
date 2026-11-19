@@ -41,6 +41,17 @@ def main():
         final_recovery_marker=root/"approval_attempt_20261120_recovery2.flag"
         third_recovery_marker=root/"approval_attempt_20261120_recovery3.flag"
         fourth_recovery_marker=root/"approval_attempt_20261120_recovery4.flag"
+        fifth_recovery_marker=root/"approval_attempt_20261120_recovery5.flag"
+        # One further attempt following the owner's fresh, explicit
+        # confirmation that no ticket appears in the WESTbahn app.
+        # No automatic retries or deletion of earlier attempt markers.
+        fifth_recovery_requested=(
+            os.environ.get("WESTBAHN_OWNER_AUTHORIZED_RECOVERY5_20261120")=="1"
+            and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
+            and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
+            and fourth_recovery_marker.exists()
+            and not fifth_recovery_marker.exists()
+        )
         # Strictly one last owner-attested attempt; all earlier markers stay.
         # This is not an automatic retry after an unknown checkout outcome.
         fourth_recovery_requested=(
@@ -66,20 +77,26 @@ def main():
             and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
         )
         if ((root/"checkout_attempt_20261120.flag").exists()
-            or fourth_recovery_marker.exists()
-            or (third_recovery_marker.exists() and not fourth_recovery_requested)
+            or fifth_recovery_marker.exists()
+            or (fourth_recovery_marker.exists() and not fifth_recovery_requested)
+            or (third_recovery_marker.exists() and not fourth_recovery_requested
+                and not fifth_recovery_requested)
             or (final_recovery_marker.exists()
-                and not third_recovery_requested and not fourth_recovery_requested)
+                and not third_recovery_requested and not fourth_recovery_requested
+                and not fifth_recovery_requested)
             or (recovery_marker.exists() and not final_recovery_requested
-                and not third_recovery_requested and not fourth_recovery_requested)
+                and not third_recovery_requested and not fourth_recovery_requested
+                and not fifth_recovery_requested)
             or (prior_approval.exists() and not recovery_requested
                 and not final_recovery_requested and not third_recovery_requested
-                and not fourth_recovery_requested)):
+                and not fourth_recovery_requested and not fifth_recovery_requested)):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
                 "reason":"checkout_already_attempted"
                     if (root/"checkout_attempt_20261120.flag").exists()
-                    else ("fourth_recovery_already_attempted"
+                    else ("fifth_recovery_already_attempted"
+                          if fifth_recovery_marker.exists()
+                          else "fourth_recovery_already_attempted"
                           if fourth_recovery_marker.exists()
                           else "third_recovery_already_attempted"
                           if third_recovery_marker.exists()
@@ -99,7 +116,9 @@ def main():
                 # Approval can be a binding reservation. The opt-in is one-day only.
                 # A durable marker prevents a second attempt even after a crash.
                 approval_marker=(
-                    fourth_recovery_marker
+                    fifth_recovery_marker
+                    if fifth_recovery_requested
+                    else fourth_recovery_marker
                     if fourth_recovery_requested
                     else third_recovery_marker
                     if final_recovery_marker.exists() and third_recovery_requested
