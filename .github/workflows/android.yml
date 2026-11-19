@@ -2,7 +2,7 @@ name: Build Android test APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, fix/westbahn-assigned-seat-entry-20261118, feat/westbahn-configurable-execution-plan-20261119]
     paths:
       - 'App.js'
       - 'index.js'

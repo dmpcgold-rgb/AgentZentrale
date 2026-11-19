@@ -1,0 +1,42 @@
+name: WESTbahn offline checkout navigation regression
+on:
+  push:
+    paths:
+      - 'server/browser/ticketshop_station_dry_run.py'
+      - 'server/browser/test_checkout_navigation_race_offline.py'
+      - 'server/browser/test_westbahn_recovery3_offline.py'
+      - 'server/browser/test_checkout_link_classification_offline.py'
+      - 'server/browser/test_westbahn_auto_agb_offline.py'
+      - 'server/browser/test_westbahn_final_order_guard_offline.py'
+      - 'server/browser/test_westbahn_checkout_end_to_end_offline.py'
+      - 'server/browser/test_westbahn_owner_recovery4_offline.py'
+      - 'server/browser/test_westbahn_owner_recovery5_offline.py'
+      - 'server/browser/test_westbahn_seat_basket_evidence_offline.py'
+      - 'server/browser/test_westbahn_seat_dialog_settle_offline.py'
+      - 'server/browser/test_westbahn_checkout_blocked_endpoint_offline.py'
+      - 'server/browser/test_westbahn_async_checkout_guard_offline.py'
+      - 'server/browser/westbahn_public_checkout_script_probe.py'
+      - 'server/browser/test_westbahn_public_script_discovery_offline.py'
+      - 'server/browser/test_westbahn_create_order_gate_offline.py'
+      - 'server/browser/gmail_ticket_confirmation.py'
+      - 'server/tests/weekly-gmail.test.mjs'
+      - 'server/browser/test_gmail_ticket_confirmation_offline.py'
+      - '.github/workflows/westbahn-checkout-navigation-regression.yml'
+  pull_request:
+    paths:
+      - 'server/browser/ticketshop_station_dry_run.py'
+      - 'server/browser/test_checkout_navigation_race_offline.py'
+      - 'server/browser/westbahn_public_checkout_script_probe.py'
+      - 'server/browser/test_westbahn_public_script_discovery_offline.py'
+      - '.github/workflows/westbahn-checkout-navigation-regression.yml'
+  workflow_dispatch:
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline checkout review retry tests (no network)
+        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py server/browser/test_westbahn_recovery3_offline.py server/browser/test_checkout_link_classification_offline.py server/browser/test_westbahn_auto_agb_offline.py server/browser/test_westbahn_final_order_guard_offline.py server/browser/test_westbahn_checkout_end_to_end_offline.py server/browser/test_westbahn_owner_recovery4_offline.py server/browser/test_westbahn_owner_recovery5_offline.py server/browser/test_westbahn_seat_basket_evidence_offline.py server/browser/test_westbahn_seat_dialog_settle_offline.py server/browser/test_westbahn_checkout_blocked_endpoint_offline.py server/browser/test_westbahn_async_checkout_guard_offline.py server/browser/test_westbahn_public_script_discovery_offline.py server/browser/test_westbahn_create_order_gate_offline.py server/browser/test_gmail_ticket_confirmation_offline.py

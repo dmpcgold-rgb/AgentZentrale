@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Read-only, redacted WESTbahn ticketshop entry diagnostics.
+
+No control is clicked. No checkout. Non-GET/HEAD network requests are blocked.
+Uses the existing private browser profile and the same interprocess lock as worker.py.
+"""
+import fcntl
+import json
+import os
+import re
+from pathlib import Path
+from urllib.parse import urlsplit
+from playwright.sync_api import sync_playwright
+
+TARGET = "https://westbahn.at/ticketshop/ticket-buchen/"
+WORDS = re.compile(
+    r"^(?:"
+    r".{0,45}(?:KlimaTicket|Comfort|2\+|Sitzplatz|Wagen|Platz|Reservierung|"
+    r"Von|Nach|Abfahrt|Datum|Verbindung|Ticket|Suchen|Weiter|"
+    r"Fahrt|Ändern|Bearbeiten).{0,45}"
+    r")$", re.IGNORECASE
+)
+
+def main():
+    root = Path(os.environ.get("WESTBAHN_BROWSER_PROFILE", "./data/westbahn-browser")).resolve()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (root / ".agent.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(json.dumps({"status":"profile_busy","bookingAuthorized":False}))
+            return
+
+        with sync_playwright() as p:
+            kwargs = {
+                "headless":True, "timeout":20000, "accept_downloads":False
+            }
+            if os.environ.get("WESTBAHN_CHROMIUM_PATH"):
+                kwargs["executable_path"]=os.environ["WESTBAHN_CHROMIUM_PATH"]
+            context = p.chromium.launch_persistent_context(str(root/"chromium"), **kwargs)
+            try:
+                browser_error_types = {}
+                def record_page_error(error):
+                    category = type(error).__name__[:40]
+                    browser_error_types[category] = browser_error_types.get(category, 0) + 1
+                context.on("page", lambda tab: tab.on("pageerror", record_page_error))
+                blocked_methods = {}
+                failed_requests = {}
+                blocked_by_host_and_type = {}
+                failed_by_host_and_type = {}
+                failed_westbahn_gets = []
+                westbahn_get_http_errors = []
+                westbahn_failed_reasons = []
+                def on_request_failure(request):
+                    p = urlsplit(request.url)
+                    host_type = "westbahn" if p.hostname in ("westbahn.at", "www.westbahn.at") else "external"
+                    key = request.method.upper() + ":" + host_type
+                    failed_requests[key] = failed_requests.get(key, 0) + 1
+                    site = (p.hostname or "unknown").lower()[:100]
+                    reason = request.resource_type[:22]
+                    group = f"{request.method.upper()}:{site}:{reason}"
+                    failed_by_host_and_type[group] = failed_by_host_and_type.get(group, 0) + 1
+                    if request.method.upper() == "GET" and p.hostname in ("westbahn.at", "www.westbahn.at"):
+                        path = p.path[:140]
+                        # Do not expose query strings, cookies or request body.
+                        failed_westbahn_gets.append({"path":path,
+                            "resourceType":request.resource_type[:24]})
+                        try:
+                            failure = request.failure or "unknown"
+                        except Exception:
+                            failure = "unknown"
+                        # Playwright Chromium networking code only; no request data.
+                        failure_code = str(failure).split(":", 1)[0][:75]
+                        westbahn_failed_reasons.append({"path":path,"failureCode":failure_code})
+                context.on("requestfailed", on_request_failure)
+                def on_response(response):
+                    if response.status < 400:
+                        return
+                    req = response.request
+                    p = urlsplit(response.url)
+                    if p.hostname in ("westbahn.at", "www.westbahn.at") and req.method.upper() == "GET":
+                        westbahn_get_http_errors.append({
+                            "path":p.path[:140],
+                            "status":response.status,
+                            "resourceType":req.resource_type[:24]})
+                context.on("response", on_response)
+                def guard(route):
+                    req = route.request
+                    if req.method.upper() not in ("GET", "HEAD"):
+                        method = req.method.upper()
+                        blocked_methods[method] = blocked_methods.get(method, 0) + 1
+                        hostname = (urlsplit(req.url).hostname or "unknown").lower()[:100]
+                        key = f"{method}:{hostname}:{req.resource_type[:22]}"
+                        blocked_by_host_and_type[key] = blocked_by_host_and_type.get(key, 0) + 1
+                        route.abort()
+                        return
+                    if req.is_navigation_request():
+                        parsed = urlsplit(req.url)
+                        if parsed.scheme != "https" or parsed.hostname not in ("westbahn.at", "www.westbahn.at"):
+                            route.abort()
+                            return
+                    route.continue_()
+                context.route("**/*", guard)
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(TARGET, wait_until="domcontentloaded", timeout=25000)
+                page.wait_for_timeout(3000)
+                observed = page.evaluate(r"""() => {
+                    const norm = value => (value || "").replace(/\s+/g," ").trim();
+                    const visible = e => !!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden" &&
+                        getComputedStyle(e).display!=="none";
+                    const relevant = /KlimaTicket|Comfort|2\+|Sitzplatz|Wagen|Platz|Reservierung|Von|Nach|Abfahrt|Datum|Verbindung|Ticket|Suchen|Weiter|Fahrt|Ändern|Bearbeiten/i;
+                    const controls = [...document.querySelectorAll(
+                        "button, select, input, a, [role=button], [role=combobox]"
+                    )].filter(visible).slice(0,450);
+                    const rows = controls.map(e => {
+                        const text = norm(e.getAttribute("aria-label") ||
+                            e.getAttribute("placeholder") ||
+                            e.innerText || e.getAttribute("title"));
+                        if(!relevant.test(text) || text.length>90) return null;
+                        return {kind:e.tagName.toLowerCase(), label:text.slice(0,90),
+                            disabled:e.matches(":disabled,[aria-disabled=true]")};
+                    }).filter(Boolean).slice(0,36);
+                    return {
+                        pageKind:location.pathname.startsWith("/ticketshop") ?
+                            "ticketshop" : "other",
+                        visibleRelevantControls:rows,
+                        matchingHeadings:[...document.querySelectorAll("h1,h2,h3,h4")]
+                            .filter(visible).map(e=>norm(e.innerText))
+                            .filter(t=>t.length<75 && relevant.test(t)).slice(0,12)
+                    };
+                }""")
+                # Resolve only navigation targets, not private account or form values.
+                navigation = page.evaluate(r"""() => {
+                    const norm = s => (s || "").replace(/\s+/g," ").trim();
+                    const links=[...document.querySelectorAll('a[href]')];
+                    return links.filter(e => /Zur Ticketbuchung|Ticket buchen/i.test(norm(e.innerText)))
+                        .slice(0,8).map(e=>{
+                            let u;
+                            try {u=new URL(e.getAttribute('href'),location.href);} catch {return {valid:false};}
+                            return {
+                                label:norm(e.innerText).slice(0,45),
+                                protocol:u.protocol,
+                                host:u.hostname,
+                                path:u.pathname.slice(0,140),
+                                queryKeys:[...u.searchParams.keys()].filter(k=>
+                                    /^(?:lang|locale|language|step|action)$/i.test(k)).slice(0,6)
+                            };
+                        });
+                }""")
+                form_diagnostics = page.evaluate(r"""() => {
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden";
+                    const scrub=s=>(s||"").replace(/\s+/g," ").trim().slice(0,60);
+                    const urlInfo=value=>{
+                        try {
+                            const u=new URL(value||location.href,location.href);
+                            return {sameOrigin:u.origin===location.origin,
+                                path:u.origin===location.origin?u.pathname.slice(0,90):"external"};
+                        } catch{return {sameOrigin:false,path:"invalid"};}
+                    };
+                    return [...document.querySelectorAll("form")].slice(0,6).map(form=>({
+                        action:urlInfo(form.getAttribute("action")),
+                        method:(form.getAttribute("method")||"get").toLowerCase(),
+                        visible:visible(form),
+                        fields:[...form.querySelectorAll("input,select,textarea")].slice(0,25).map(input=>({
+                            element:input.tagName.toLowerCase(),
+                            type:(input.getAttribute("type")||"").toLowerCase().slice(0,22),
+                            visible:visible(input),
+                            autocomplete:(input.getAttribute("autocomplete")||"").slice(0,22),
+                            hasPlaceholder:!!input.getAttribute("placeholder")
+                        })),
+                        buttons:[...form.querySelectorAll("button")].slice(0,12).map(btn=>({
+                            label:scrub(btn.getAttribute("aria-label")||btn.innerText),
+                            visible:visible(btn)
+                        }))
+                    }));
+                }""")
+                # Identify visible booking controls outside HTML forms. Never read
+                # input values or account identifiers.
+                booking_fields = page.evaluate(r"""() => {
+                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,80);
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden" &&
+                        getComputedStyle(e).display!=="none";
+                    const fields=[...document.querySelectorAll(
+                        'input,select,textarea,[role="combobox"],[role="radio"],[role="textbox"]'
+                    )].filter(visible).slice(0,30);
+                    return fields.map(e=>{
+                        const id=e.id;
+                        const linked=id?[...document.querySelectorAll('label[for]')]
+                            .filter(l=>l.htmlFor===id).map(l=>norm(l.innerText)).slice(0,2):[];
+                        const parent=e.closest('label');
+                        const wrapper=e.closest('[role="group"],fieldset');
+                        const parentText=parent?norm(parent.innerText):"";
+                        return {
+                            tag:e.tagName.toLowerCase(),
+                            type:(e.getAttribute("type")||"").slice(0,20),
+                            role:(e.getAttribute("role")||"").slice(0,30),
+                            placeholder:norm(e.getAttribute("placeholder")),
+                            ariaLabel:norm(e.getAttribute("aria-label")),
+                            labels:linked,
+                            parentLabel:parentText,
+                            groupLegend:wrapper?norm(wrapper.querySelector('legend')?.innerText):"",
+                            required:e.hasAttribute("required"),
+                            readOnly:e.hasAttribute("readonly"),
+                            disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                            withinForm:!!e.closest("form")
+                        };
+                    });
+                }""")
+                booking_buttons = page.evaluate(r"""() => {
+                    const norm=s=>(s||"").replace(/\s+/g," ").trim().slice(0,85);
+                    const visible=e=>!!e.getClientRects().length &&
+                        getComputedStyle(e).visibility!=="hidden";
+                    return [...document.querySelectorAll("button,[role=button]")]
+                        .filter(visible).slice(0,35).map(e=>({
+                            label:norm(e.getAttribute("aria-label")||e.innerText||e.getAttribute("title")),
+                            disabled:e.matches(':disabled,[aria-disabled="true"]'),
+                            kind:e.tagName.toLowerCase()
+                        }));
+                }""")
+                # The booking UI may be embedded in a frame; disclose only
+                # public host/path and aggregate control counts, never values.
+                frame_summary = []
+                for frame in page.frames[:12]:
+                    u = urlsplit(frame.url)
+                    if u.scheme != "https":
+                        continue
+                    try:
+                        facts = frame.evaluate(r"""() => {
+                            const vis=e=>!!e.getClientRects().length;
+                            const inputs=[...document.querySelectorAll('input,select,textarea')].filter(vis);
+                            return {
+                                inputs:inputs.length,
+                                buttons:[...document.querySelectorAll('button,[role=button]')].filter(vis).length,
+                                inputTypes:[...new Set(inputs.map(e=>e.tagName.toLowerCase()==='input'
+                                    ? (e.getAttribute('type')||'text').toLowerCase()
+                                    :e.tagName.toLowerCase()))].slice(0,12)
+                            };
+                        }""")
+                    except Exception:
+                        facts = {"status":"frame_unavailable"}
+                    frame_summary.append({
+                        "host":u.hostname if u.hostname in ("westbahn.at","www.westbahn.at") else "other_https",
+                        "path":u.path[:100] if u.hostname in ("westbahn.at","www.westbahn.at") else "redacted",
+                        "controls":facts
+                    })
+                embedded = page.evaluate(r"""() => ({
+                    documentReadyState:document.readyState,
+                    iframeCount:document.querySelectorAll("iframe").length,
+                    iframeHosts:[...document.querySelectorAll("iframe[src]")].slice(0,10).map(e=>{
+                        try {
+                            const u=new URL(e.getAttribute("src"),location.href);
+                            return u.protocol==='https:' ? u.hostname : "non_https";
+                        } catch { return "unparseable"; }
+                    }),
+                    formCount:document.querySelectorAll("form").length,
+                    embeddedWidgets:document.querySelectorAll('[class*="widget"],[id*="widget"],[data-testid]').length,
+                    scriptCount:document.querySelectorAll("script[src]").length
+                })""")
+                print(json.dumps({
+                    "status":"ticketshop_read_only_inspected",
+                    "result":observed,
+                    "ticketshopNavigation":navigation,
+                    "frames":frame_summary,
+                    "networkDiagnostics":{"blockedWriteMethods":blocked_methods,
+                                          "failedRequestsByMethodAndHost":failed_requests,
+                                          "blockedByHostnameAndResourceType":blocked_by_host_and_type,
+                                          "failedByHostnameAndResourceType":failed_by_host_and_type,
+                                          "failedWestbahnGetPaths":failed_westbahn_gets[:10],
+                                          "westbahnGetHttpErrors":westbahn_get_http_errors[:10],
+                                          "westbahnGetFailureCodes":westbahn_failed_reasons[:10]},
+                    "embeddingDiagnostics":embedded,
+                    "formDiagnostics":form_diagnostics,
+                    "bookingFieldDiagnostics":booking_fields,
+                    "visibleButtonDiagnostics":booking_buttons,
+                    "browserErrorTypes":browser_error_types,
+                    "bookingAuthorized":False,
+                    "purchaseExecuted":False,
+                    "notes":"No clicks; all non-GET/HEAD requests blocked; page data redacted."
+                }, ensure_ascii=False))
+            finally:
+                context.close()
+
+if __name__=="__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(json.dumps({
+            "status":"ticketshop_inspection_blocked",
+            "errorClass":type(exc).__name__[:48],
+            "bookingAuthorized":False,"purchaseExecuted":False
+        }))

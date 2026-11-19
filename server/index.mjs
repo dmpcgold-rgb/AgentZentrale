@@ -4,7 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
+import {createReservationPlanStore,reservationDates,DEFAULT_RESERVATION_PLAN,isLegacyReservationPlan} from './reservation-plan.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
+import {createWeeklyGmailConfirmation} from './gmail-confirmation.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
 import { safeTripPreview } from './trip-preview.mjs';
 import { planDates } from '../src/core/westbahn.js';
@@ -16,7 +18,8 @@ const MAX_FILE = 25_000;
 const MAX_PROMPT = 1800;
 const MAX_PROPOSALS = 25;
 
-export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null } = {}) {
+export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null,sharedReservationPlan=null } = {}) {
+  const reservationPlan=sharedReservationPlan||createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
   const attempts = new Map();
   let dailyUsage = { day: '', count: 0 };
   const configuredToken = env.AGENTZENTRALE_ACCESS_TOKEN || '';
@@ -151,7 +154,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         }
       }
       if (is('GET', '/westbahn/readiness')) return write(res,200,
-        bookingReadiness({westbahn,review,now:new Date(now())}));
+        bookingReadiness({westbahn,review,now:new Date(now()),plan:reservationPlan.get()}));
       if (is('GET', '/westbahn/review-status')) {
         return write(res,200,review?review.status():{
           enabled:false,running:false,lastRun:null,lastSchedule:null,
@@ -189,7 +192,28 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           return write(res,200,{...result,ledgerProtected:verified});
         } catch(e){throw new ApiError(409,e.message);}
       }
-      if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
+      if (is('GET', '/westbahn/reservation-plan')){
+        const plan=reservationPlan.get();
+        return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
+          activeForLiveBooking:westbahn.status().providerConnected && (isLegacyReservationPlan(plan) || westbahn.status().dynamicProviderVerified),
+          message:'Einstellungen gespeichert; automatische Live-Buchungen benötigen einen für diese Strecke und Zeit verifizierten Anbieteradapter.'});
+      }
+      if (is('POST', '/westbahn/reservation-plan')){
+        const body=await readJson(req);
+        try{
+          // Changing the plan while unattended booking is active would be
+          // misleading because the current provider adapter is fixed-route.
+          if(westbahn.status().automatic||westbahn.status().running)
+            throw new ApiError(409,'Automatische Buchungen vor dem Ändern der Fahrtdaten deaktivieren.');
+          const plan=reservationPlan.save(body);
+          return write(res,200,{...plan,plannedDates:reservationDates(plan,new Date(now())),
+            activeForLiveBooking:westbahn.status().providerConnected && (isLegacyReservationPlan(plan) || westbahn.status().dynamicProviderVerified),
+            message:'Reservierungsplan gespeichert. Bis zur Verifizierung wird keine Buchung mit diesen neuen Angaben ausgelöst.'});
+        }catch(e){throw e instanceof ApiError?e:new ApiError(400,e.message);}
+      }
+      if (is('GET', '/westbahn/status')) return write(res, 200, {...westbahn.status(),
+        reservationPlan:reservationPlan.get(),
+        providerPlanVerified:isLegacyReservationPlan(reservationPlan.get()) ? westbahn.status().providerConnected : westbahn.status().dynamicProviderVerified});
       if (is('POST', '/westbahn/known-booking')) {
         const body = await readJson(req);
         if (body.confirm !== 'BESTEHENDE-BUCHUNG') throw new ApiError(403, 'Bestätigung einer bereits bestehenden Buchung erforderlich.');
@@ -197,14 +221,20 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         try { return write(res, 200, westbahn.recordUserReported(body.date, body.seat)); }
         catch (e) { throw new ApiError(409, e.message); }
       }
-      if (is('POST', '/westbahn/settings')) {
+      // Current provider adapter and Gmail matching are fixed to the historic
+      // default route/time/weekdays. Never silently book defaults after the user
+      // saved a different itinerary. Booking requires a separate verified adapter.
+      const planHasVerifiedProvider=()=>isLegacyReservationPlan(reservationPlan.get()) || westbahn.status().dynamicProviderVerified;
+            if (is('POST', '/westbahn/settings')) {
         const body = await readJson(req);
         if (typeof body.enabled !== 'boolean' || (body.enabled && body.confirm !== 'NUR-0-EURO')) throw new ApiError(400, 'Ausdrückliche Freigabe für automatische 0-Euro-Buchungen erforderlich.');
+        if(body.enabled&&!planHasVerifiedProvider())throw new ApiError(409,'Persönlicher Fahrplan benötigt einen verifizierten Anbieteradapter.');
         try { return write(res, 200, westbahn.setEnabled(body.enabled)); } catch(e) { throw new ApiError(409, e.message); }
       }
       if (is('POST', '/westbahn/run')) {
         const body = await readJson(req);
         if (body.confirm !== 'NUR-0-EURO') throw new ApiError(403, 'Freigabe für 0-Euro-Buchungen fehlt.');
+        if(!planHasVerifiedProvider())throw new ApiError(409,'Persönlicher Fahrplan ist noch nicht für Live-Buchungen freigegeben.');
         if (!westbahn.status().providerConnected || westbahn.status().running) throw new ApiError(409, 'Kein Buchungsadapter verbunden oder Lauf bereits aktiv.');
         westbahn.run().catch(e => console.error('WESTbahn-Lauf fehlgeschlagen:', e.message));
         return write(res, 202, {accepted:true,message:'Buchungslauf gestartet. Buchungen erst nach bestätigtem Ergebnis zählen.'});
@@ -292,19 +322,37 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   try {
     const host = process.env.HOST || '127.0.0.1';
     const port = Number(process.env.PORT || 8787);
-    const westbahn = await loadWestbahn();
+    const sharedReservationPlan=createReservationPlanStore({file:process.env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
+    const westbahn = await loadWestbahn(process.env,sharedReservationPlan);
     const browser=createBrowser();
     const review=createWeeklyReview({
-      westbahn,browser,
-      enabled:browser.status().enabled && process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
+      westbahn,browser:browser.status().enabled?browser:null,
+      gmailConfirm:createWeeklyGmailConfirmation({env:process.env}),
+      getPlan:()=>sharedReservationPlan.get(),
+      enabled:(browser.status().enabled||
+        process.env.WESTBAHN_GMAIL_CONFIRMATION_ENABLED==='1')&&
+        process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
       file:process.env.WESTBAHN_REVIEW_STATE||'./data/westbahn-review.json'
     });
-    setInterval(() => review.tick().catch(e =>
-      console.error('WESTbahn-Lesekontrolle:',e.message)),30_000).unref();
-    // Booking attempts remain disabled without a verified checkout adapter.
-    setInterval(() => westbahn.tick().catch(e =>
-      console.error('WESTbahn-Zeitplan:',e.message)),30_000).unref();
-    createServer(createAgentHandler({westbahn,browser,review})).listen(port,host,
+    // One serialized scheduler: the read-only weekly account/Gmail audit
+    // must complete before an adapter-driven booking run can be considered.
+    // A failed or missing email audit never authorizes an unattended checkout.
+    let scheduling=false;
+    setInterval(async()=>{
+      if(scheduling)return;
+      scheduling=true;
+      try{
+        try{await review.tick();}
+        catch(e){console.error('WESTbahn-Lesekontrolle:',e.message);}
+        const verified=review.status();
+        if(verified.lastSuccessWeek &&
+           verified.lastRun?.emailStatus==='email_week_checked' &&
+           verified.lastSchedule===verified.lastSuccessWeek)
+          await westbahn.tick();
+      }catch(e){console.error('WESTbahn-Zeitplan:',e.message);}
+      finally{scheduling=false;}
+    },30_000).unref();
+    createServer(createAgentHandler({westbahn,browser,review,sharedReservationPlan})).listen(port,host,
       ()=>console.log(`AgentZentrale Gateway läuft auf ${host}:${port}`));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

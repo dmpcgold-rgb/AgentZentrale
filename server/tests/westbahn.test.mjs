@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RULES,planDates,chooseSeat,validateQuote,confirmedReceipt,viennaClock} from '../../src/core/westbahn.js';
 import {createWestbahn,verifiedAccountReadback} from '../westbahn.mjs';
+import {DEFAULT_RESERVATION_PLAN,reservationDates} from '../reservation-plan.mjs';
 const now=()=>new Date('2026-11-16T06:00:00Z');
 const day='2026-11-17';
 const seat=(id,layout='opposite-table',groupSize=2)=>({id,layout,groupSize,available:true,class:'2+'});
@@ -46,7 +47,7 @@ function provider({price=0,fail=false,invalidReceipt=false,already=false,
  };
 }
 test('Vienna DST and Monday schedule; weekdays only, six calendar months',()=>{assert.equal(viennaClock(now()).time,'07:00');assert.equal(viennaClock(new Date('2026-07-06T05:00:00Z')).time,'07:00');const dates=planDates(now());assert.equal(dates[0],day);assert.equal(dates.at(-1),'2027-05-14');assert.ok(dates.every(d=>![0,6].includes(new Date(d+'T00:00:00Z').getUTCDay())));assert.equal(planDates(new Date('2026-11-16T18:00:00Z'))[0],'2026-11-17');});
-test('already reserved week excluded; first search starts 17 November',async()=>{const before=()=>new Date('2026-11-10T21:00:00Z');const dates=planDates(before());assert.deepEqual(dates.slice(0,5),['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23']);assert.equal(planDates(new Date('2026-11-20T20:00:00Z'))[0],'2026-11-23');const visited=[];const a=createWestbahn({now:before,adapter:{existing:async({date})=>{visited.push(date);return {status:'unknown'};}}});await a.run();assert.deepEqual(visited,dates);});
+test('already reserved week excluded; first search starts 17 November',async()=>{const before=()=>new Date('2026-11-10T21:00:00Z');const dates=planDates(before());assert.deepEqual(dates.slice(0,5),['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23']);assert.equal(planDates(new Date('2026-11-20T20:00:00Z'))[0],'2026-11-23');const visited=[];const a=createWestbahn({now:before,adapter:{existing:async({date})=>{visited.push(date);return {status:'unknown'};}}});await a.run();assert.deepEqual(visited,dates.slice(0,5));assert.equal(a.status().planned.length,5);});
 test('preferred seats beat alternatives; four seats and unknown layouts rejected',()=>{assert.equal(RULES.origin,'Wien Meidling');assert.equal(RULES.destination,'Wiener Neustadt Hbf');assert.equal(RULES.departure,'18:22');assert.equal(chooseSeat([seat('191D'),seat('233D')]).id,'233D');assert.equal(chooseSeat([seat('182A'),seat('191D')]).id,'191D');assert.equal(chooseSeat([seat('999A'),seat('182A')]).id,'182A');assert.equal(chooseSeat([seat('233D'),seat('191D'),seat('233A'),seat('233A','opposite-table',4)]).id,'233A');assert.equal(chooseSeat([seat('233A','opposite-table',4),seat('193B'),seat('999A')]).id,'193B');assert.equal(chooseSeat([seat('233A','unknown'),seat('233D','opposite-table',4)]),null);assert.equal(chooseSeat([seat('222A','offset'),seat('333A')]).id,'333A');});
 test('only exact zero-euro quote and confirmed receipt accepted',()=>{assert.ok(validateQuote(quote(),day,'233A'));for(const q of [quote({totalCents:1}),quote({departure:'18:23'}),quote({class:'2'}),quote({seat:'233D'}),quote({currency:'USD'}),quote({quantity:2}),quote({productType:'train_ticket'})])assert.equal(validateQuote(q,day,'233A'),false);assert.ok(confirmedReceipt(receipt(),day,'233A'));assert.equal(confirmedReceipt(receipt({bookingId:''}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({confirmed:false}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({quantity:2}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({productType:'train_ticket'}),day,'233A'),false);});
 test('no live provider: scheduling and execution fail closed',async()=>{const a=createWestbahn({now});assert.equal(a.status().providerConnected,false);assert.throws(()=>a.setEnabled(true));await assert.rejects(a.run());assert.equal(await a.tick(),false);});
@@ -189,4 +190,127 @@ test('reported booking validation rejects corrupt input and conflicting updates'
  a.recordUserReported(day,'191D');
  assert.doesNotThrow(()=>a.recordUserReported(day,'191D'));
  assert.throws(()=>a.recordUserReported(day,'233A'));
+});
+
+test('weekly booking run never checks or purchases more than five future commute days',async()=>{
+ const dayList=planDates(now()).slice(0,5);
+ const checked=[],booked=[];
+ const adapter={
+  existing:async({date})=>{
+   checked.push(date);
+   if(booked.includes(date))
+    return {status:'confirmed',accountVerified:true,inventoryComplete:true,
+      receiptSource:'provider_account',
+      receipt:receipt({...trip(date),seat:'233A',bookingId:'booking-'+date})};
+   return {status:'none',accountVerified:true,inventoryComplete:true};
+  },
+  search:async({date})=>({
+   status:'available',...trip(date),connectionId:'week-'+date,
+   seats:[seat('191D'),seat('233D'),seat('233A')]
+  }),
+  quote:async({date,seat:chosen})=>quote({...trip(date),seat:chosen,quoteId:date}),
+  book:async({quoteId,idempotencyKey,maxTotalCents})=>{
+   assert.equal(maxTotalCents,0);
+   assert.match(idempotencyKey,/^agentzentrale-westbahn-2026-11-\d\d-1822$/);
+   booked.push(quoteId);
+   return receipt({...trip(quoteId),seat:'233A',bookingId:'booking-'+quoteId});
+  }
+ };
+ const ledger=createWestbahn({now,adapter});
+ await ledger.run();
+ assert.deepEqual(booked,dayList);
+ assert.deepEqual([...new Set(checked)],dayList);
+ assert.equal(checked.length,10);
+ assert.equal(ledger.status().rows.length,5);
+ assert.ok(ledger.status().rows.every(row=>row.status==='confirmed'&&row.seat==='233A'));
+ await ledger.run();
+ const secondBatch=reservationDates(DEFAULT_RESERVATION_PLAN,now()).filter(date=>!dayList.includes(date)).slice(0,5);
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'next manual run advances only to new unreserved dates within selected horizon');
+ assert.equal(new Set(booked).size,booked.length,'no duplicate checkout of any travel date');
+ await ledger.run();
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'a completed horizon must never trigger a repeated checkout');
+});
+
+test('configured Gmail preflight failure blocks all provider calls before checkout',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ let providerCalls=0;
+ const adapter={
+  existing:async()=>{providerCalls++;return {status:'none',accountVerified:true,inventoryComplete:true};},
+  search:async()=>{providerCalls++;throw Error('blocked')},
+  quote:async()=>{providerCalls++;throw Error('blocked')},
+  book:async()=>{providerCalls++;throw Error('blocked')}
+ };
+ const agent=createWestbahn({now:clock,adapter,
+  gmailConfirm:async()=>({status:'email_read_unavailable',confirmed:[],bookingAuthorized:false})});
+ await agent.run();
+ assert.equal(providerCalls,0);
+ assert.equal(agent.status().lastRun.status,'blocked_email_unavailable');
+ assert.equal(agent.status().rows.length,0);
+});
+
+test('Gmail-confirmed reservation is skipped even in same cycle as new bookings',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ const planned=planDates(clock()).slice(0,5),calls=[];
+ const agent=createWestbahn({now:clock,adapter:{
+  existing:async({date})=>{calls.push(date);return {status:'unknown'};},
+  search:async()=>{throw Error('not reachable')},
+  quote:async()=>{throw Error('not reachable')},
+  book:async()=>{throw Error('not reachable')}
+ },gmailConfirm:async days=>{
+  assert.deepEqual(days,planned);
+  return {status:'email_week_checked',bookingAuthorized:false,conflictingDates:[],
+          confirmed:[{date:planned[0],seat:'233A',source:'official_email'}]};
+ }});
+ await agent.run();
+ assert.deepEqual(calls,planned.slice(1));
+ assert.equal(agent.status().rows.find(r=>r.date===planned[0]).status,'confirmed');
+ assert.equal(agent.status().rows.find(r=>r.date===planned[0]).seat,'233A');
+});
+
+test('conflicting Gmail result blocks entire purchasing cycle',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z'),planned=planDates(clock());
+ let calls=0;
+ const a=createWestbahn({now:clock,adapter:{
+  existing:async()=>{calls++;throw Error('should not call')},
+  search:async()=>{calls++;throw Error('should not call')},
+  quote:async()=>{calls++;throw Error('should not call')},
+  book:async()=>{calls++;throw Error('should not call')}
+ },gmailConfirm:async()=>({
+  status:'email_week_checked',bookingAuthorized:false,conflictingDates:[planned[0]],
+  confirmed:[]})});
+ await a.run();
+ assert.equal(calls,0);
+ assert.equal(a.status().lastRun.status,'blocked_email_unavailable');
+});
+
+test('custom route, departure and weekend selection cannot trigger old-route provider checkout',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ let called=0;
+ const provider={
+   existing:async()=>{called++;throw Error('unreachable')},
+   search:async()=>{called++;throw Error('unreachable')},
+   quote:async()=>{called++;throw Error('unreachable')},
+   book:async()=>{called++;throw Error('unreachable')}
+ };
+ const plan={...DEFAULT_RESERVATION_PLAN,origin:'Wien Westbahnhof',
+   destination:'Salzburg Hbf',departure:'10:30',weekdays:[6,7],horizon:'6m'};
+ const ledger=createWestbahn({now:clock,adapter:provider,getPlan:()=>plan});
+ assert.equal(ledger.status().planCompatible,false);
+ assert.throws(()=>ledger.setEnabled(true),/verifizierten Buchungsadapter/);
+ const result=await ledger.run();
+ assert.equal(result.lastRun.status,'blocked_unverified_custom_itinerary');
+ assert.equal(called,0);
+ assert.equal(result.rows.length,0);
+ assert.ok(result.planned.every(d=>[0,6].includes(new Date(d+'T00:00:00Z').getUTCDay())));
+});
+
+test('live plan getter follows saved changes without restarting booking engine',()=>{
+ let plan={...DEFAULT_RESERVATION_PLAN};
+ const a=createWestbahn({now:()=>new Date('2026-11-23T06:00:00Z'),getPlan:()=>plan});
+ assert.equal(a.status().planCompatible,true);
+ plan={...plan,weekdays:[7],horizon:'1w'};
+ assert.equal(a.status().planCompatible,false);
+ assert.deepEqual(a.status().planned,['2026-11-29']);
 });

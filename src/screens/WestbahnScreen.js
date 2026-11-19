@@ -7,15 +7,17 @@ import {T} from '../theme';
 const labels={confirmed:'Bestätigt',uncertain:'Unklar – prüfen',blocked:'Gesperrt',unavailable:'Nicht verfügbar',booking:'In Bearbeitung',user_reported:'Bereits gebucht (gemeldet)',existing_verified:'Bestehendes Ticket geprüft'};
 export default function WestbahnScreen({navigation}){
  const remote=useRemote();const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[browser,setBrowser]=useState(null),[browserMessage,setBrowserMessage]=useState(''),[auditDate,setAuditDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditSeat,setAuditSeat]=useState('191D'),[seatPreview,setSeatPreview]=useState(null),[previewResult,setPreviewResult]=useState(null),[previewDate,setPreviewDate]=useState(()=>planDates()[0]||'2026-11-17'),[auditResult,setAuditResult]=useState(null),[weekAudit,setWeekAudit]=useState(null),[weeklyState,setWeeklyState]=useState(null),[readiness,setReadiness]=useState(null);
- const dates=planDates();
+ const dates=data?.planned?.length?data.planned:planDates();
+ const configured=data?.reservationPlan||RULES;
  useEffect(()=>{
    if(!remote.connected)return;
    let cancelled=false;
    Promise.all([
      remote.request('/westbahn/review-status'),
-     remote.request('/westbahn/readiness')
-   ]).then(([weekly,prepared])=>{
-     if(!cancelled){setWeeklyState(weekly);setReadiness(prepared);}
+     remote.request('/westbahn/readiness'),
+     remote.request('/westbahn/status')
+   ]).then(([weekly,prepared,ledger])=>{
+     if(!cancelled){setWeeklyState(weekly);setReadiness(prepared);setData(ledger);}
    }).catch(()=>{});
    return ()=>{cancelled=true;};
  },[remote.connected]);
@@ -82,9 +84,14 @@ export default function WestbahnScreen({navigation}){
  }
  function authorize(mode){Alert.alert('Nur kostenlose Reservierungen','Nur 0,00 € Gesamtpreis, exakte Verbindung und passende Einzelplätze. Keine kostenpflichtigen Buchungen.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>request(mode==='run'?'/westbahn/run':'/westbahn/settings',mode==='run'?{confirm:'NUR-0-EURO'}:{enabled:true,confirm:'NUR-0-EURO'})}]);}
  return <ScrollView style={{flex:1,backgroundColor:T.bg}} contentContainerStyle={styles.page}>
- <Heading subtitle={`Montag bis Freitag · ${RULES.departure} Uhr · ${RULES.class}`}>WESTbahn-Agent</Heading>
- <Card><Body>{RULES.origin} → {RULES.destination}</Body><Muted>KlimaTicket Österreich · 0 € · Keine Viererplätze</Muted><Body style={{marginTop:8}}>233 A / 233 D → 191 D → 182 A → 193 (nur eindeutig passende Plätze)</Body><Muted>Danach Einzelplätze gegenüber mit Tisch, dann leicht versetzt.</Muted></Card>
- <Card><Heading>Automatik</Heading><Body>Montag ab 07:00 · Europe/Vienna</Body><Muted>Planung ab 17.11.2026 (16.11. bereits manuell reserviert), bis sechs Monate voraus. Tatsächliche Verfügbarkeit wird erst beim Anbieter geprüft.</Muted><Muted style={{marginTop:9}}>{!remote.connected?'Server nicht verbunden.':data?.providerConnected?'Buchungsadapter verbunden.':'Kein bestätigter Live-Buchungsadapter verbunden.'}</Muted><Muted>Automatik: {data?.automatic?'Aktiv':'Aus / noch nicht geprüft'}</Muted><View style={{gap:8,marginTop:10}}><ActionButton title="Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={()=>request('/westbahn/status')}/><ActionButton title="Jetzt 0-€-Buchungen prüfen" disabled={busy||!data?.providerConnected||data?.running} onPress={()=>authorize('run')}/><ActionButton title={data?.automatic?'Automatik deaktivieren':'Automatik aktivieren'} secondary disabled={busy||(!data?.providerConnected&&!data?.automatic)} onPress={()=>data?.automatic?request('/westbahn/settings',{enabled:false}):authorize('settings')}/><ActionButton title="Offizielle WESTbahn öffnen" secondary onPress={()=>Linking.openURL(BOOKING_URL).catch(()=>setError('Website konnte nicht geöffnet werden.'))}/>{!remote.connected?<ActionButton title="Server verbinden" secondary onPress={()=>navigation.navigate('Einstellungen')}/>:null}</View>{error?<Body style={{color:T.red,marginTop:8}}>{error}</Body>:null}</Card>
+ <Heading subtitle={`Gespeicherter Fahrplan · ${configured.departure} Uhr · ${RULES.class}`}>WESTbahn-Agent</Heading>
+ <Card><Body>{configured.origin} → {configured.destination}</Body><Muted>KlimaTicket Österreich · 0 € · Keine Viererplätze</Muted><Body style={{marginTop:8}}>233 A / 233 D → 191 D → 182 A → 193 (nur eindeutig passende Plätze)</Body><Muted>Danach Einzelplätze gegenüber mit Tisch, dann leicht versetzt.</Muted></Card>
+ <Card><Heading>Persönlicher Reservierungsplan</Heading>
+ <Body>Start- und Zielbahnhof, Abfahrtszeit, Mo–So und Buchungsvorlauf selbst einstellen.</Body>
+ <Muted style={{marginTop:7}}>1, 2 oder 4 Wochen sowie 2 oder 6 Monate. Zeitfenster von/bis individuell festlegen.</Muted>
+ <View style={{marginTop:12}}><ActionButton title="Reservierungseinstellungen öffnen" icon="options-outline" onPress={()=>navigation.navigate('WESTbahn-Plan')}/></View>
+ </Card>
+ <Card><Heading>Automatik</Heading><Body>Montag ab 07:00 · Europe/Vienna</Body><Muted>Deine Auswahl unter „Reservierungseinstellungen“ bestimmt die gewünschten Wochentage und den Vorbuchungszeitraum. Die tatsächliche Verfügbarkeit wird erst beim Anbieter geprüft.</Muted><Muted style={{marginTop:9}}>{!remote.connected?'Server nicht verbunden.':data?.providerConnected?'Buchungsadapter verbunden.':'Kein bestätigter Live-Buchungsadapter verbunden.'}</Muted><Muted>Automatik: {data?.automatic?'Aktiv':'Aus / noch nicht geprüft'}</Muted><Muted>{data?.planCompatible===false?'Individueller Fahrplan gespeichert: Live-Checkout für diese Strecke/Zeit noch nicht verifiziert.':'0-€-Checkout bleibt bis zum geprüften Anbieteradapter gesperrt.'}</Muted><View style={{gap:8,marginTop:10}}><ActionButton title="Status aktualisieren" secondary disabled={busy||!remote.connected} onPress={()=>request('/westbahn/status')}/><ActionButton title="Jetzt 0-€-Buchungen prüfen" disabled={busy||!data?.providerConnected||data?.running||data?.planCompatible===false} onPress={()=>authorize('run')}/><ActionButton title={data?.automatic?'Automatik deaktivieren':'Automatik aktivieren'} secondary disabled={busy||data?.planCompatible===false||(!data?.providerConnected&&!data?.automatic)} onPress={()=>data?.automatic?request('/westbahn/settings',{enabled:false}):authorize('settings')}/><ActionButton title="Offizielle WESTbahn öffnen" secondary onPress={()=>Linking.openURL(BOOKING_URL).catch(()=>setError('Website konnte nicht geöffnet werden.'))}/>{!remote.connected?<ActionButton title="Server verbinden" secondary onPress={()=>navigation.navigate('Einstellungen')}/>:null}</View>{error?<Body style={{color:T.red,marginTop:8}}>{error}</Body>:null}</Card>
  <Card>
    <Heading>Automatische Montagskontrolle</Heading>
    <Body>{weeklyState?.enabled?'Reine Ticketprüfung ab Montag 07:00 Uhr – bei Serverausfall Nachholprüfung bis Freitag':'Prüfdienst nicht aktiviert oder Serverstatus unbekannt'}</Body>
@@ -168,7 +175,7 @@ export default function WestbahnScreen({navigation}){
    <Muted>Keine neue Reservierung. Fehlende Treffer erlauben keinen automatischen Kauf.</Muted>
  </View>:null}
  </Card>
- <Section><Heading subtitle="Geplante Werktage mit vorhandenen Schutzvermerken">Nächste Fahrten</Heading><Card>{dates.slice(0,10).map(d=>{const existing=(data?.rows||[]).find(r=>r.date===d);return <Body key={d}>{d} · {RULES.departure}{existing?' · '+(labels[existing.status]||existing.status):''}</Body>;})}<Muted>Geplante Werktage insgesamt: {dates.length}</Muted></Card></Section>
+ <Section><Heading subtitle="Geplante Werktage mit vorhandenen Schutzvermerken">Nächste Fahrten</Heading><Card>{dates.slice(0,10).map(d=>{const existing=(data?.rows||[]).find(r=>r.date===d);return <Body key={d}>{d} · {configured.departure}{existing?' · '+(labels[existing.status]||existing.status):''}</Body>;})}<Muted>Geplante Werktage insgesamt: {dates.length}</Muted></Card></Section>
  <Section><Heading subtitle="Nur Anbieterbestätigungen zählen">Buchungsprotokoll</Heading><Card><Body>Letztes bestätigtes Datum: {data?.confirmedThrough||'Keines'}</Body><Muted>{data?.running?'Lauf aktiv – Status erneut abrufen.':'Keine laufende Buchung.'}</Muted><Muted>„Bereits gebucht (gemeldet)“ verhindert eine erneute automatische Buchung, ist aber keine unabhängig geprüfte Anbieterbestätigung.</Muted></Card>{(data?.rows||[]).map(r=><Card key={r.date}><Body>{r.date} · {labels[r.status]||r.status}{r.seat?' · '+r.seat:''}</Body><Muted>{r.detail}</Muted>{r.bookingId?<Muted>Bestätigung: {r.bookingId}</Muted>:null}</Card>)}</Section>
  </ScrollView>;
 }
