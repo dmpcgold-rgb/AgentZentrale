@@ -2247,19 +2247,44 @@ def main():
                                 !x.element.disabled &&
                                 /(?:kostenlos\s*(?:bestellen|buchen|kaufen)|(?:jetzt|verbindlich)\s*(?:bestellen|buchen|kaufen)|bestellung\s*abschlie(?:ßen|ssen)|buchung\s*abschlie(?:ßen|ssen))/i.test(x.label)
                                 && !/ticket\s*kaufen|neues\s*ticket/i.test(x.label));
+                            // Links are not equivalent to final-order buttons.
+                            // In particular, /ticketshop/ticket-buchen/ starts
+                            // a NEW reservation, not a checkout confirmation.
+                            const links=[...document.querySelectorAll("a[href]")]
+                                .filter(visible).map(e=>{
+                                    const label=norm(e.getAttribute("aria-label")||
+                                        e.innerText||"");
+                                    let path="external_or_invalid";
+                                    try {
+                                        const target=new URL(e.href,location.href);
+                                        if (target.origin===location.origin)
+                                            path=target.pathname;
+                                    } catch {}
+                                    return {label,path};
+                                });
+                            const newTicketLinks=links.filter(x=>
+                                x.path==="/ticketshop/ticket-buchen/");
+                            const checkoutLinks=links.filter(x=>
+                                /(?:kostenlos\\s*(?:bestellen|buchen)|(?:jetzt|verbindlich)\\s*(?:bestellen|buchen|kaufen)|bestellung\\s*abschlie(?:ßen|ssen)|buchung\\s*abschlie(?:ßen|ssen))/i.test(x.label)
+                                && x.path!=="/ticketshop/ticket-buchen/");
                             const unchecked=[...document.querySelectorAll(
                                 'input[type="checkbox"][required]')]
                                 .filter(e=>!e.checked && !e.disabled);
                             return {candidateCount:candidates.length,
                                 candidateIndex:candidates.length===1
                                     ?candidates[0].index:null,
+                                newTicketLinkCount:newTicketLinks.length,
+                                unverifiedCheckoutLinkCount:checkoutLinks.length,
                                 uncheckedRequiredCount:unchecked.length};
                         }""")
                         checkout_action.update({
                             "status":"candidate_inspected",
                             "candidateCount":action.get("candidateCount"),
                             "uncheckedRequiredCount":action.get(
-                                "uncheckedRequiredCount")
+                                "uncheckedRequiredCount"),
+                            "newTicketLinkCount":action.get("newTicketLinkCount",0),
+                            "unverifiedCheckoutLinkCount":action.get(
+                                "unverifiedCheckoutLinkCount",0)
                         })
                         if (action.get("candidateCount")==1
                             and action.get("uncheckedRequiredCount")==0):
@@ -2305,7 +2330,17 @@ def main():
                             # of truth. A success message alone is insufficient.
                             checkout_action["ticketConfirmed"]=False
                         else:
-                            checkout_action["status"]="no_unambiguous_final_action"
+                            # A visible link may lead to a new booking or an
+                            # unverified provider flow. Never treat it as a
+                            # binding final-order action without endpoint proof.
+                            checkout_action["status"]=(
+                                "new_ticket_link_not_checkout_action"
+                                if action.get("newTicketLinkCount",0)>0
+                                and action.get("unverifiedCheckoutLinkCount",0)==0
+                                else "unverified_checkout_link_requires_mapping"
+                                if action.get("unverifiedCheckoutLinkCount",0)>0
+                                else "no_unambiguous_final_action"
+                            )
                     except Exception as err:
                         checkout_state["armed"]=False
                         checkout_action={"status":"inspection_error",
