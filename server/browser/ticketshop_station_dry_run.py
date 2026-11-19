@@ -2066,7 +2066,13 @@ def main():
                         page.goto("https://westbahn.at/ticketshop/checkout",
                                   wait_until="domcontentloaded",timeout=20000)
                     page.wait_for_timeout(900)
-                    result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
+                    # A checkout transition can replace the JS execution context.
+                    # Retry only this READ-ONLY DOM inspection; never retry the
+                    # basket approval, seat selection, or final order request.
+                    for review_read_attempt in range(2):
+                        try:
+                            page.wait_for_load_state("domcontentloaded",timeout=10000)
+                            result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
                         const visible=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
                         const norm=s=>(s||"").replace(/\s+/g," ").trim();
@@ -2123,6 +2129,18 @@ def main():
                             purchaseExecuted:false
                         };
                     }""",seat_choice.get("code") or "")
+                            break
+                        except Exception as read_error:
+                            navigation_race = (
+                                "context was destroyed" in str(read_error).lower()
+                                or "execution context was destroyed" in str(read_error).lower()
+                            )
+                            if not navigation_race or review_read_attempt == 1:
+                                raise
+                            # Wait for the in-progress navigation without issuing
+                            # a new goto or repeating any state-changing action.
+                            page.wait_for_load_state("domcontentloaded",timeout=10000)
+                            page.wait_for_timeout(500)
                 except Exception as review_error:
                     result["checkoutReviewReadOnly"]={
                         "status":"review_unavailable",
