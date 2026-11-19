@@ -17,6 +17,10 @@ URL = "https://westbahn.at/ticketshop/ticket-buchen/"
 ORIGIN = "Wien Meidling"
 DESTINATION = "Wiener Neustadt Hbf"
 CURRENT_STAGE = "startup"
+# Explicit user-authorized fallback seats (order preserved); 191D remains
+# in the higher-priority preferred set, so it is not tried twice.
+AUTHORIZED_FALLBACK_SEATS = [["231D",11], ["222D",11], ["222A",11], ["221A",11], ["221D",11], ["230D",11], ["213D",10], ["212D",10], ["210A",10], ["210D",10], ["209A",10], ["209D",10], ["206D",9], ["205D",9], ["204D",9], ["203D",9], ["202D",9], ["195D",9], ["194D",9], ["191D",8], ["190D",8]]
+
 
 def main():
     global CURRENT_STAGE
@@ -1023,6 +1027,13 @@ def main():
                                     }),
                                     availableSeatLabels:seats.filter(s=>s.available)
                                         .slice(0,22).map(s=>s.label),
+                                    authorizedFallback:([["231D",11],["222D",11],["222A",11],["221A",11],["221D",11],["230D",11],["213D",10],["212D",10],["210A",10],["210D",10],["209A",10],["209D",10],["206D",9],["205D",9],["204D",9],["203D",9],["202D",9],["195D",9],["194D",9],["191D",8],["190D",8]]).filter(
+                                        p=>p[1]===wagon).map(p=>{
+                                        const seat=seats.find(x=>x.code===p[0]);
+                                        return {code:p[0],wagon,
+                                            status:seat?(seat.available?"available":"unavailable"):
+                                                "not_found_in_visible_wagon"};
+                                    }),
                                     fallbackLayoutEvidence:layoutEvidence,
                                     fallbackCandidates:seats.filter(s=>s.available &&
                                         /Fensterplatz/i.test(s.label) &&
@@ -1131,21 +1142,33 @@ def main():
                             "purchaseExecuted":False,
                             "note":"Seat labels alone cannot establish paired vs four-person table; no automatic fallback choice."
                         }
-                        # Choose only a uniquely available, verified priority
-                        # seat in the UI; never click "Fertig" or check out.
+                        # Preferred seats take precedence. For unavailable
+                        # preferences, try only the seats explicitly authorized
+                        # by the user, in the supplied order. Never infer that
+                        # an unverified seat is available.
                         checked={p["code"]:p["status"]
                                  for w in result["wagonAvailability"]
                                  if w.get("status")=="wagon_inspected"
                                  for p in w.get("preferred",[])}
-                        # Preferred seats only require their own three
-                        # wagons to be verified. Optional fallback wagons
-                        # must never block a valid preferred-seat selection.
                         all_verified=all(
                             any(w.get("wagon")==wagon and
                                 w.get("status")=="wagon_inspected"
                                 for w in result["wagonAvailability"])
                             for wagon in (11,8,7)
                         )
+                        fallback_status={
+                            (p["code"],p["wagon"]):p["status"]
+                            for w in result["wagonAvailability"]
+                            if w.get("status")=="wagon_inspected"
+                            for p in w.get("authorizedFallback",[])
+                        }
+                        approved_fallback=[{"code":code,"wagon":wagon,
+                            "status":fallback_status.get(
+                                (code,wagon),"not_verified")}
+                            for code,wagon in AUTHORIZED_FALLBACK_SEATS]
+                        result["fallbackSeatSuggestions"]["authorizedByUser"]=approved_fallback
+                        result["fallbackSeatSuggestions"]["authorizationScope"]=(
+                            "seat-selection-in-form-only_no_cart_or_purchase")
                         result["fallbackSeatSuggestions"]["preferredAvailability"]=checked
                         result["fallbackSeatSuggestions"]["allPreferredUnavailable"]=(
                             all_verified and all(
@@ -1176,6 +1199,15 @@ def main():
                                 ((code,wagon) for code,wagon in priority
                                  if checked[code]=="available"),None
                             )
+                            picked_source="preferred"
+                            if picked is None:
+                                picked=next((
+                                    (code,wagon)
+                                    for code,wagon in AUTHORIZED_FALLBACK_SEATS
+                                    if code not in ("233A","233D","191D","182A")
+                                    and fallback_status.get((code,wagon))=="available"
+                                ),None)
+                                picked_source="user_approved_fallback"
                             if picked:
                                 code,wagon=picked
                                 target_wagon=page.get_by_role(
@@ -1232,6 +1264,9 @@ def main():
                                                 purchaseExecuted:false
                                             };
                                         }""",code)
+                                        result["prioritySeatChoice"]["selectionSource"]=picked_source
+                                        result["prioritySeatChoice"]["explicitlyAuthorizedFallback"]=(
+                                            picked_source=="user_approved_fallback")
                                         # Commit the seat choice to the local
                                         # ticket form only; never click "In den
                                         # Warenkorb", payment or ticket purchase.
@@ -1366,7 +1401,7 @@ def main():
                                 else:
                                     result["prioritySeatChoice"]["status"]="target_wagon_unavailable"
                             else:
-                                result["prioritySeatChoice"]["status"]="no_preferred_seat_available"
+                                result["prioritySeatChoice"]["status"]="no_approved_seat_available"
                     else:
                         result["seatMapDiagnostic"]={
                             "status":"change_seat_button_not_unique",
