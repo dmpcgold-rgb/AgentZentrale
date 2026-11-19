@@ -1,13 +1,14 @@
 import {RULES,planDates} from '../src/core/westbahn.js';
+import {DEFAULT_RESERVATION_PLAN,isLegacyReservationPlan,nextReservationBatch} from './reservation-plan.mjs';
 
 // Read-only operational view. Never equate absence from a paginated browser
 // view with a confirmed missing reservation.
-export function bookingReadiness({westbahn,review,now=new Date()}={}){
+export function bookingReadiness({westbahn,review,now=new Date(),plan=DEFAULT_RESERVATION_PLAN}={}){
  const ledger=westbahn.status();
  const run=review?.status()?.lastRun??null;
  const lastRows=Array.isArray(run?.days)?run.days:[];
  const rows=Array.isArray(ledger.rows)?ledger.rows:[];
- const nextFive=planDates(now).slice(0,5);
+ const nextFive=nextReservationBatch(plan,{at:now});
  const days=nextFive.map(date=>{
   const entry=rows.find(x=>x.date===date);
   const observed=lastRows.find(x=>x.date===date);
@@ -23,9 +24,13 @@ export function bookingReadiness({westbahn,review,now=new Date()}={}){
  });
  return {
   status:'checkout_not_ready',days,
+  itinerary:{origin:plan.origin,destination:plan.destination,departure:plan.departure,
+    weekdays:[...plan.weekdays],horizon:plan.horizon,
+    bookingWindowStart:plan.bookingWindowStart,bookingWindowEnd:plan.bookingWindowEnd},
+  legacyItineraryCompatible:isLegacyReservationPlan(plan),
   preferredSeats:RULES.preferred.slice(0,2),
   alternativeSeats:RULES.preferred.slice(2),
-  requiredDeparture:RULES.departure,
+  requiredDeparture:plan.departure,
   requiredClass:RULES.class,
   maxTotalCents:0,
   automaticBookingEnabled:false,
@@ -35,6 +40,7 @@ export function bookingReadiness({westbahn,review,now=new Date()}={}){
   providerReceiptReadbackVerified:false,
   canPurchase:false,
   blockers:[
+   ...(!isLegacyReservationPlan(plan)?['custom_itinerary_provider_not_verified']:[]),
    'complete_authenticated_inventory',
    'real_provider_checkout_adapter',
    'fresh_exact_zero_euro_checkout',
