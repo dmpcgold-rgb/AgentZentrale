@@ -43,11 +43,15 @@ def main():
             and os.environ.get("WESTBAHN_USER_ATTESTED_NO_DUPLICATE_20261120")=="1"
             and os.environ.get("WESTBAHN_AUTHORIZE_ZERO_EUR_PURCHASE_20261120")=="1"
         )
-        if recovery_marker.exists() or (prior_approval.exists() and not recovery_requested):
+        if ((root/"checkout_attempt_20261120.flag").exists()
+            or recovery_marker.exists()
+            or (prior_approval.exists() and not recovery_requested)):
             print(json.dumps({
                 "status":"previous_approval_attempt_requires_inventory_check",
-                "reason":"recovery_already_attempted" if recovery_marker.exists()
-                    else "original_approval_marker_present",
+                "reason":"checkout_already_attempted"
+                    if (root/"checkout_attempt_20261120.flag").exists()
+                    else ("recovery_already_attempted" if recovery_marker.exists()
+                          else "original_approval_marker_present"),
                 "newSeatSelectionBlocked":True,
                 "newBasketApprovalBlocked":True,
                 "purchaseExecuted":False
@@ -2065,6 +2069,8 @@ def main():
                             targetDateVisible:/20\.11\.2026|20\. November 2026/.test(text),
                             targetTimeVisible:/18:22/.test(text),
                             targetTrainVisible:/\b1009\b/.test(text),
+                            originVisible:/Wien Meidling/i.test(text),
+                            destinationVisible:/Wiener Neustadt/i.test(text),
                             labelledPriceCandidates:prices.slice(0,8),
                             checkoutActions:[...main.querySelectorAll("button,input[type=submit],a[href]")]
                                 .filter(visible).filter(e=>!e.disabled)
@@ -2109,6 +2115,8 @@ def main():
                     and review.get("targetDateVisible") is True
                     and review.get("targetTrainVisible") is True
                     and review.get("targetTimeVisible") is True
+                    and review.get("originVisible") is True
+                    and review.get("destinationVisible") is True
                     and len(total_candidates)==1
                     and total_candidates[0].get("containsZero") is True
                     and total_candidates[0].get("containsNonzero") is False
@@ -2230,7 +2238,8 @@ def main():
                     "userOptIn":purchase_opt_in,
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "approvalIsPotentiallyBinding":True,
-                    "checkoutAndPaymentWritesAllowed":False,
+                    "oneTerminalOrderRequestConditionallyAllowed":True,
+                    "unverifiedPaymentRequestsAllowed":False,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
                                            if network["basketTotalEvidence"]
                                            else {"verified":False,"reason":"no_quote_response"}),
@@ -2250,6 +2259,10 @@ def main():
                     "selectedDateIsTopField":True,
                     "note":"Read/quote and limited basket/get; one basket/add, seat lookup and one seat update permitted; checkout and purchase blocked."
                 }
+                if checkout_state["requestSent"]:
+                    result["status"]="checkout_request_sent_confirmation_pending"
+                    result["bookingAuthorized"]=True
+                    result["purchaseExecuted"]=False
                 if os.environ.get("WESTBAHN_COMPACT_OUTPUT")=="1":
                     result={
                         "status":result.get("status"),
@@ -2262,7 +2275,7 @@ def main():
                         "cartSubmissionDiagnostic":result.get("cartSubmissionDiagnostic"),
                         "blockedFirstPartyWrites":network["blockedFirstPartyWrites"],
                         "purchaseGate":result["purchaseGate"],
-                        "bookingAuthorized":False,
+                        "bookingAuthorized":bool(checkout_state["requestSent"]),
                         "purchaseExecuted":False
                     }
                 print(json.dumps(result,ensure_ascii=False))
