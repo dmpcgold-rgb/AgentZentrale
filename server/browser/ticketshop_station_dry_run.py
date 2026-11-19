@@ -784,6 +784,63 @@ def main():
                             noCheckoutActionClicked:true
                         };
                     }""")
+                # Inspect seat selector only. "Ändern" opens the choice UI;
+                # this test never clicks a seat or a confirm/cart button.
+                result["seatMapDiagnostic"]={"status":"not_inspected"}
+                if (result.get("seatLookupDiagnostic",{}).get("requestAllowed")
+                    and result.get("seatLookupDiagnostic",{}).get("responses")
+                    and any(x.get("ok") for x in result["seatLookupDiagnostic"]["responses"])):
+                    change=page.get_by_role("button",name="Ändern",exact=True)
+                    if change.count()==1 and change.is_visible():
+                        change.click(timeout=4000)
+                        page.wait_for_timeout(850)
+                        result["seatMapDiagnostic"]=page.evaluate(r"""() => {
+                            const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                            const visible=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden" &&
+                                getComputedStyle(e).display!=="none";
+                            const seatRx=/\b(?:233\s*[AD]|191\s*D|182\s*A|204\s*A)\b/i;
+                            const root=document.querySelector('[role=dialog]')||
+                                       document.querySelector('main')||document.body;
+                            const labels=[...root.querySelectorAll(
+                                "button,[role=button],[role=radio],input[type=radio],label,option,[data-seat]"
+                            )].filter(visible).map(e=>({
+                                tag:e.tagName.toLowerCase(),
+                                role:(e.getAttribute("role")||"").slice(0,25),
+                                text:norm(e.getAttribute("aria-label")||
+                                    e.getAttribute("title")||e.innerText).slice(0,85),
+                                disabled:e.matches(':disabled,[aria-disabled=true]'),
+                                selected:e.matches(':checked,[aria-checked=true],[aria-selected=true]'),
+                                classHint:(typeof e.className==="string"?e.className:"").slice(0,100)
+                            }));
+                            const important=labels.filter(x=>
+                                seatRx.test(x.text)||/Wagen|Sitz|Platz|Weiter|Fertig|Speichern|Schließen/i.test(x.text))
+                                .slice(0,45);
+                            const selectedText=norm(root.innerText);
+                            return {
+                                status:"seat_selection_ui_inspected_no_seat_clicked",
+                                path:location.pathname.slice(0,140),
+                                dialogVisible:!!document.querySelector('[role=dialog]'),
+                                seatElementCount:labels.length,
+                                controls:important,
+                                preferredSeatText:({
+                                    "233A":/\b233\s*A\b/.test(selectedText),
+                                    "233D":/\b233\s*D\b/.test(selectedText),
+                                    "191D":/\b191\s*D\b/.test(selectedText),
+                                    "182A":/\b182\s*A\b/.test(selectedText)
+                                }),
+                                default204AVisible:/\b204\s*A\b/.test(selectedText),
+                                candidateSeatControls:labels.filter(x=>seatRx.test(x.text)).slice(0,24),
+                                seatClicked:false,
+                                confirmationClicked:false,
+                                purchaseExecuted:false
+                            };
+                        }""")
+                    else:
+                        result["seatMapDiagnostic"]={
+                            "status":"change_seat_button_not_unique",
+                            "count":change.count(),"seatClicked":False
+                        }
                 result["environmentDiagnostics"]={
                     "network":network,
                     "browserHasWestbahnCookies":any(
