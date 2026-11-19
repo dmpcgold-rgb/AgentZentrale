@@ -154,7 +154,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         }
       }
       if (is('GET', '/westbahn/readiness')) return write(res,200,
-        bookingReadiness({westbahn,review,now:new Date(now())}));
+        bookingReadiness({westbahn,review,now:new Date(now()),plan:reservationPlan.get()}));
       if (is('GET', '/westbahn/review-status')) {
         return write(res,200,review?review.status():{
           enabled:false,running:false,lastRun:null,lastSchedule:null,
@@ -211,7 +211,9 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
             message:'Reservierungsplan gespeichert. Bis zur Verifizierung wird keine Buchung mit diesen neuen Angaben ausgelöst.'});
         }catch(e){throw e instanceof ApiError?e:new ApiError(400,e.message);}
       }
-      if (is('GET', '/westbahn/status')) return write(res, 200, westbahn.status());
+      if (is('GET', '/westbahn/status')) return write(res, 200, {...westbahn.status(),
+        reservationPlan:reservationPlan.get(),
+        providerPlanVerified:false});
       if (is('POST', '/westbahn/known-booking')) {
         const body = await readJson(req);
         if (body.confirm !== 'BESTEHENDE-BUCHUNG') throw new ApiError(403, 'Bestätigung einer bereits bestehenden Buchung erforderlich.');
