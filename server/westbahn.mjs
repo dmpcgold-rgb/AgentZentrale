@@ -3,6 +3,7 @@ import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {RULES,planDates,viennaClock,chooseSeat,validateQuote,confirmedReceipt} from '../src/core/westbahn.js';
 import {DEFAULT_RESERVATION_PLAN,createReservationPlanStore,isLegacyReservationPlan,nextReservationBatch,reservationWindowOpen} from './reservation-plan.mjs';
+import {createCheckoutIntent,chooseVerifiedSeat,verifyDynamicQuote,verifyDynamicReadback,checkoutAttemptKey,dynamicCheckoutReadiness} from './dynamic-checkout.mjs';
 // A newly booked ticket is only confirmed after a separate read from the
 // authenticated provider account, matching the submitted order's reference.
 // An adapter claiming success without this readback must never enable retries.
@@ -16,6 +17,15 @@ export function verifiedAccountReadback(snapshot, date, seat, bookingId){
         snapshot.receipt.bookingId===bookingId;
 }
 const empty=()=>({enabled:false,rows:{},lastSchedule:null,lastRun:null});
+// Only an explicitly installed server adapter may enable a customized itinerary.
+// A read-only account view with incomplete pagination cannot meet this contract.
+export function dynamicAdapterReady(adapter){
+ const c=adapter?.capabilities;
+ return !!c&&c.dynamicItineraries===true&&c.authenticatedFullInventory===true&&
+  c.freshZeroEuroQuotes===true&&c.checkoutDomAudit===true&&
+  c.durableIdempotency===true&&c.independentAccountReadback===true&&
+  ['existing','search','quote','audit','book'].every(k=>typeof adapter[k]==='function');
+}
 export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailConfirm=null,getPlan=null}={}){
  let state=empty(), running=false;
  if(file){try{state=JSON.parse(readFileSync(file,'utf8'));if(!state.rows||typeof state.enabled!=='boolean')throw new Error('Invalid ledger');}catch(e){if(e.code!=='ENOENT')throw e;}}
@@ -24,8 +34,8 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
  for(const row of Object.values(state.rows)) if(row.status==='booking') {row.status='uncertain';row.detail='Buchung unterbrochen: zuerst beim Anbieter abgleichen.';}
  save();
  const currentPlan=()=>getPlan?getPlan():DEFAULT_RESERVATION_PLAN;
- const status=()=>({providerConnected:!!adapter,automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,planCompatible:isLegacyReservationPlan(currentPlan()),rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:nextReservationBatch(currentPlan(),{at:now()}),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
- const setEnabled=enabled=>{if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');if(enabled&&!isLegacyReservationPlan(currentPlan()))throw new Error('Individueller Fahrplan benötigt einen dafür verifizierten Buchungsadapter.');state.enabled=!!enabled;save();return status();};
+ const status=()=>({providerConnected:!!adapter,dynamicProviderVerified:dynamicAdapterReady(adapter),automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,planCompatible:isLegacyReservationPlan(currentPlan()),rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:nextReservationBatch(currentPlan(),{at:now()}),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
+ const setEnabled=enabled=>{if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');if(enabled&&!isLegacyReservationPlan(currentPlan())&&!dynamicAdapterReady(adapter))throw new Error('Individueller Fahrplan benötigt einen vollständigen verifizierten dynamischen Buchungsadapter.');state.enabled=!!enabled;save();return status();};
  const record=(date,status,detail,extra={})=>{state.rows[date]={date,status,detail,updatedAt:now().toISOString(),...extra};save();};
  const recordUserReported=(travelDate,seat)=>{
   if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)throw new Error('Reisedatum ungültig.');
@@ -94,7 +104,8 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
   try{
    // All selected travel dates are computed from the same durable app plan.
    // Legacy provider checkout remains restricted to its verified itinerary.
-   if(!isLegacyReservationPlan(currentPlan())){
+   const dynamic=!isLegacyReservationPlan(currentPlan());
+   if(dynamic&&!dynamicAdapterReady(adapter)){
     state.lastRun={...state.lastRun,status:'blocked_unverified_custom_itinerary',finishedAt:now().toISOString()};
     return status();
    }
@@ -108,7 +119,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
    }
    // An unreadable inbox is never proof that the passenger has no ticket.
    // Reconcile positively confirmed official emails before any provider writes.
-   if(gmailConfirm){
+   if(gmailConfirm&&!dynamic){
     let email;
     try{email=await gmailConfirm(upcoming);}
     catch{email=null;}
@@ -144,6 +155,70 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
    for(const date of upcoming){
     const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported','existing_verified'].includes(existing.status))continue;
     try{
+     if(dynamic){
+      const plan=currentPlan();
+      const details={date,origin:plan.origin,destination:plan.destination,
+        departure:plan.departure,class:RULES.class,ticket:RULES.ticket,
+        productType:RULES.productType,quantity:1};
+      // Any missing or paginated provider inventory blocks checkout.
+      const before=await adapter.existing(details);
+      if(before?.status==='confirmed'){
+       if(before?.accountVerified===true&&before?.inventoryComplete===true&&
+          before?.receiptSource==='provider_account'&&
+          before.receipt?.date===date&&before.receipt?.origin===plan.origin&&
+          before.receipt?.destination===plan.destination&&
+          before.receipt?.departure===plan.departure&&
+          /^[0-9]{3}[A-D]$/.test(before.receipt?.seat||'')&&
+          typeof before.receipt?.bookingId==='string'&&
+          before.receipt.bookingId.trim()&&before.receipt?.confirmed===true){
+        record(date,'existing_verified','Vorhandenes Ticket im Anbieter-Konto bestätigt; keine neue Bestellung.',
+          {seat:before.receipt.seat,bookingId:before.receipt.bookingId});
+       }else record(date,'blocked','Bestehendes Ticket kann nicht eindeutig zugeordnet werden.');
+       continue;
+      }
+      if(before?.status!=='none'||before.accountVerified!==true||
+         before.inventoryComplete!==true){
+       record(date,'blocked','Kein vollständiger, authentifizierter Kontobestand. Keine Buchung.');
+       continue;
+      }
+      const found=await adapter.search(details);
+      let intent;
+      try{intent=createCheckoutIntent({plan,date,connection:found,at:now()});}
+      catch{record(date,'blocked','Anbieterverbindung stimmt nicht vollständig mit dem Fahrplan überein.');continue;}
+      const seat=chooseVerifiedSeat(intent,found?.seats);
+      if(!seat){record(date,'unavailable','Kein zulässiger Einzelplatz bestätigt.');continue;}
+      const quote=await adapter.quote({...intent,seat});
+      if(!verifyDynamicQuote(intent,seat,quote,{at:now()})){
+       record(date,'blocked','Kein frisches, eindeutig bestätigtes 0-Euro-Angebot.');continue;
+      }
+      // The adapter must audit the actual WESTbahn checkout DOM *after*
+      // selecting the seat. An earlier pricing preview is insufficient.
+      const cartAudit=await adapter.audit({intent,seat,quote});
+      const preflight=dynamicCheckoutReadiness({intent,seat,quote,cartAudit,
+        existing:before,at:now()});
+      if(!preflight.allPreflightChecksPassed){
+       record(date,'blocked','Live-Warenkorb nicht vollständig und exakt geprüft.');continue;
+      }
+      // Persist BEFORE any provider side effect. Never retry uncertain outcomes.
+      const key=checkoutAttemptKey(intent);
+      record(date,'booking','Verifizierter dynamischer Checkout gestartet',
+        {seat,key});
+      let receipt;
+      try{receipt=await adapter.book({intent,seat,quoteId:quote.quoteId,
+        idempotencyKey:key,maxTotalCents:0});}
+      catch{record(date,'uncertain','Checkout-Ergebnis unklar. Keine automatische Wiederholung.',
+        {seat,key});continue;}
+      let account;
+      try{account=await adapter.existing(details);}
+      catch{record(date,'uncertain','Bestellung gesendet, Anbieter-Konto nicht lesbar.',{seat,key});continue;}
+      if(!verifyDynamicReadback(intent,seat,receipt,account)){
+       record(date,'uncertain','Bestellung gesendet; identischer Anbieter-Kontobeleg fehlt.',{seat,key});
+       continue;
+      }
+      record(date,'confirmed','Bestellung im vollständigen Anbieter-Konto bestätigt.',
+        {seat,bookingId:receipt.bookingId});
+      continue;
+     }
      const before=await adapter.existing({date,...RULES});
      if(before?.status==='confirmed'){
       const receipt=before.receipt;
