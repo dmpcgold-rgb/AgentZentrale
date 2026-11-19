@@ -892,7 +892,7 @@ def main():
                         # Changing wagons only navigates a seat map, and
                         # does NOT select any seat or confirm any booking.
                         result["wagonAvailability"]=[]
-                        for wagon in (11,8,7):
+                        for wagon in (11,10,9,8,7):
                             wagon_button=page.get_by_role(
                                 "button",name=f"Wagen: {wagon}",exact=True
                             )
@@ -935,7 +935,7 @@ def main():
                                     }:null;
                                 }).filter(Boolean);
                                 const preferred=(wagon===11?["233A","233D"]:
-                                    wagon===8?["191D"]:["182A"]);
+                                    wagon===8?["191D"]:wagon===7?["182A"]:[]);
                                 return {
                                     wagon,
                                     status:active.some(a=>new RegExp(
@@ -956,10 +956,51 @@ def main():
                                     }),
                                     availableSeatLabels:seats.filter(s=>s.available)
                                         .slice(0,22).map(s=>s.label),
+                                    fallbackCandidates:seats.filter(s=>s.available &&
+                                        /Fensterplatz/i.test(s.label) &&
+                                        /mit Tisch/i.test(s.label) &&
+                                        !/WESTcafé|Klappsitz/i.test(s.label))
+                                        .map(s=>({
+                                            code:s.code,
+                                            wagon,
+                                            label:s.label,
+                                            isWindow:true,
+                                            hasTable:true,
+                                            evidence:"visible seat label and enabled control",
+                                            tableConfiguration:"not_verified",
+                                            singleSeatLayoutVerified:false,
+                                            fourSeatGroupExcluded:false
+                                        })).slice(0,24),
                                     seatClicked:false
                                 };
                             }""",wagon)
                             result["wagonAvailability"].append(inspected)
+                        # List-only fallback suggestions. The public seat
+                        # labels show window/table properties, but do not prove
+                        # whether a seat belongs to a two-person table or a
+                        # prohibited four-person group. Such candidates must
+                        # NOT be automatically selected.
+                        fallback=[]
+                        for w in result["wagonAvailability"]:
+                            if w.get("status")=="wagon_inspected":
+                                fallback.extend(w.get("fallbackCandidates",[]))
+                        fallback.sort(key=lambda c:(
+                            {11:0,10:1,9:2,8:3,7:4}.get(c["wagon"],5),
+                            c["code"]
+                        ))
+                        result["fallbackSeatSuggestions"]={
+                            "status":"candidates_require_table_layout_verification"
+                                if fallback else "no_table_window_candidates_found",
+                            "criteria":"enabled window seat with table, not WESTcafe or folding seat",
+                            "fourPersonGroupsExcluded":False,
+                            "verifiedSingleSeats":0,
+                            "candidateCount":len(fallback),
+                            "suggestions":fallback[:20],
+                            "seatClicked":False,
+                            "checkoutAuthorized":False,
+                            "purchaseExecuted":False,
+                            "note":"Seat labels alone cannot establish paired vs four-person table; no automatic fallback choice."
+                        }
                         # Choose only a uniquely available, verified priority
                         # seat in the UI; never click "Fertig" or check out.
                         checked={p["code"]:p["status"]
