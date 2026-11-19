@@ -2265,7 +2265,7 @@ def main():
                             const newTicketLinks=links.filter(x=>
                                 x.path==="/ticketshop/ticket-buchen/");
                             const checkoutLinks=links.filter(x=>
-                                /(?:kostenlos\\s*(?:bestellen|buchen)|(?:jetzt|verbindlich)\\s*(?:bestellen|buchen|kaufen)|bestellung\\s*abschlie(?:ßen|ssen)|buchung\\s*abschlie(?:ßen|ssen))/i.test(x.label)
+                                /(?:kostenlos\s*(?:bestellen|buchen)|(?:jetzt|verbindlich)\s*(?:bestellen|buchen|kaufen)|bestellung\s*abschlie(?:ßen|ssen)|buchung\s*abschlie(?:ßen|ssen))/i.test(x.label)
                                 && x.path!=="/ticketshop/ticket-buchen/");
                             const unchecked=[...document.querySelectorAll(
                                 'input[type="checkbox"][required]')]
