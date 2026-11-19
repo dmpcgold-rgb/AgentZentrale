@@ -78,10 +78,13 @@ class AssetInventory(HTMLParser):
         self.inline_script_tags = 0
         self.external_hosts = set()
         self.tag_count = 0
+        self.base_href = None
 
     def handle_starttag(self, tag, attrs):
         self.tag_count += 1
         a = dict(attrs)
+        if tag == "base" and self.base_href is None and a.get("href"):
+            self.base_href = a["href"]
         if tag == "script":
             self.script_tags += 1
             src = a.get("src")
@@ -101,8 +104,14 @@ def discover_assets(markup):
     rejection_counts = {"externalHost": 0, "queryOrFragment": 0,
                         "nonJavaScript": 0, "invalidScheme": 0}
     retained_query_count = 0
+    # HTML <base href> determines how browsers resolve relative scripts.
+    # Never guess other asset directories or follow an external base.
+    effective_base = urllib.parse.urljoin(
+        HOME, html.unescape(parsed.base_href or HOME))
+    base_is_trusted = safe_url(effective_base)
     for source in parsed.sources:
-        target = urllib.parse.urljoin(HOME, html.unescape(source))
+        target = urllib.parse.urljoin(
+            effective_base if base_is_trusted else HOME, html.unescape(source))
         parts = urllib.parse.urlsplit(target)
         if parts.scheme != "https" or parts.username or parts.password:
             rejection_counts["invalidScheme"] += 1
@@ -133,6 +142,10 @@ def discover_assets(markup):
         "scriptTagCount": parsed.script_tags,
         "inlineScriptTagCount": parsed.inline_script_tags,
         "sourceAttributeCount": len(parsed.sources),
+        "htmlBasePresent": bool(parsed.base_href),
+        "htmlBaseTrusted": base_is_trusted,
+        "effectiveBasePath": (urllib.parse.urlsplit(effective_base).path[:100]
+                              if base_is_trusted else None),
         "allowedVersionedAssets": retained_query_count,
         "externalScriptHosts": sorted(parsed.external_hosts)[:12],
         "rejectedSources": rejection_counts
