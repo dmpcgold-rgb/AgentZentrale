@@ -123,6 +123,39 @@ def main():
                             .filter(x=>/Warenkorb|Sitz|Platz|Ticket|Reserv|Reise|Checkout/i.test(x))
                             .slice(0,15),
                         controls,
+                        review:{
+                            matchingSeat222D:/(^|[^A-Z0-9])222D([^A-Z0-9]|$)/i.test(text),
+                            targetJourneyConfirmed:/Wien Meidling/i.test(text)
+                                && /Wiener Neustadt/i.test(text)
+                                && /20\\.11\\.2026|20\\.\\s*November\\s*2026/i.test(text)
+                                && /18:22/.test(text),
+                            labelledTotals:[...main.querySelectorAll("div,span,p,strong,td")]
+                                .filter(visible).filter(e=>e.children.length<3)
+                                .map(e=>norm(e.innerText||""))
+                                .filter(t=>t.length<110 &&
+                                    /Gesamt(?:preis|summe|betrag)?|Endpreis|Zu zahlen|Summe|Total/i.test(t)
+                                    && /(?:€|EUR)/i.test(t))
+                                .slice(0,8).map(t=>({
+                                    hasZeroEuro:/0[,.]00\\s*(?:€|EUR)|(?:€|EUR)\\s*0[,.]00/.test(t),
+                                    hasNonzeroEuro:/[1-9][0-9]*(?:[,.][0-9]{2})?\\s*(?:€|EUR)/.test(t),
+                                    labelType:/Endpreis/i.test(t)?"final":/Zu zahlen/i.test(t)?"payable":"total"
+                                })),
+                            actionControls:[...main.querySelectorAll("button,a[href],input[type=submit]")]
+                                .filter(visible).slice(0,60).map(e=>({
+                                    kind:e.tagName.toLowerCase(),
+                                    labelCategory:((label)=>{
+                                        if(/bezahlen|zahlen|zahlung|payment/i.test(label))return "payment";
+                                        if(/bestellen|verbindlich|kaufen|abschließen|buchen/i.test(label))return "confirm_purchase";
+                                        if(/weiter|fortfahren|fortsetzen/i.test(label))return "continue";
+                                        if(/anmelden|login|einloggen/i.test(label))return "login";
+                                        if(/zurück/i.test(label))return "back";
+                                        return "other";
+                                    })(norm(e.getAttribute("aria-label")||e.innerText||e.value||"")),
+                                    disabled:e.matches(":disabled,[aria-disabled=true]"),
+                                    type:e.getAttribute("type")||"",
+                                    inForm:!!e.closest("form")
+                                })).filter(x=>x.labelCategory!=="other").slice(0,15)
+                        },
                         note:"No account details, ticket IDs, form values or raw page text returned"
                     };
                 }""")
