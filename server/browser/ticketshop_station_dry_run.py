@@ -2251,9 +2251,9 @@ def main():
                                     const text=(e.closest('label')?.innerText||
                                         linked||e.parentElement?.innerText||
                                         e.getAttribute('aria-label')||"")
-                                        .replace(/\\s+/g," ").trim();
+                                        .replace(/\s+/g," ").trim();
                                     return {index,checked:e.checked,disabled:e.disabled,
-                                        matched:/ich\\s+akzeptiere\\s+die\\s+allgemeinen\\s+geschäftsbedingungen/i.test(text)};
+                                        matched:/ich\s+akzeptiere\s+die\s+allgemeinen\s+geschäftsbedingungen/i.test(text)};
                                 }).filter(e=>e.matched);
                                 return {
                                     matchingCount:matches.length,
