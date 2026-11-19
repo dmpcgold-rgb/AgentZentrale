@@ -1435,14 +1435,24 @@ def main():
                         const vis=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
                         const norm=s=>(s||"").replace(/\s+/g," ").trim();
-                        const buttons=[...document.querySelectorAll("main button")].filter(e=>
-                            vis(e) && norm(e.innerText)==="In den Warenkorb");
+                        // The cart submit can live outside <main> and its
+                        // label may be supplied by nested spans or aria-label.
+                        const all=[...document.querySelectorAll('button, input[type="submit"]')];
+                        const label=e=>norm(e.getAttribute("aria-label")||
+                            e.innerText||e.textContent||e.value);
+                        const buttons=all.filter(e=>vis(e)&&label(e)==="In den Warenkorb");
+                        const valid=buttons.length===1 && !buttons[0].disabled &&
+                            buttons[0].type==="submit" && !!buttons[0].closest("form");
                         return {
-                            status:buttons.length===1?"ready_for_inventory_gate":"button_missing_or_ambiguous",
+                            status:valid?"ready_for_inventory_gate":
+                                (buttons.length===1?"submit_control_not_ready":"button_missing_or_ambiguous"),
                             matchingButtons:buttons.length,
                             enabled:buttons.length===1?!buttons[0].disabled:false,
                             formPresent:buttons.length===1?!!buttons[0].closest("form"):false,
                             buttonType:buttons.length===1?buttons[0].type:null,
+                            submitControls:all.filter(e=>vis(e)&&e.type==="submit")
+                                .map(e=>({label:label(e).slice(0,80),inForm:!!e.closest("form")}))
+                                .slice(0,5),
                             selectedSeatCode:selectedCode,
                             selectedSeatInForm:[...document.querySelectorAll("main button")].filter(vis)
                                 .some(e=>norm(e.getAttribute("aria-label")||e.innerText)===selectedCode),
