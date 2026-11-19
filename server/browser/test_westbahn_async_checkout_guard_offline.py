@@ -30,7 +30,9 @@ class Safety(unittest.TestCase):
     def test_public_probe_is_get_only_and_unauthenticated(self):
         self.assertIn('method="GET"',PROBE)
         self.assertIn('HOSTS = {"westbahn.at", "www.westbahn.at"}',PROBE)
-        self.assertIn('not parsed.query and not parsed.fragment',PROBE)
+        self.assertIn('not parsed.password and not parsed.fragment',PROBE)
+        self.assertIn('(parts.scheme,parts.netloc,parts.path,"","")',PROBE)
+        self.assertIn('if safe_url(public_asset)',PROBE)
         self.assertIn('MAX_BYTES = 8 * 1024 * 1024',PROBE)
         self.assertNotIn('chromium',PROBE)
         self.assertNotIn('post_data',PROBE)
