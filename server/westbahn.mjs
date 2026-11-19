@@ -22,7 +22,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
  // An interrupted checkout is never retried automatically.
  for(const row of Object.values(state.rows)) if(row.status==='booking') {row.status='uncertain';row.detail='Buchung unterbrochen: zuerst beim Anbieter abgleichen.';}
  save();
- const status=()=>({providerConnected:!!adapter,automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:planDates(now()),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
+ const status=()=>({providerConnected:!!adapter,automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:planDates(now()).slice(0,5),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
  const setEnabled=enabled=>{if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');state.enabled=!!enabled;save();return status();};
  const record=(date,status,detail,extra={})=>{state.rows[date]={date,status,detail,updatedAt:now().toISOString(),...extra};save();};
  const recordUserReported=(travelDate,seat)=>{
@@ -90,7 +90,9 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
-   for(const date of planDates(now())){
+   // Only the five next commuting dates may be considered per run. A six-month
+   // preview must never translate into hundreds of unattended checkouts.
+   for(const date of planDates(now()).slice(0,5)){
     const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported','existing_verified'].includes(existing.status))continue;
     try{
      const before=await adapter.existing({date,...RULES});
