@@ -934,6 +934,46 @@ def main():
                                         )
                                     }:null;
                                 }).filter(Boolean);
+                                // Geometry is diagnostic only. DOM proximity
+                                // is not proof of a two-person table layout.
+                                const seatNodes=[...root.querySelectorAll(
+                                    'button.west-ui-seat-picker--seat'
+                                )].filter(visible).map(e=>{
+                                    const label=norm(e.getAttribute("aria-label")||
+                                        e.getAttribute("title")||e.innerText);
+                                    const m=label.match(/^(\d{2,3}[A-D])\b/i);
+                                    const rect=e.getBoundingClientRect();
+                                    return m?{
+                                        code:m[1].toUpperCase(),label,
+                                        x:rect.x+rect.width/2,
+                                        y:rect.y+rect.height/2
+                                    }:null;
+                                }).filter(Boolean);
+                                const layoutEvidence=seats.filter(s=>s.available &&
+                                    /Fensterplatz/i.test(s.label) &&
+                                    /mit Tisch/i.test(s.label) &&
+                                    !/WESTcafé|Klappsitz/i.test(s.label)
+                                ).map(candidate=>{
+                                    const current=seatNodes.find(n=>n.code===candidate.code);
+                                    if(!current)return {code:candidate.code,
+                                        status:"geometry_not_available"};
+                                    const neighbors=seatNodes.filter(n=>n.code!==candidate.code)
+                                        .map(n=>({
+                                            code:n.code,
+                                            label:n.label.slice(0,75),
+                                            dx:Math.round(n.x-current.x),
+                                            dy:Math.round(n.y-current.y),
+                                            distance:Math.round(Math.hypot(
+                                                n.x-current.x,n.y-current.y))
+                                        })).sort((a,b)=>a.distance-b.distance).slice(0,8);
+                                    return {
+                                        code:candidate.code,
+                                        status:"geometry_collected_not_verified",
+                                        nearbySeats:neighbors,
+                                        layoutVerification:"requires_explicit_seat_map_review",
+                                        fourPersonGroupExcluded:false
+                                    };
+                                });
                                 const preferred=(wagon===11?["233A","233D"]:
                                     wagon===8?["191D"]:wagon===7?["182A"]:[]);
                                 return {
@@ -956,6 +996,7 @@ def main():
                                     }),
                                     availableSeatLabels:seats.filter(s=>s.available)
                                         .slice(0,22).map(s=>s.label),
+                                    fallbackLayoutEvidence:layoutEvidence,
                                     fallbackCandidates:seats.filter(s=>s.available &&
                                         /Fensterplatz/i.test(s.label) &&
                                         /mit Tisch/i.test(s.label) &&
@@ -984,6 +1025,12 @@ def main():
                         for w in result["wagonAvailability"]:
                             if w.get("status")=="wagon_inspected":
                                 fallback.extend(w.get("fallbackCandidates",[]))
+                        layout_evidence=[
+                            {"wagon":w["wagon"],**candidate}
+                            for w in result["wagonAvailability"]
+                            if w.get("status")=="wagon_inspected"
+                            for candidate in w.get("fallbackLayoutEvidence",[])
+                        ]
                         fallback.sort(key=lambda c:(
                             {11:0,10:1,9:2,8:3,7:4}.get(c["wagon"],5),
                             c["code"]
@@ -995,6 +1042,7 @@ def main():
                             "fourPersonGroupsExcluded":False,
                             "verifiedSingleSeats":0,
                             "candidateCount":len(fallback),
+                            "layoutEvidence":layout_evidence[:20],
                             "suggestions":fallback[:20],
                             "candidateSummaryByWagon":[{
                                 "wagon":w["wagon"],
