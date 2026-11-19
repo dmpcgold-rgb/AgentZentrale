@@ -1921,7 +1921,7 @@ def main():
                     result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
                         const visible=e=>!!e.getClientRects().length &&
                             getComputedStyle(e).visibility!=="hidden";
-                        const norm=s=>(s||"").replace(/\\s+/g," ").trim();
+                        const norm=s=>(s||"").replace(/\s+/g," ").trim();
                         const main=document.querySelector("main")||document.body;
                         const text=norm(main.innerText||"");
                         // Only return booleans and explicitly labelled price
@@ -1936,20 +1936,20 @@ def main():
                                 prices.push({
                                   labelType:/Endpreis/i.test(t)?"final":
                                     /Zu zahlen/i.test(t)?"payable":"total",
-                                  containsZero:/\\b0[,.]00\\s*(?:€|EUR)|(?:€|EUR)\\s*0[,.]00\\b/.test(t),
-                                  containsNonzero:/\\b[1-9][0-9]*(?:[,.][0-9]{2})?\\s*(?:€|EUR)/.test(t)
+                                  containsZero:/\b0[,.]00\s*(?:€|EUR)|(?:€|EUR)\s*0[,.]00\b/.test(t),
+                                  containsNonzero:/\b[1-9][0-9]*(?:[,.][0-9]{2})?\s*(?:€|EUR)/.test(t)
                                 });
                             }
                         }
                         return {
                             status:"read_only_reviewed",
                             path:location.pathname,
-                            emptyCart:/Warenkorb\\s+ist\\s+leer/i.test(text),
+                            emptyCart:/Warenkorb\s+ist\s+leer/i.test(text),
                             selectedSeatVisible:new RegExp("(^|[^A-Za-z0-9])"+
                                 selected+"([^A-Za-z0-9]|$)").test(text),
-                            targetDateVisible:/20\\.11\\.2026|20\\. November 2026/.test(text),
+                            targetDateVisible:/20\.11\.2026|20\. November 2026/.test(text),
                             targetTimeVisible:/18:22/.test(text),
-                            targetTrainVisible:/\\b1009\\b/.test(text),
+                            targetTrainVisible:/\b1009\b/.test(text),
                             labelledPriceCandidates:prices.slice(0,8),
                             finalPriceVerified:false,
                             purchaseExecuted:false
