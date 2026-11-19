@@ -1996,7 +1996,12 @@ def main():
                                                      timeout=6000)
                         except Exception:
                             pass
-                        page.wait_for_timeout(700)
+                        # Timed waits themselves can throw while Chromium
+                        # replaces the execution context during navigation.
+                        try:
+                            page.wait_for_timeout(700)
+                        except Exception:
+                            pass
                         try:
                             current_path=urlsplit(page.url).path[:160]
                         except Exception:
@@ -2082,7 +2087,10 @@ def main():
                                                           timeout=8000)
                         except Exception:
                             pass
-                        page.wait_for_timeout(400)
+                        try:
+                            page.wait_for_timeout(400)
+                        except Exception:
+                            pass
                         for review_try in range(3):
                             try:
                                 result["checkoutReviewReadOnly"]=page.evaluate(r"""(selected) => {
@@ -2160,7 +2168,10 @@ def main():
                                                              timeout=5000)
                                 except Exception:
                                     pass
-                                page.wait_for_timeout(250)
+                                try:
+                                    page.wait_for_timeout(250)
+                                except Exception:
+                                    pass
                 except Exception as review_error:
                     # This is a read-only probe. Its failure must not make
                     # an already-sent approval result disappear.
