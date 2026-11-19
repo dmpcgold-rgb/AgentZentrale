@@ -1,5 +1,6 @@
 import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
+import {FIRST_UNRESERVED_DATE} from '../src/core/westbahn.js';
 
 export const DEFAULT_RESERVATION_PLAN=Object.freeze({
  origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',
@@ -62,7 +63,7 @@ export function reservationDates(plan,at=new Date(),clock=null){
  const out=[];
  for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
   const date=iso(d),weekday=d.getUTCDay()||7;
-  if(days.has(weekday)&&(date!==today||`${local.hour||'00'}:${local.minute||'00'}`<config.departure))
+  if(date>=FIRST_UNRESERVED_DATE&&days.has(weekday)&&(date!==today||`${local.hour||'00'}:${local.minute||'00'}`<config.departure))
    out.push(date);
  }
  return out;
