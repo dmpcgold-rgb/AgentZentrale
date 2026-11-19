@@ -32,6 +32,23 @@ class Discovery(unittest.TestCase):
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?disable-minify=1&version=123&token=x"))
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?group=main&debug=1"))
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?version=%2Ftmp%2Ffoo"))
+    def test_resolve_script_relative_to_html_base(self):
+        markup='''<html><head><base href="/"></head><body>
+        <script src="build/TicketBooking.a1b2.js?disable-minify=0&amp;version=2"></script>
+        </body></html>'''
+        urls,diagnostic=probe.discover_assets(markup)
+        self.assertEqual(urls,[
+            "https://westbahn.at/build/TicketBooking.a1b2.js?disable-minify=0&version=2"
+        ])
+        self.assertTrue(diagnostic["htmlBasePresent"])
+        self.assertTrue(diagnostic["htmlBaseTrusted"])
+        self.assertEqual(diagnostic["effectiveBasePath"],"/")
+    def test_external_html_base_is_not_followed(self):
+        markup='''<html><base href="https://evil.example/">
+        <script src="build/TicketBooking.a1b2.js?disable-minify=0&amp;version=2"></script></html>'''
+        urls,diagnostic=probe.discover_assets(markup)
+        self.assertFalse(diagnostic["htmlBaseTrusted"])
+        self.assertTrue(all(u.startswith("https://westbahn.at/") for u in urls))
     def test_no_unsafe_fetch(self):
         self.assertFalse(probe.safe_url("https://westbahn.at/a.js?token=secret"))
         self.assertTrue(probe.safe_url("https://westbahn.at/a.js?v=1.2.3"))
