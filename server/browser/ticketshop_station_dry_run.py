@@ -482,25 +482,26 @@ def main():
                             "method":"POST","path":u.path})
                         route.continue_()
                         return
-                    # Permit ONE terminal order request, only while a
-                    # verified zero-EUR checkout confirmation is being clicked.
-                    # No arbitrary payment requests, no retries.
+                    # The public WESTbahn client names this exact JSON POST
+                    # createOrder (Common + App JS, 2026-11-19).
+                    # No guessed order paths, arbitrary payment endpoints or
+                    # retry when an attempt marker exists. The existing
+                    # reverified checkout DOM arms this guard only briefly.
+                    # A click alone does not authorize a second request.
                     final_post=(
                         req.method.upper()=="POST"
                         and u.scheme=="https"
                         and u.hostname in ("westbahn.at","www.westbahn.at")
                         and u.port in (None,443)
+                        and u.path=="/ticketshop/payment-init"
                         and not u.query and not u.fragment
                         and req.resource_type in ("fetch","xhr")
                         and not req.is_navigation_request()
-                        and (u.path.startswith("/ticketshop/") or
-                             u.path.startswith("/api/v1/"))
-                        and any(term in u.path.lower() for term in
-                            ("/order/","/booking/","/checkout/","/purchase/",
-                             "/payment/complete","/payment/confirm"))
-                        and not any(term in u.path.lower() for term in
-                            ("cancel","delete","remove","refund","method",
-                             "charge","capture","card","pay-with","tokenize"))
+                        and req.headers.get("content-type","").split(";")[0].strip().lower()
+                            =="application/json"
+                        and CURRENT_STAGE=="one_time_zero_euro_checkout_action"
+                        and purchase_opt_in
+                        and approval_state["approvedRequestSent"]
                         and checkout_state["armed"]
                         and not checkout_state["attempted"]
                         and not checkout_marker.exists()
@@ -519,7 +520,7 @@ def main():
                         checkout_state["attempted"]=True
                         checkout_state["requestSent"]=True
                         checkout_state["path"]=u.path
-                        checkout_state["reason"]="one_verified_zero_euro_order_request"
+                        checkout_state["reason"]="verified_create_order_endpoint_one_shot"
                         route.continue_()
                         return
                     if req.method.upper() not in ("GET","HEAD"):
@@ -629,7 +630,7 @@ def main():
                             # Only endpoint metadata. Never log request bodies,
                             # query parameters, account details or credentials.
                             reason=(
-                                "payment_init_endpoint_not_verified"
+                                "create_order_not_armed_or_safety_gate_failed"
                                 if u.path=="/ticketshop/payment-init"
                                 else "payment_method_read_limit_reached"
                                 if u.path=="/ticketshop/payment/payment-methods"
@@ -2524,10 +2525,10 @@ def main():
                                 and checkout_action["status"]==
                                     "button_clicked_no_verified_order_request"):
                                 blocked_checkout=network["checkoutBlockedRequests"]
-                                if any(x["reason"]=="payment_init_endpoint_not_verified"
+                                if any(x["reason"]=="create_order_not_armed_or_safety_gate_failed"
                                        for x in blocked_checkout):
                                     checkout_action["status"]=(
-                                        "unmapped_payment_init_blocked_no_order_sent")
+                                        "create_order_safety_gate_blocked_no_order_sent")
                                 elif any(x["reason"]=="payment_method_read_limit_reached"
                                          for x in blocked_checkout):
                                     checkout_action["status"]=(
@@ -2631,6 +2632,7 @@ def main():
                     "matchingPostSubmitBasketVerified":matching_post_submit_basket_verified,
                     "approvalIsPotentiallyBinding":True,
                     "oneTerminalOrderRequestConditionallyAllowed":True,
+                    "verifiedCreateOrderEndpoint":"/ticketshop/payment-init",
                     "unverifiedPaymentRequestsAllowed":False,
                     "providerBasketQuote":(network["basketTotalEvidence"][-1]
                                            if network["basketTotalEvidence"]
