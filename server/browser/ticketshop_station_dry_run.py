@@ -186,13 +186,32 @@ def main():
                                 parsed=json.loads(raw) if raw else None
                             except (ValueError,TypeError):
                                 pass
+                            # Multipart form-data is expected by this endpoint.
+                            # Inspect names ONLY; never expose names, values, tokens,
+                            # passenger data, or identifiers outside a small whitelist.
+                            import re
+                            field_names=re.findall(
+                                r'Content-Disposition:\\s*form-data;[^\\r\\n]*?name="([^"]{1,90})"',
+                                raw,re.IGNORECASE)
+                            safe_categories=("amount","total","price","sum",
+                                             "fare","ticket","train","seat",
+                                             "date","route","journey","tariff")
+                            semantic_fields=sorted({
+                                key.lower() for key in field_names
+                                if key.lower() in safe_categories
+                            })
                             network["approvalRequestStructure"]={
                                 "method":"POST","path":u.path,
                                 "contentType":req.headers.get("content-type","").split(";")[0][:55],
-                                "bodyFormat":("json" if isinstance(parsed,(dict,list))
-                                              else ("empty" if not raw else "opaque")),
-                                "topLevelKeys":sorted(k[:48] for k in parsed.keys())[:30]
-                                                if isinstance(parsed,dict) else [],
+                                "bodyFormat":("multipart/form-data" if "multipart/form-data" in
+                                             req.headers.get("content-type","").lower()
+                                             else ("json" if isinstance(parsed,(dict,list))
+                                                   else ("empty" if not raw else "opaque"))),
+                                "multipartFieldCount":len(field_names),
+                                "safeSemanticFieldNames":semantic_fields,
+                                "hasPriceField":any(k in field_names for k in
+                                    ("amount","total","price","sum")),
+                                "providerFinalPriceVerified":False,
                                 "wasSent":False
                             }
                         if u.hostname in ("westbahn.at","www.westbahn.at"):
