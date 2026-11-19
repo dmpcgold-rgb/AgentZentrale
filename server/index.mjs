@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
 import { createWestbahn, loadWestbahn } from './westbahn.mjs';
-import {createReservationPlanStore,reservationDates,DEFAULT_RESERVATION_PLAN} from './reservation-plan.mjs';
+import {createReservationPlanStore,reservationDates,DEFAULT_RESERVATION_PLAN,isLegacyReservationPlan} from './reservation-plan.mjs';
 import { createWeeklyReview,applyVerifiedBatch } from './weekly-review.mjs';
 import {createWeeklyGmailConfirmation} from './gmail-confirmation.mjs';
 import { bookingReadiness } from './booking-readiness.mjs';
@@ -18,8 +18,8 @@ const MAX_FILE = 25_000;
 const MAX_PROMPT = 1800;
 const MAX_PROPOSALS = 25;
 
-export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null } = {}) {
-  const reservationPlan=createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
+export function createAgentHandler({ env = process.env, fetchImpl = fetch, now = Date.now, proposals = new Map(), westbahn = createWestbahn(), browser = createBrowser({env}), review=null,sharedReservationPlan=null } = {}) {
+  const reservationPlan=sharedReservationPlan||createReservationPlanStore({file:env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
   const attempts = new Map();
   let dailyUsage = { day: '', count: 0 };
   const configuredToken = env.AGENTZENTRALE_ACCESS_TOKEN || '';
@@ -222,8 +222,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       // Current provider adapter and Gmail matching are fixed to the historic
       // default route/time/weekdays. Never silently book defaults after the user
       // saved a different itinerary. Booking requires a separate verified adapter.
-      const planCanUseLegacyAdapter=()=>JSON.stringify(reservationPlan.get())===
-        JSON.stringify({...DEFAULT_RESERVATION_PLAN,weekdays:[...DEFAULT_RESERVATION_PLAN.weekdays]});
+      const planCanUseLegacyAdapter=()=>isLegacyReservationPlan(reservationPlan.get());
             if (is('POST', '/westbahn/settings')) {
         const body = await readJson(req);
         if (typeof body.enabled !== 'boolean' || (body.enabled && body.confirm !== 'NUR-0-EURO')) throw new ApiError(400, 'Ausdrückliche Freigabe für automatische 0-Euro-Buchungen erforderlich.');
@@ -321,7 +320,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   try {
     const host = process.env.HOST || '127.0.0.1';
     const port = Number(process.env.PORT || 8787);
-    const westbahn = await loadWestbahn();
+    const sharedReservationPlan=createReservationPlanStore({file:process.env.WESTBAHN_PLAN_STATE||'./data/westbahn-plan.json'});
+    const westbahn = await loadWestbahn(process.env,sharedReservationPlan);
     const browser=createBrowser();
     const review=createWeeklyReview({
       westbahn,browser:browser.status().enabled?browser:null,
@@ -349,7 +349,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
       }catch(e){console.error('WESTbahn-Zeitplan:',e.message);}
       finally{scheduling=false;}
     },30_000).unref();
-    createServer(createAgentHandler({westbahn,browser,review})).listen(port,host,
+    createServer(createAgentHandler({westbahn,browser,review,sharedReservationPlan})).listen(port,host,
       ()=>console.log(`AgentZentrale Gateway läuft auf ${host}:${port}`));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
