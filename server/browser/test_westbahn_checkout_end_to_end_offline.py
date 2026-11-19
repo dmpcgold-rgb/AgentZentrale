@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import subprocess
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -38,6 +39,20 @@ process.stdout.write(JSON.stringify(Function("return ("+fn+")")()(data.seat)));
                       json.dumps({"text":text,"seat":selected,"path":path})],
                      check=True,capture_output=True,text=True,timeout=12)
     return json.loads(p.stdout)
+
+def classify_production_order_response(status=None):
+    """Execute the actual production HTTP-outcome classification without HTTP."""
+    s=SOURCE.read_text(encoding="utf-8")
+    start=s.index('                            order_responses=network["checkoutOrderResponses"]')
+    end=s.index('                            checkout_action["currentPath"]',start)
+    code=textwrap.dedent(s[start:end])
+    responses=[] if status is None else [{"status":status,"ok":status<400}]
+    state={"network":{"checkoutOrderResponses":responses},
+           "checkout_state":{"requestSent":True},
+           "checkout_action":{"ticketConfirmed":False}}
+    exec(compile(code,"<production-order-response>","exec"),{},state)
+    return state["checkout_action"]
+
 
 AGB_TEXT="Ich akzeptiere die Allgemeinen Geschäftsbedingungen der Westbahn."
 
@@ -98,6 +113,21 @@ class CheckoutE2ESimulation(unittest.TestCase):
         self.assertEqual(simulate_checkout(zero=False)["outgoingRequests"],0)
     def test_previous_approval_marker_stops_before_order(self):
         self.assertEqual(simulate_checkout(duplicate=True)["outgoingRequests"],0)
+    def test_http_200_is_not_ticket_confirmation(self):
+        result=classify_production_order_response(200)
+        self.assertEqual(result["status"],
+                         "final_order_http_accepted_ticket_unverified")
+        self.assertFalse(result["ticketConfirmed"])
+    def test_http_422_stops_without_retry(self):
+        result=classify_production_order_response(422)
+        self.assertEqual(result["status"],
+                         "final_order_http_rejected_no_retry")
+        self.assertFalse(result["ticketConfirmed"])
+    def test_no_http_response_is_unknown_no_retry(self):
+        result=classify_production_order_response()
+        self.assertEqual(result["status"],
+                         "final_order_response_unknown_no_retry")
+        self.assertFalse(result["ticketConfirmed"])
     def test_provider_failure_has_no_retry(self):
         out=simulate_checkout(response=500)
         self.assertEqual(out["outgoingRequests"],1)
