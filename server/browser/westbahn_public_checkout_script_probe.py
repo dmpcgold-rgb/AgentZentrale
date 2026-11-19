@@ -49,11 +49,11 @@ def get_public(url):
 
 def script_urls(markup):
     sources = re.findall(
-        r"<script\b[^>]*?\bsrc\s*=\s*['\\"]([^'\\"]+)['\\"]",
+        r"""<script\b[^>]*?\bsrc\s*=\s*['"]([^'"]+)['"]""",
         markup, flags=re.IGNORECASE)
     # Some bundlers also preload scripts before inserting a script tag.
     sources += re.findall(
-        r"<link\b[^>]*?\bhref\s*=\s*['\\"]([^'\\"]+\.js(?:[^'\\"]*)?)['\\"]",
+        r"""<link\b[^>]*?\bhref\s*=\s*['"]([^'"]+\.js(?:[^'"]*)?)['"]""",
         markup, flags=re.IGNORECASE)
     urls = []
     for source in sources:
