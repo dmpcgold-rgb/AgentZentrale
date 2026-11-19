@@ -7,10 +7,10 @@ export const DEFAULT_RESERVATION_PLAN=Object.freeze({
  bookingWindowStart:'07:00',bookingWindowEnd:'19:00'
 });
 export const HORIZONS=Object.freeze(['1w','2w','4w','2m','6m']);
-const VALID_HHMM=/^(?:[01]\\d|2[0-3]):[0-5]\\d$/;
+const VALID_HHMM=/^(?:[01]\d|2[0-3]):[0-5]\d$/;
 function isValidStation(value){
  return typeof value==='string'&&value.trim()===value&&value.length>=3&&
-  value.length<=100&&!/[<>\\x00-\\x1f]/.test(value);
+  value.length<=100&&!/[<>\x00-\x1f]/.test(value);
 }
 export function validateReservationPlan(value){
  if(!value||typeof value!=='object'||Array.isArray(value))
