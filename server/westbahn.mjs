@@ -15,7 +15,7 @@ export function verifiedAccountReadback(snapshot, date, seat, bookingId){
         snapshot.receipt.bookingId===bookingId;
 }
 const empty=()=>({enabled:false,rows:{},lastSchedule:null,lastRun:null});
-export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
+export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailConfirm=null}={}){
  let state=empty(), running=false;
  if(file){try{state=JSON.parse(readFileSync(file,'utf8'));if(!state.rows||typeof state.enabled!=='boolean')throw new Error('Invalid ledger');}catch(e){if(e.code!=='ENOENT')throw e;}}
  const save=()=>{if(file){mkdirSync(dirname(file),{recursive:true,mode:0o700});writeFileSync(file+'.tmp',JSON.stringify(state),{mode:0o600});renameSync(file+'.tmp',file);}};
@@ -90,7 +90,46 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
-   for(const date of planDates(now())){
+   const upcoming=planDates(now()).slice(0,5);
+   // If read-only Gmail verification is configured, check once BEFORE any
+   // provider write. Failure must never be interpreted as no existing ticket.
+   if(gmailConfirm){
+    let email;
+    try{email=await gmailConfirm(upcoming);}
+    catch{email=null;}
+    if(email?.status!=='email_week_checked'||
+       email.bookingAuthorized!==false||
+       !Array.isArray(email.confirmed)||
+       email.confirmed.length>5||
+       !Array.isArray(email.conflictingDates)||
+       email.conflictingDates.length>0){
+     state.lastRun={...state.lastRun,status:'blocked_email_unavailable',
+                    finishedAt:now().toISOString()};
+     return status();
+    }
+    const observed=new Set();
+    for(const receipt of email.confirmed){
+     if(!receipt||!upcoming.includes(receipt.date)||
+        !/^[0-9]{3}[A-D]$/.test(receipt.seat)||
+        receipt.source!=='official_email'||observed.has(receipt.date)){
+      state.lastRun={...state.lastRun,status:'blocked_email_unavailable',
+                     finishedAt:now().toISOString()};
+      return status();
+     }
+     observed.add(receipt.date);
+    }
+    for(const receipt of email.confirmed){
+     try{recordVerifiedEmail(receipt.date,receipt.seat);}
+     catch{
+      state.lastRun={...state.lastRun,status:'blocked_email_conflict',
+                     finishedAt:now().toISOString()};
+      return status();
+     }
+    }
+   }
+   // A single scheduled cycle may consider at most five upcoming weekdays.
+   // The six-month planning horizon is for visibility, never for bulk checkout.
+   for(const date of upcoming){
     const existing=state.rows[date]; if(existing&&['confirmed','uncertain','booking','user_reported','existing_verified'].includes(existing.status))continue;
     try{
      const before=await adapter.existing({date,...RULES});
@@ -147,4 +186,6 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date()}={}){
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
 export async function loadWestbahn(env=process.env){let adapter=null;if(env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
- return createWestbahn({adapter,file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
+ const gmailConfirm=env.WESTBAHN_GMAIL_CONFIRMATION_ENABLED==='1'
+  ?(await import('./gmail-confirmation.mjs')).createWeeklyGmailConfirmation({env}):null;
+ return createWestbahn({adapter,gmailConfirm,file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
