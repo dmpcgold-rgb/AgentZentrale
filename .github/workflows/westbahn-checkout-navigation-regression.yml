@@ -12,6 +12,7 @@ on:
       - 'server/browser/test_westbahn_owner_recovery4_offline.py'
       - 'server/browser/test_westbahn_seat_basket_evidence_offline.py'
       - 'server/browser/test_westbahn_seat_dialog_settle_offline.py'
+      - 'server/browser/test_westbahn_checkout_blocked_endpoint_offline.py'
       - '.github/workflows/westbahn-checkout-navigation-regression.yml'
   pull_request:
     paths:
@@ -28,4 +29,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Offline checkout review retry tests (no network)
-        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py server/browser/test_westbahn_recovery3_offline.py server/browser/test_checkout_link_classification_offline.py server/browser/test_westbahn_auto_agb_offline.py server/browser/test_westbahn_final_order_guard_offline.py server/browser/test_westbahn_checkout_end_to_end_offline.py server/browser/test_westbahn_owner_recovery4_offline.py server/browser/test_westbahn_seat_basket_evidence_offline.py server/browser/test_westbahn_seat_dialog_settle_offline.py
+        run: python -m unittest -v server/browser/test_checkout_navigation_race_offline.py server/browser/test_westbahn_recovery3_offline.py server/browser/test_checkout_link_classification_offline.py server/browser/test_westbahn_auto_agb_offline.py server/browser/test_westbahn_final_order_guard_offline.py server/browser/test_westbahn_checkout_end_to_end_offline.py server/browser/test_westbahn_owner_recovery4_offline.py server/browser/test_westbahn_seat_basket_evidence_offline.py server/browser/test_westbahn_seat_dialog_settle_offline.py server/browser/test_westbahn_checkout_blocked_endpoint_offline.py

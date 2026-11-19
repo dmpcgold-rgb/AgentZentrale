@@ -310,7 +310,7 @@ def main():
                                    else "nonzero_or_unrecognized_total",
                             "totalFieldName":key}
                 network={"allowedTimetableReads":[],"allowedBasketAdd":[],"allowedSeatLookup":[],"seatLookupResponses":[],"allowedSeatUpdate":[],"seatUpdateResponses":[],"allowedBasketRead":[],"basketReadResponses":[],"blockedFirstPartyWrites":[],"failedFirstPartyRequests":[],
-                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"paymentMethodReads":[],"checkoutOrderResponses":[],"firstPartyRequestsByMethod":{}}
+                         "httpErrors":[],"basketAddResponses":[],"basketTotalEvidence":[],"basketApprovalResponses":[],"paymentMethodReads":[],"checkoutOrderResponses":[],"checkoutBlockedRequests":[],"firstPartyRequestsByMethod":{}}
                 def on_failed(req):
                     u=urlsplit(req.url)
                     if u.hostname in ("westbahn.at","www.westbahn.at"):
@@ -623,6 +623,25 @@ def main():
                                 "providerFinalPriceVerified":False,
                                 "wasSent":False
                             }
+                        if (u.hostname in ("westbahn.at","www.westbahn.at")
+                            and CURRENT_STAGE=="one_time_zero_euro_checkout_action"
+                            and len(network["checkoutBlockedRequests"])<12):
+                            # Only endpoint metadata. Never log request bodies,
+                            # query parameters, account details or credentials.
+                            reason=(
+                                "payment_init_endpoint_not_verified"
+                                if u.path=="/ticketshop/payment-init"
+                                else "payment_method_read_limit_reached"
+                                if u.path=="/ticketshop/payment/payment-methods"
+                                else "order_endpoint_not_in_allowlist_or_not_armed"
+                            )
+                            network["checkoutBlockedRequests"].append({
+                                "method":req.method.upper(),
+                                "path":u.path[:100],
+                                "reason":reason,
+                                "checkoutArmedAtBlock":bool(checkout_state["armed"]),
+                                "checkoutRequestAlreadySent":bool(checkout_state["requestSent"])
+                            })
                         if u.hostname in ("westbahn.at","www.westbahn.at"):
                             item={"method":req.method,"path":u.path[:130],
                                   "resourceType":req.resource_type,
@@ -2492,6 +2511,23 @@ def main():
                                 else checkout_action["status"])
                             checkout_action["requestResponses"]=network[
                                 "checkoutOrderResponses"]
+                            checkout_action["blockedCheckoutRequests"]=network[
+                                "checkoutBlockedRequests"]
+                            # A click alone does not prove that a final order
+                            # was attempted. Report the exact observed blocker
+                            # without permitting a previously unknown mutation.
+                            if (not checkout_state["requestSent"]
+                                and checkout_action["status"]==
+                                    "button_clicked_no_verified_order_request"):
+                                blocked_checkout=network["checkoutBlockedRequests"]
+                                if any(x["reason"]=="payment_init_endpoint_not_verified"
+                                       for x in blocked_checkout):
+                                    checkout_action["status"]=(
+                                        "unmapped_payment_init_blocked_no_order_sent")
+                                elif any(x["reason"]=="payment_method_read_limit_reached"
+                                         for x in blocked_checkout):
+                                    checkout_action["status"]=(
+                                        "payment_method_read_limit_blocked_no_order_sent")
                             # Transport status alone does not confirm a ticket.
                             # Never retry after an ambiguous result.
                             order_responses=network["checkoutOrderResponses"]
@@ -2626,6 +2662,7 @@ def main():
                         "cartSubmitReadiness":result.get("cartSubmitReadiness"),
                         "cartSubmissionDiagnostic":result.get("cartSubmissionDiagnostic"),
                         "blockedFirstPartyWrites":network["blockedFirstPartyWrites"],
+                        "checkoutBlockedRequests":network["checkoutBlockedRequests"],
                         "purchaseGate":result["purchaseGate"],
                         "bookingAuthorized":bool(checkout_state["requestSent"]),
                         "purchaseExecuted":False
