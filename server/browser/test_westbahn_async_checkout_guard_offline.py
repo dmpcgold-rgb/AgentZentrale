@@ -24,9 +24,11 @@ class Safety(unittest.TestCase):
         self.assertIn('os.O_CREAT|os.O_EXCL|os.O_WRONLY',SHOP)
         self.assertIn('req.resource_type in ("fetch","xhr")',SHOP)
         self.assertIn('not req.is_navigation_request()',SHOP)
-    def test_unknown_payment_init_still_blocked(self):
-        self.assertIn('"payment_init_endpoint_not_verified"',SHOP)
-        self.assertNotIn('and u.path=="/ticketshop/payment-init"\n',SHOP)
+    def test_create_order_one_shot_and_unknown_endpoints_blocked(self):
+        self.assertIn('"create_order_not_armed_or_safety_gate_failed"',SHOP)
+        self.assertIn('and u.path=="/ticketshop/payment-init"',SHOP)
+        self.assertIn('and not checkout_marker.exists()',SHOP)
+        self.assertIn('and purchase_opt_in',SHOP)
     def test_public_probe_is_get_only_and_unauthenticated(self):
         self.assertIn('method="GET"',PROBE)
         self.assertIn('HOSTS = {"westbahn.at", "www.westbahn.at"}',PROBE)
