@@ -83,7 +83,29 @@ def main():
                             keys=[k for k in obj if isinstance(k,str)]
                             known=[{"key":k,"type":classify(obj[k])}
                                    for k in keys if any(x in k.lower() for x in allowed)]
+                            # Diagnose unnamed wrapper values by type only.
+                            # Never return unknown keys, raw HTML, numbers,
+                            # booking IDs, user details or customer values.
+                            unknown_types=[classify(obj[k]) for k in keys
+                                           if not any(x in k.lower() for x in allowed)]
+                            unknown_string_shapes=[]
+                            for k in keys:
+                                if any(x in k.lower() for x in allowed):
+                                    continue
+                                value=obj[k]
+                                if isinstance(value,str):
+                                    stripped=value.lstrip()
+                                    unknown_string_shapes.append({
+                                        "looksLikeHtml":stripped.startswith("<"),
+                                        "looksLikeJson":stripped.startswith(("{","[")),
+                                        "isEmpty":not stripped,
+                                        "lengthBand":("empty" if not value else
+                                                      "short" if len(value)<80 else
+                                                      "medium" if len(value)<1000 else "long")
+                                    })
                             return {"type":"object","fieldCount":len(keys),
+                                    "unknownFieldTypes":unknown_types[:12],
+                                    "unknownStringShapes":unknown_string_shapes[:6],
                                     "monetaryOrContainerFields":known[:20],
                                     "children":[{"via":k,"structure":inspect(obj[k],level+1)}
                                                 for k in ("data","result","basket","cart",
