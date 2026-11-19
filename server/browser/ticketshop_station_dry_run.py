@@ -16,8 +16,10 @@ from playwright.sync_api import sync_playwright
 URL = "https://westbahn.at/ticketshop/ticket-buchen/"
 ORIGIN = "Wien Meidling"
 DESTINATION = "Wiener Neustadt Hbf"
+CURRENT_STAGE = "startup"
 
 def main():
+    global CURRENT_STAGE
     root = Path(os.environ.get("WESTBAHN_BROWSER_PROFILE", "./data/westbahn-browser")).resolve()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (root / ".agent.lock").open("a") as lock:
@@ -144,6 +146,7 @@ def main():
                     route.continue_()
                 context.route("**/*",guard)
                 page=context.pages[0] if context.pages else context.new_page()
+                CURRENT_STAGE="opening_ticketshop"
                 page.goto(URL,wait_until="domcontentloaded",timeout=25000)
                 page.wait_for_timeout(1300)
                 result={"status":"station_selection_dry_run","bookingAuthorized":False,
@@ -157,6 +160,7 @@ def main():
                         result["steps"].append({"field":name,"status":"ambiguous_field",
                                                  "count":field.count()})
                         break
+                    CURRENT_STAGE="choosing_station"
                     field.fill(target,timeout=5000)
                     page.wait_for_timeout(700)
                     # Match only named railway station options. An alternate
@@ -230,6 +234,7 @@ def main():
                         result["datePicker"]={"status":"editor_missing_or_ambiguous",
                                               "count":editor.count()}
                     else:
+                        CURRENT_STAGE="opening_date_picker"
                         editor.click(timeout=4000)
                         page.wait_for_timeout(350)
                         month=page.get_by_role("button",name="November 2026",exact=True)
@@ -264,6 +269,7 @@ def main():
                             "dayCandidates":day_candidates
                         }
                         if month.count()==1 and month.is_visible() and day_locator.count()==1 and day_locator.is_visible() and day_locator.is_enabled():
+                            CURRENT_STAGE="choosing_date"
                             day_locator.click(timeout=4000)
                             page.wait_for_timeout(350)
                             # Inspect only the outward date field and any
@@ -469,6 +475,7 @@ def main():
                                     }""")
                                     tile=tile_handle.as_element()
                                     if tile is not None and tile.is_visible():
+                                        CURRENT_STAGE="opening_train_1009"
                                         tile.click(timeout=5000)
                                         page.wait_for_timeout(850)
                                         result["trainSelectionDiagnostic"]=page.evaluate(r"""() => {
@@ -527,6 +534,7 @@ def main():
                                         }""")
                                         comfort_button=comfort_target.as_element()
                                         if comfort_button is not None and comfort_button.is_visible():
+                                            CURRENT_STAGE="opening_comfort_2plus"
                                             comfort_button.click(timeout=4500)
                                             page.wait_for_timeout(800)
                                             result["comfortClassDiagnostic"]=page.evaluate(r"""() => {
@@ -622,6 +630,7 @@ def main():
                                             }""")
                                             fare_radio=fare_handle.as_element()
                                             if fare_radio is not None and fare_radio.is_visible():
+                                                CURRENT_STAGE="selecting_klimaticket_fare"
                                                 fare_radio.check(timeout=4500)
                                                 page.wait_for_timeout(500)
                                                 result["climateFareSelection"]=page.evaluate(r"""() => {
@@ -792,6 +801,7 @@ def main():
                     and any(x.get("ok") for x in result["seatLookupDiagnostic"]["responses"])):
                     change=page.get_by_role("button",name="Ändern",exact=True)
                     if change.count()==1 and change.is_visible():
+                        CURRENT_STAGE="opening_seat_dialog"
                         change.click(timeout=4000)
                         page.wait_for_timeout(850)
                         result["seatMapDiagnostic"]=page.evaluate(r"""() => {
@@ -849,6 +859,7 @@ def main():
                                     "count":wagon_button.count()
                                 })
                                 continue
+                            CURRENT_STAGE="switching_wagon"
                             wagon_button.click(timeout=4500)
                             page.wait_for_timeout(650)
                             inspected=page.evaluate(r"""(wagon) => {
@@ -940,6 +951,7 @@ def main():
                                 )
                                 if (target_wagon.count()==1
                                     and target_wagon.is_enabled()):
+                                    CURRENT_STAGE="switching_to_priority_wagon"
                                     target_wagon.click(timeout=4500)
                                     page.wait_for_timeout(450)
                                     seat=page.evaluate_handle(r"""(code) => {
@@ -959,6 +971,7 @@ def main():
                                     }""",code)
                                     seat_el=seat.as_element()
                                     if seat_el is not None and seat_el.is_enabled():
+                                        CURRENT_STAGE="highlighting_priority_seat"
                                         seat_el.click(timeout=4500)
                                         page.wait_for_timeout(400)
                                         result["prioritySeatChoice"]=page.evaluate(r"""(code) => {
@@ -993,6 +1006,7 @@ def main():
                                         if result["prioritySeatChoice"].get("selected"):
                                             finish=page.get_by_role("button",name="Fertig",exact=True)
                                             if finish.count()==1 and finish.is_visible():
+                                                CURRENT_STAGE="confirming_seat_in_form"
                                                 finish.click(timeout=4500)
                                                 page.wait_for_timeout(650)
                                                 summary=page.evaluate(r"""(code) => {
@@ -1060,4 +1074,5 @@ if __name__=="__main__":
     except Exception as error:
         print(json.dumps({"status":"station_selection_blocked",
                           "errorClass":type(error).__name__[:48],
+                          "errorStage":CURRENT_STAGE,
                           "bookingAuthorized":False,"purchaseExecuted":False}))
