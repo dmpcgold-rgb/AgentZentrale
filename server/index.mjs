@@ -303,11 +303,24 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
         process.env.WESTBAHN_WEEKLY_READONLY_ENABLED!=='false',
       file:process.env.WESTBAHN_REVIEW_STATE||'./data/westbahn-review.json'
     });
-    setInterval(() => review.tick().catch(e =>
-      console.error('WESTbahn-Lesekontrolle:',e.message)),30_000).unref();
-    // Booking attempts remain disabled without a verified checkout adapter.
-    setInterval(() => westbahn.tick().catch(e =>
-      console.error('WESTbahn-Zeitplan:',e.message)),30_000).unref();
+    // One serialized scheduler: the read-only weekly account/Gmail audit
+    // must complete before an adapter-driven booking run can be considered.
+    // A failed or missing email audit never authorizes an unattended checkout.
+    let scheduling=false;
+    setInterval(async()=>{
+      if(scheduling)return;
+      scheduling=true;
+      try{
+        try{await review.tick();}
+        catch(e){console.error('WESTbahn-Lesekontrolle:',e.message);}
+        const verified=review.status();
+        if(verified.lastSuccessWeek &&
+           verified.lastRun?.emailStatus==='email_week_checked' &&
+           verified.lastSchedule===verified.lastSuccessWeek)
+          await westbahn.tick();
+      }catch(e){console.error('WESTbahn-Zeitplan:',e.message);}
+      finally{scheduling=false;}
+    },30_000).unref();
     createServer(createAgentHandler({westbahn,browser,review})).listen(port,host,
       ()=>console.log(`AgentZentrale Gateway läuft auf ${host}:${port}`));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
