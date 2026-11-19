@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 URL = "https://westbahn.at/ticketshop/ticket-buchen/"
 ORIGIN = "Wien Meidling"
@@ -1007,36 +1007,84 @@ def main():
                                             finish=page.get_by_role("button",name="Fertig",exact=True)
                                             if finish.count()==1 and finish.is_visible():
                                                 CURRENT_STAGE="confirming_seat_in_form"
-                                                finish.click(timeout=4500)
-                                                page.wait_for_timeout(650)
-                                                summary=page.evaluate(r"""(code) => {
-                                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                # A prior click timed out. Capture
+                                                # actionability/overlay state rather
+                                                # than retrying blindly or forcing a
+                                                # click through obstructing UI.
+                                                result["finishButtonDiagnostic"]=page.evaluate(r"""() => {
                                                     const vis=e=>!!e.getClientRects().length &&
                                                         getComputedStyle(e).visibility!=="hidden";
-                                                    const main=document.querySelector("main")||document.body;
-                                                    const codeButtons=[...main.querySelectorAll("button")]
-                                                        .filter(vis).map(e=>norm(e.getAttribute("aria-label")||e.innerText))
-                                                        .filter(x=>x===code);
-                                                    const dialogs=[...document.querySelectorAll('[role=dialog]')]
-                                                        .filter(vis);
+                                                    const buttons=[...document.querySelectorAll("button")]
+                                                        .filter(e=>(e.getAttribute("aria-label")||
+                                                            e.innerText||"").trim()==="Fertig");
                                                     return {
-                                                        code,
-                                                        selectedSeatShownInForm:codeButtons.length===1,
-                                                        selectedSeatButtonCount:codeButtons.length,
-                                                        seatDialogStillVisible:dialogs.length>0,
-                                                        cartSubmitClicked:false,
-                                                        purchaseExecuted:false
+                                                        matchedButtons:buttons.length,
+                                                        controls:buttons.slice(0,4).map(e=>{
+                                                            const rect=e.getBoundingClientRect();
+                                                            const x=rect.left+rect.width/2,y=rect.top+rect.height/2;
+                                                            const top=document.elementFromPoint(x,y);
+                                                            const dialog=e.closest('[role=dialog]');
+                                                            return {
+                                                                visible:vis(e),
+                                                                disabled:e.disabled,
+                                                                ariaDisabled:e.getAttribute("aria-disabled"),
+                                                                inDialog:!!dialog,
+                                                                pointerEvents:getComputedStyle(e).pointerEvents,
+                                                                rect:{x:Math.round(rect.x),y:Math.round(rect.y),
+                                                                    w:Math.round(rect.width),h:Math.round(rect.height)},
+                                                                centerHitIsButton:top===e||e.contains(top),
+                                                                centerHitTag:top?top.tagName.toLowerCase():null,
+                                                                centerHitClass:top&&typeof top.className==="string"
+                                                                    ?top.className.slice(0,90):null
+                                                            };
+                                                        }),
+                                                        seatPickerDialogCount:[...document.querySelectorAll(
+                                                            '[role=dialog]')].filter(vis).length
                                                     };
-                                                }""",code)
-                                                result["seatFormConfirmation"]=summary
-                                                result["prioritySeatChoice"]["confirmed"]=bool(
-                                                    summary["selectedSeatShownInForm"]
-                                                )
-                                                result["prioritySeatChoice"]["status"]=(
-                                                    "priority_seat_applied_to_form"
-                                                    if summary["selectedSeatShownInForm"]
-                                                    else "seat_form_confirmation_unverified"
-                                                )
+                                                }""")
+                                                try:
+                                                    finish.click(timeout=3500,no_wait_after=True)
+                                                    result["finishButtonDiagnostic"]["clickOutcome"]="clicked"
+                                                except PlaywrightTimeoutError:
+                                                    result["finishButtonDiagnostic"]["clickOutcome"]="timeout"
+                                                    result["prioritySeatChoice"]["status"]="finish_button_click_timeout"
+                                                    result["seatFormConfirmation"]={
+                                                        "status":"finish_click_blocked",
+                                                        "chosenCode":code,
+                                                        "confirmed":False,
+                                                        "cartSubmitted":False,
+                                                        "purchaseExecuted":False
+                                                    }
+                                                if result["finishButtonDiagnostic"]["clickOutcome"]=="clicked":
+                                                    page.wait_for_timeout(650)
+                                                    summary=page.evaluate(r"""(code) => {
+                                                        const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                                        const vis=e=>!!e.getClientRects().length &&
+                                                            getComputedStyle(e).visibility!=="hidden";
+                                                        const main=document.querySelector("main")||document.body;
+                                                        const codeButtons=[...main.querySelectorAll("button")]
+                                                            .filter(vis).map(e=>norm(e.getAttribute("aria-label")||e.innerText))
+                                                            .filter(x=>x===code);
+                                                        const dialogs=[...document.querySelectorAll('[role=dialog]')]
+                                                            .filter(vis);
+                                                        return {
+                                                            code,
+                                                            selectedSeatShownInForm:codeButtons.length===1,
+                                                            selectedSeatButtonCount:codeButtons.length,
+                                                            seatDialogStillVisible:dialogs.length>0,
+                                                            cartSubmitClicked:false,
+                                                            purchaseExecuted:false
+                                                        };
+                                                    }""",code)
+                                                    result["seatFormConfirmation"]=summary
+                                                    result["prioritySeatChoice"]["confirmed"]=bool(
+                                                        summary["selectedSeatShownInForm"]
+                                                    )
+                                                    result["prioritySeatChoice"]["status"]=(
+                                                        "priority_seat_applied_to_form"
+                                                        if summary["selectedSeatShownInForm"]
+                                                        else "seat_form_confirmation_unverified"
+                                                    )
                                             else:
                                                 result["seatFormConfirmation"]={
                                                     "status":"finish_button_not_unique",
