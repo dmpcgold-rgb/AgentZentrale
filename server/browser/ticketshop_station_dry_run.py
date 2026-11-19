@@ -1544,15 +1544,28 @@ def main():
                             "basketAddResponses":network["basketAddResponses"],
                             "blockedPostPaths":[i["path"] for i in network["blockedFirstPartyWrites"]],
                             "basketReadResponses":network["basketReadResponses"],
-                            "cartText":page.evaluate(r"""() => {
+                            "cartText":page.evaluate(r"""(seatCode) => {
                                 const m=document.querySelector("main")||document.body;
                                 const t=(m.innerText||"").replace(/\s+/g," ");
                                 return {
                                     containsEmptyCart:/Warenkorb\s+ist\s+leer/i.test(t),
-                                    containsSeat191D:/\b191D\b/.test(t),
+                                    selectedSeatCode:seatCode,
+                                    containsSelectedSeat:t.split(/[^A-Za-z0-9]+/).includes(seatCode),
                                     hasCheckoutWords:/Warenkorb|Kasse|Checkout/i.test(t)
                                 };
-                            }""")
+                            }""",seat_choice.get("code"))
+                        }
+                        approval_blocked=any(
+                            p["path"]=="/ticketshop/basket/approve"
+                            for p in network["blockedFirstPartyWrites"])
+                        result["cartSubmissionDiagnostic"]["approvalEndpoint"]={
+                            "path":"/ticketshop/basket/approve",
+                            "attemptObserved":approval_blocked,
+                            "requestBlocked":approval_blocked,
+                            "semanticsVerified":False,
+                            "finalPriceVerified":False,
+                            "mayCompleteReservation":True,
+                            "nextStep":"verify_approval_semantics_and_final_price_before_enabling"
                         }
                     else:
                         result["cartSubmissionDiagnostic"]["status"]="cart_button_unavailable"
@@ -1578,6 +1591,20 @@ def main():
                     "selectedDateIsTopField":True,
                     "note":"Read/quote and limited basket/get; one basket/add, seat lookup and one seat update permitted; checkout and purchase blocked."
                 }
+                if os.environ.get("WESTBAHN_COMPACT_OUTPUT")=="1":
+                    result={
+                        "status":result.get("status"),
+                        "date":result.get("datePicker",{}).get("dateFieldValue"),
+                        "route":{"from":ORIGIN,"to":DESTINATION,
+                                 "departure":"18:22","train":"1009"},
+                        "selectedSeat":result.get("prioritySeatChoice"),
+                        "seatFormConfirmation":result.get("seatFormConfirmation"),
+                        "cartSubmitReadiness":result.get("cartSubmitReadiness"),
+                        "cartSubmissionDiagnostic":result.get("cartSubmissionDiagnostic"),
+                        "blockedFirstPartyWrites":network["blockedFirstPartyWrites"],
+                        "bookingAuthorized":False,
+                        "purchaseExecuted":False
+                    }
                 print(json.dumps(result,ensure_ascii=False))
             finally:
                 context.close()
