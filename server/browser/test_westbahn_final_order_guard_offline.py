@@ -38,7 +38,7 @@ global.document={
 };
 global.getComputedStyle=()=>({visibility:"visible"});
 global.location={pathname:data.path};
-process.stdout.write(JSON.stringify(Function("return ("+fn+")")(data.seat)));
+process.stdout.write(JSON.stringify(Function("return ("+fn+")")()(data.seat)));
 """
     data={"date":date,"total":total,"seat":seat,"path":path,
           "train":train,"origin":origin,"destination":destination}
