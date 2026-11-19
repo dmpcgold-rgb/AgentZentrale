@@ -2282,6 +2282,25 @@ def main():
                                         checkout_action["termsAutoAcceptance"]={
                                             "status":"check_failed",
                                             "errorClass":type(terms_err).__name__[:48]}
+                        # AGB changes can re-render the final CTA asynchronously.
+                        # Wait for the DOM to settle before evaluating the
+                        # real binding control. This does not submit anything.
+                        if checkout_action["termsAutoAcceptance"].get("status")=="checked":
+                            try:
+                                page.wait_for_function(r"""() => {
+                                    const norm=s=>(s||"").replace(/\s+/g," ").trim();
+                                    const controls=[...document.querySelectorAll(
+                                        "button,input[type=submit]")];
+                                    return controls.some(e=>!e.disabled &&
+                                        /zahlungspflichtig\s+bestellen/i.test(
+                                            norm(e.getAttribute("aria-label")||
+                                                e.innerText||e.value||"")));
+                                }""",timeout=3500)
+                                checkout_action["termsAutoAcceptance"][
+                                    "finalControlEnabledAfterTerms"]=True
+                            except Exception:
+                                checkout_action["termsAutoAcceptance"][
+                                    "finalControlEnabledAfterTerms"]=False
                         action=page.evaluate(r"""() => {
                             const visible=e=>!!e.getClientRects().length &&
                                 getComputedStyle(e).visibility!=="hidden";
@@ -2354,9 +2373,48 @@ def main():
                             "unverifiedCheckoutLinkCount":action.get(
                                 "unverifiedCheckoutLinkCount",0)
                         })
+                        # Do not trust the price/trip DOM snapshot taken
+                        # BEFORE the AGB interaction. Reconfirm the same
+                        # zero-euro, trip and seat constraints immediately
+                        # before any binding order control is clicked.
+                        final_dom=page.evaluate(r"""(seat) => {
+                            const main=document.querySelector("main")||document.body;
+                            const text=(main.innerText||"").replace(/\s+/g," ").trim();
+                            const visible=e=>!!e.getClientRects().length &&
+                                getComputedStyle(e).visibility!=="hidden";
+                            const priceNodes=[...main.querySelectorAll(
+                                "div,span,p,strong,b,td")].filter(e=>{
+                                    if (!visible(e) || e.children.length>2)return false;
+                                    const t=(e.innerText||"").replace(/\s+/g," ").trim();
+                                    return t.length>=3 && t.length<=95 &&
+                                        /(?:Gesamt(?:betrag|preis|summe)?|Endpreis|Zu zahlen|Total|Summe)/i.test(t) &&
+                                        /(?:€|EUR)/.test(t);
+                                }).map(e=>(e.innerText||"").replace(/\s+/g," ").trim());
+                            const seatFound=new RegExp("(^|[^A-Za-z0-9])"+
+                                seat+"([^A-Za-z0-9]|$)","i").test(text);
+                            const exactZero=priceNodes.length===1 &&
+                                /\b0[,.]00\s*(?:€|EUR)|(?:€|EUR)\s*0[,.]00\b/.test(priceNodes[0]) &&
+                                !/\b[1-9][0-9]*(?:[,.][0-9]{2})?\s*(?:€|EUR)/.test(priceNodes[0]);
+                            return {
+                                verified:location.pathname==="/ticketshop/checkout" &&
+                                    !/Warenkorb\s+ist\s+leer/i.test(text) &&
+                                    /20\.11\.2026|20\. November 2026/.test(text) &&
+                                    /18:22/.test(text) && /\b1009\b/.test(text) &&
+                                    /Wien Meidling/i.test(text) &&
+                                    /Wiener Neustadt/i.test(text) &&
+                                    seatFound && exactZero,
+                                totalCandidates:priceNodes.length,
+                                checkoutPath:location.pathname
+                            };
+                        }""",seat_choice.get("code") or "")
+                        checkout_action["finalDomReverified"]=final_dom.get(
+                            "verified") is True
+                        checkout_action["finalTotalCandidates"]=final_dom.get(
+                            "totalCandidates")
                         if (action.get("candidateCount")==1
                             and action.get("uncheckedRequiredCount")==0
-                            and action.get("uncheckedTermsCount")==0):
+                            and action.get("uncheckedTermsCount")==0
+                            and final_dom.get("verified") is True):
                             checkout_state["armed"]=True
                             CURRENT_STAGE="one_time_zero_euro_checkout_action"
                             try:
@@ -2369,9 +2427,26 @@ def main():
                                 checkout_action["errorClass"]=type(err).__name__[:48]
                             finally:
                                 checkout_state["armed"]=False
-                            page.wait_for_timeout(1800)
+                            # Navigation/payment UI can update after the
+                            # click. Wait without reloading or resubmitting.
+                            if checkout_state["requestSent"]:
+                                try:
+                                    page.wait_for_load_state(
+                                        "domcontentloaded",timeout=5000)
+                                except Exception:
+                                    pass
+                            try:
+                                page.wait_for_timeout(1800)
+                            except Exception:
+                                pass
                             checkout_action["requestSent"]=checkout_state[
                                 "requestSent"]
+                            checkout_action["status"]=(
+                                "final_order_request_sent_verification_pending"
+                                if checkout_state["requestSent"]
+                                else "button_clicked_no_verified_order_request"
+                                if checkout_action["status"]=="button_clicked"
+                                else checkout_action["status"])
                             checkout_action["requestResponses"]=network[
                                 "checkoutOrderResponses"]
                             checkout_action["currentPath"]=urlsplit(
@@ -2403,7 +2478,9 @@ def main():
                             # unverified provider flow. Never treat it as a
                             # binding final-order action without endpoint proof.
                             checkout_action["status"]=(
-                                "terms_not_accepted"
+                                "final_checkout_details_changed"
+                                if final_dom.get("verified") is not True
+                                else "terms_not_accepted"
                                 if action.get("uncheckedTermsCount",0)>0
                                 else "checkout_button_disabled"
                                 if action.get("disabledCheckoutButtonCount",0)>0
