@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {createWestbahn} from '../westbahn.mjs';
 import {applyVerifiedBatch,createWeeklyReview} from '../weekly-review.mjs';
 import {planDates} from '../../src/core/westbahn.js';
+import {DEFAULT_RESERVATION_PLAN} from '../reservation-plan.mjs';
 
 const now=()=>new Date('2026-11-16T06:00:00Z'); // Monday 07:00 Vienna
 const dates=()=>planDates(now()).slice(0,5);
@@ -313,4 +314,24 @@ test('crash-recovered in-flight read respects previously persisted cooldown',asy
   assert.equal(attempts,1);
   assert.equal(review.status().lastSuccessWeek,'2026-11-16');
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('custom weekend plan is visible in weekly review without using fixed-route Gmail or provider browser',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ const observed=[];
+ let mailChecks=0;
+ const review=createWeeklyReview({now:clock,westbahn:createWestbahn({now:clock}),
+  getPlan:()=>({...DEFAULT_RESERVATION_PLAN,
+    origin:'Wien Westbahnhof',destination:'Salzburg Hbf',
+    departure:'10:30',weekdays:[6,7],horizon:'1w'}),
+  browser:{async run(){observed.push('legacy_browser');throw Error('legacy route forbidden')}},
+  gmailConfirm:async()=>{mailChecks++;throw Error('legacy Gmail forbidden')}
+ });
+ const result=await review.run();
+ assert.equal(result.status,'custom_plan_preview_only');
+ assert.deepEqual(result.days.map(x=>x.date),['2026-11-28','2026-11-29']);
+ assert.deepEqual(observed,[]);
+ assert.equal(mailChecks,0);
+ assert.equal(result.safeToBook,false);
+ assert.equal(result.bookingAuthorized,false);
 });

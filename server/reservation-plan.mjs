@@ -1,5 +1,6 @@
 import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
+import {FIRST_UNRESERVED_DATE} from '../src/core/westbahn.js';
 
 export const DEFAULT_RESERVATION_PLAN=Object.freeze({
  origin:'Wien Meidling',destination:'Wiener Neustadt Hbf',
@@ -62,11 +63,42 @@ export function reservationDates(plan,at=new Date(),clock=null){
  const out=[];
  for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
   const date=iso(d),weekday=d.getUTCDay()||7;
-  if(days.has(weekday)&&(date!==today||`${local.hour||'00'}:${local.minute||'00'}`<config.departure))
+  if(date>=FIRST_UNRESERVED_DATE&&days.has(weekday)&&(date!==today||`${local.hour||'00'}:${local.minute||'00'}`<config.departure))
    out.push(date);
  }
  return out;
 }
+// Only the exact tested WESTbahn leg can use the legacy browser/Gmail flow.
+// A personalized leg needs an independently verified dynamic provider adapter.
+export function isLegacyReservationPlan(plan){
+ const value=validateReservationPlan(plan);
+ return value.origin===DEFAULT_RESERVATION_PLAN.origin &&
+  value.destination===DEFAULT_RESERVATION_PLAN.destination &&
+  value.departure===DEFAULT_RESERVATION_PLAN.departure &&
+  value.weekdays.join(',')===DEFAULT_RESERVATION_PLAN.weekdays.join(',') &&
+  value.bookingWindowStart===DEFAULT_RESERVATION_PLAN.bookingWindowStart &&
+  value.bookingWindowEnd===DEFAULT_RESERVATION_PLAN.bookingWindowEnd;
+}
+
+export function nextReservationBatch(plan,{at=new Date(),excludedDates=[],
+  limit=5}={}){
+ if(!Number.isInteger(limit)||limit<1||limit>5)
+  throw Error('Maximal fünf Reisetage je Prüflauf.');
+ if(!Array.isArray(excludedDates)||excludedDates.some(x=>
+   typeof x!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x)))
+  throw Error('Ungültige ausgeschlossene Reisetage.');
+ const blocked=new Set(excludedDates);
+ return reservationDates(plan,at).filter(x=>!blocked.has(x)).slice(0,limit);
+}
+export function reservationWindowOpen(plan,at=new Date()){
+ const config=validateReservationPlan(plan);
+ const clock=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{
+  timeZone:'Europe/Vienna',hour:'2-digit',minute:'2-digit',hourCycle:'h23'
+ }).formatToParts(at).map(x=>[x.type,x.value]));
+ const current=`${clock.hour}:${clock.minute}`;
+ return current>=config.bookingWindowStart&&current<config.bookingWindowEnd;
+}
+
 export function createReservationPlanStore({file=null}={}){
  let current=DEFAULT_RESERVATION_PLAN;
  if(file){

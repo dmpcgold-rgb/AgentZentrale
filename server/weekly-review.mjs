@@ -1,6 +1,7 @@
 import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs';
 import {dirname} from 'node:path';
 import {planDates,viennaClock} from '../src/core/westbahn.js';
+import {DEFAULT_RESERVATION_PLAN,isLegacyReservationPlan,nextReservationBatch} from './reservation-plan.mjs';
 import {sanitizeBatchInventory} from './browser.mjs';
 
 const SINGLE_SEAT=/^[0-9]{3}[A-D]$/;
@@ -52,7 +53,7 @@ export function applyVerifiedBatch(batch,days,westbahn){
 // The read-only review runs every Monday at 07:00 Vienna time, without an
 // unattended checkout. It stores only dates, statuses and seat codes.
 export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
- file=null,enabled=true,gmailConfirm=null}={}){
+ file=null,enabled=true,gmailConfirm=null,getPlan=null}={}){
  let running=false;
  let state={lastSchedule:null,lastRun:null,lastSuccessWeek:null,
             attemptsThisWeek:0,nextRetryAt:null};
@@ -86,7 +87,9 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
  async function run(){
   // A deliberate manual read is allowed even if Monday automation is disabled.
   if(running)throw Error('Sammelprüfung läuft bereits.');
-  const days=planDates(now()).slice(0,5);
+  const selectedPlan=getPlan?getPlan():DEFAULT_RESERVATION_PLAN;
+  const compatible=isLegacyReservationPlan(selectedPlan);
+  const days=nextReservationBatch(selectedPlan,{at:now()});
   if(days.length===0)throw Error('Keine Pendeltage im Prüfzeitraum.');
   running=true;
   const startedAt=now().toISOString();
@@ -94,10 +97,10 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
     // Gmail-only weekly reconciliation is supported when the private
     // read-only account browser is disabled. This is positive evidence
     // gathering only and cannot authorize purchases.
-    const result=browser
+    const result=compatible&&browser
      ?applyVerifiedBatch(await browser.run('inventory-batch',null,null,days),
                          days,westbahn)
-     :{status:'email_only_checked',days:days.map(date=>({
+     :{status:compatible?'email_only_checked':'custom_plan_preview_only',days:days.map(date=>({
         date,status:'review_required',seats:[],safeToBook:false
        })),inventoryComplete:false,safeToBook:false,
        bookingAuthorized:false,ledgerProtectedDates:[],ledgerReviewDates:[]};
@@ -105,7 +108,7 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
     // failed mailbox reads never authorize a new ticket purchase.
     let emailStatus='email_not_configured';
     const emailConfirmedDates=[],emailReviewDates=[];
-    if(typeof gmailConfirm==='function'){
+    if(compatible&&typeof gmailConfirm==='function'){
      try{
       const mail=await gmailConfirm(days);
       emailStatus=mail?.status||'email_read_unavailable';
@@ -168,7 +171,8 @@ export function createWeeklyReview({browser,westbahn,now=()=>new Date(),
    try{
      const result=await run();
      if(result.status!=='inventory_batch_read' &&
-        result.status!=='email_only_checked')
+        result.status!=='email_only_checked' &&
+        result.status!=='custom_plan_preview_only')
        throw Error('WESTbahn-Ticketbestand konnte nicht geprüft werden. Keine Buchung.');
      state.lastSuccessWeek=week;
      state.nextRetryAt=null;

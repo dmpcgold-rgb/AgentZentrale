@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RULES,planDates,chooseSeat,validateQuote,confirmedReceipt,viennaClock} from '../../src/core/westbahn.js';
 import {createWestbahn,verifiedAccountReadback} from '../westbahn.mjs';
+import {DEFAULT_RESERVATION_PLAN,reservationDates} from '../reservation-plan.mjs';
 const now=()=>new Date('2026-11-16T06:00:00Z');
 const day='2026-11-17';
 const seat=(id,layout='opposite-table',groupSize=2)=>({id,layout,groupSize,available:true,class:'2+'});
@@ -223,7 +224,13 @@ test('weekly booking run never checks or purchases more than five future commute
  assert.equal(ledger.status().rows.length,5);
  assert.ok(ledger.status().rows.every(row=>row.status==='confirmed'&&row.seat==='233A'));
  await ledger.run();
- assert.deepEqual(booked,dayList,'no repeated checkouts on an already booked week');
+ const secondBatch=reservationDates(DEFAULT_RESERVATION_PLAN,now()).filter(date=>!dayList.includes(date)).slice(0,5);
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'next manual run advances only to new unreserved dates within selected horizon');
+ assert.equal(new Set(booked).size,booked.length,'no duplicate checkout of any travel date');
+ await ledger.run();
+ assert.deepEqual(booked,[...dayList,...secondBatch],
+   'a completed horizon must never trigger a repeated checkout');
 });
 
 test('configured Gmail preflight failure blocks all provider calls before checkout',async()=>{
@@ -276,4 +283,34 @@ test('conflicting Gmail result blocks entire purchasing cycle',async()=>{
  await a.run();
  assert.equal(calls,0);
  assert.equal(a.status().lastRun.status,'blocked_email_unavailable');
+});
+
+test('custom route, departure and weekend selection cannot trigger old-route provider checkout',async()=>{
+ const clock=()=>new Date('2026-11-23T06:00:00Z');
+ let called=0;
+ const provider={
+   existing:async()=>{called++;throw Error('unreachable')},
+   search:async()=>{called++;throw Error('unreachable')},
+   quote:async()=>{called++;throw Error('unreachable')},
+   book:async()=>{called++;throw Error('unreachable')}
+ };
+ const plan={...DEFAULT_RESERVATION_PLAN,origin:'Wien Westbahnhof',
+   destination:'Salzburg Hbf',departure:'10:30',weekdays:[6,7],horizon:'6m'};
+ const ledger=createWestbahn({now:clock,adapter:provider,getPlan:()=>plan});
+ assert.equal(ledger.status().planCompatible,false);
+ assert.throws(()=>ledger.setEnabled(true),/verifizierten Buchungsadapter/);
+ const result=await ledger.run();
+ assert.equal(result.lastRun.status,'blocked_unverified_custom_itinerary');
+ assert.equal(called,0);
+ assert.equal(result.rows.length,0);
+ assert.ok(result.planned.every(d=>[0,6].includes(new Date(d+'T00:00:00Z').getUTCDay())));
+});
+
+test('live plan getter follows saved changes without restarting booking engine',()=>{
+ let plan={...DEFAULT_RESERVATION_PLAN};
+ const a=createWestbahn({now:()=>new Date('2026-11-23T06:00:00Z'),getPlan:()=>plan});
+ assert.equal(a.status().planCompatible,true);
+ plan={...plan,weekdays:[7],horizon:'1w'};
+ assert.equal(a.status().planCompatible,false);
+ assert.deepEqual(a.status().planned,['2026-11-29']);
 });

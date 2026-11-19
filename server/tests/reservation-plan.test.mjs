@@ -4,7 +4,8 @@ import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DEFAULT_RESERVATION_PLAN,HORIZONS,validateReservationPlan,
-  reservationDates,createReservationPlanStore} from '../reservation-plan.mjs';
+  reservationDates,createReservationPlanStore,isLegacyReservationPlan,
+  nextReservationBatch,reservationWindowOpen} from '../reservation-plan.mjs';
 
 test('default plan covers Mon-Fri and defaults to two-week horizon',()=>{
  assert.deepEqual(DEFAULT_RESERVATION_PLAN.weekdays,[1,2,3,4,5]);
@@ -72,4 +73,40 @@ test('store roundtrips and keeps old data after rejected edit',()=>{
   assert.throws(()=>a.save({...newPlan,weekdays:[]}));
   assert.deepEqual(JSON.parse(readFileSync(file,'utf8')),newPlan);
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('rolling batch skips previously confirmed days and never selects more than five',()=>{
+ const at=new Date('2026-11-23T06:00:00Z');
+ const plan={...DEFAULT_RESERVATION_PLAN,horizon:'2m'};
+ const initially=nextReservationBatch(plan,{at});
+ assert.equal(initially.length,5);
+ const later=nextReservationBatch(plan,{at,excludedDates:initially});
+ assert.equal(later.length,5);
+ assert.ok(later.every(d=>!initially.includes(d)));
+ assert.ok(later[0]>initially.at(-1));
+ assert.throws(()=>nextReservationBatch(plan,{at,limit:6}));
+});
+
+test('changing selected weekdays, stations, departure or booking window requires custom adapter',()=>{
+ assert.equal(isLegacyReservationPlan(DEFAULT_RESERVATION_PLAN),true);
+ assert.equal(isLegacyReservationPlan({...DEFAULT_RESERVATION_PLAN,horizon:'6m'}),true);
+ for(const patch of [
+  {origin:'Wien Westbahnhof'},
+  {destination:'Salzburg Hbf'},
+  {departure:'17:22'},
+  {weekdays:[1,2,3,4,5,6]},
+  {bookingWindowStart:'06:00'}
+ ]){
+  assert.equal(isLegacyReservationPlan({...DEFAULT_RESERVATION_PLAN,...patch}),false);
+ }
+});
+
+test('booking execution window uses Vienna time, both boundaries checked',()=>{
+ const plan={...DEFAULT_RESERVATION_PLAN,
+  bookingWindowStart:'07:00',bookingWindowEnd:'09:00'};
+ assert.equal(reservationWindowOpen(plan,new Date('2026-11-23T05:59:00Z')),false);
+ assert.equal(reservationWindowOpen(plan,new Date('2026-11-23T06:00:00Z')),true);
+ assert.equal(reservationWindowOpen(plan,new Date('2026-11-23T07:59:00Z')),true);
+ assert.equal(reservationWindowOpen(plan,new Date('2026-11-23T08:00:00Z')),false);
+ assert.equal(reservationWindowOpen(plan,new Date('2026-07-06T05:00:00Z')),true);
 });
