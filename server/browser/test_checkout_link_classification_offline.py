@@ -32,11 +32,14 @@ const fake=(obj)=>({
   innerText:obj.label||"",
   value:obj.label||"",
   href:obj.href||"",
+  closest:()=>obj.termsLabel ? {innerText:obj.termsLabel} : null,
+  parentElement:{innerText:obj.termsLabel||""},
 });
 const elements={
   "button,input[type=submit]":controls.map(fake),
   "a[href]":links.map(fake),
-  'input[type="checkbox"][required]':checkboxes.map(fake)
+  'input[type="checkbox"][required]':checkboxes.filter(e=>e.required).map(fake),
+  'input[type="checkbox"]':checkboxes.map(fake)
 };
 globalThis.document={querySelectorAll:(selector)=>elements[selector]||[]};
 globalThis.getComputedStyle=()=>({visibility:"visible"});
@@ -71,8 +74,27 @@ class CheckoutLinkClassificationTests(unittest.TestCase):
 
     def test_unchecked_required_terms_still_block(self):
         r=run_case([{"label":"Jetzt verbindlich bestellen"}],[],
-                   [{"checked":False,"disabled":False}])
+                   [{"checked":False,"disabled":False,"required":True}])
         self.assertEqual(r["uncheckedRequiredCount"],1)
+
+    def test_zahlungspflichtig_bestellen_zero_eur_button(self):
+        r=run_case([{"label":"Zahlungspflichtig bestellen","disabled":False}],[])
+        self.assertEqual(r["candidateCount"],1)
+        self.assertEqual(r["candidateIndex"],0)
+
+    def test_zahlungspflichtig_bestellen_disabled_without_terms(self):
+        r=run_case([{"label":"Zahlungspflichtig bestellen","disabled":True}],[],
+                   [{"checked":False,"termsLabel":"Ich akzeptiere die Allgemeinen Geschäftsbedingungen der Westbahn."}])
+        self.assertEqual(r["candidateCount"],0)
+        self.assertEqual(r["disabledCheckoutButtonCount"],1)
+        self.assertEqual(r["uncheckedTermsCount"],1)
+
+    def test_checked_terms_detected_but_not_automatically_changed(self):
+        r=run_case([{"label":"Zahlungspflichtig bestellen","disabled":False}],[],
+                   [{"checked":True,"termsLabel":"Ich akzeptiere die Allgemeinen Geschäftsbedingungen der Westbahn."}])
+        self.assertEqual(r["candidateCount"],1)
+        self.assertEqual(r["termsCheckboxCount"],1)
+        self.assertEqual(r["uncheckedTermsCount"],0)
 
 if __name__=="__main__":
     unittest.main(verbosity=2)
