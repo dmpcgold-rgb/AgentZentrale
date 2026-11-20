@@ -28,6 +28,7 @@ allowed_checks = {
     "NO_PRIVATE_SOURCE_UPLOADED": ("yes",),
     "APPLY_STILL_BLOCKED": ("yes",),
     "DEPLOY_STILL_GUARDED": ("yes",),
+    "STAGED_SOURCE_ONLY_ON_ORACLE": ("yes",),
 }
 allowed_counts = {
     "SOURCE_FILES_ARCHIVED", "TRACKED_CHANGES", "UNTRACKED_FILES",
@@ -36,6 +37,8 @@ allowed_counts = {
     "LIVE_SOURCE_COMPARED", "LIVE_SOURCE_DIFFERENCES",
     "ORACLE_GIT_DIRTY_ENTRIES", "VISIBLE_SAFE_PATHS",
     "REDACTED_OR_OTHER_PATHS",
+    "SOURCE_FILES_STAGED", "PRIVATE_PATHS_EXCLUDED",
+    "CHECKOUT_FILES_STAGED", "PYTHON_FILES_VALIDATED",
 }
 values = {}
 for line in log.splitlines():
@@ -49,10 +52,11 @@ for line in log.splitlines():
         values[key] = int(value)
 
 mode = os.environ.get("MODE", "unknown")
-if mode not in ("inventory", "snapshot", "reconcile", "audit", "check", "apply"):
+if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "check", "apply"):
     mode = "unknown"
 markers = {
     "audit_complete": "AUDIT_COMPLETE:" in log,
+    "private_stage_complete": "PRIVATE_STAGE_COMPLETE" in log,
     "audit_complete_with_differences": "AUDIT_COMPLETE_WITH_DIFFERENCES:" in log,
     "private_reconcile_complete": "PRIVATE_RECONCILE_COMPLETE" in log,
     "private_snapshot_complete": "PRIVATE SNAPSHOT COMPLETE" in log,
@@ -67,6 +71,7 @@ report = {
     "status": "failed" if exit_code is None or exit_code != 0 else (
         "audit_verified" if mode == "audit" and markers["audit_complete"] and values.get("LIVE_SOURCE_DIFFERENCES") == 0 and
         values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_PYTHON_SYNTAX") == "OK" else
+        "stage_verified" if mode == "stage" and markers["private_stage_complete"] and values.get("STAGED_SOURCE_ONLY_ON_ORACLE") == "yes" and values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_FILES_STAGED") == 6 and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "audit_differences" if mode == "audit" and markers["audit_complete_with_differences"] else
         "completed_with_deploy_blocked" if markers["deploy_blocked"] else
         "completed_without_audit_verification"
