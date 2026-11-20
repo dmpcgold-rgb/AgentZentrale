@@ -1,4 +1,5 @@
 name: Oracle WESTbahn - targeted 3-day private upgrade and booking
+# Second one-shot attempt: allow new public files in older private staging.
 on:
   push:
     branches: [main]

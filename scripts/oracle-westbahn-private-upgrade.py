@@ -32,8 +32,11 @@ with tarfile.open(incoming,'r:gz') as archive:
    if not m.isfile():continue
    name=m.name.removeprefix('./')
    dst=out/'code'/name
-   if not dst.is_file() or dst.is_symlink():
-    raise ValueError('public source path missing or symlink')
+   # Public tests/modules may have been introduced AFTER the private snapshot.
+   # Allow new public files, but never replace a link or a directory.
+   if dst.is_symlink() or (dst.exists() and not dst.is_file()):
+    raise ValueError('unsafe public destination')
+   dst.parent.mkdir(parents=True,exist_ok=True)
    stream=archive.extractfile(m)
    if stream is None:raise ValueError('archive member unreadable')
    dst.write_bytes(stream.read())
@@ -44,9 +47,12 @@ with tarfile.open(incoming,'r:gz') as archive:
    ast.parse((browser/n).read_text('utf-8'),filename=n)
   # Verify public source is not executable script injections via archive names;
   # Node unit tests will run inside the Docker candidate build.
- except Exception:
+ except Exception as exc:
   shutil.rmtree(out,ignore_errors=True)
-  print('UPGRADE_STAGE=BLOCKED_VALIDATION_FAILED');sys.exit(3)
+  # Never disclose private filenames or exception text into public Actions logs.
+  print('UPGRADE_STAGE=BLOCKED_VALIDATION_FAILED')
+  print('UPGRADE_STAGE_FAILURE_TYPE='+type(exc).__name__)
+  sys.exit(3)
 print('UPGRADE_STAGE=OK')
 print('PUBLIC_FILES_OVERLAID=5')
 print('PRIVATE_CHECKOUT_FILES_RETAINED=6')
