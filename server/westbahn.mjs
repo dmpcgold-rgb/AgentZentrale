@@ -146,7 +146,17 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
 // No browser automation or live provider is fabricated here.
 export async function loadWestbahn(env=process.env){const liveCheckoutEnabled=env.WESTBAHN_LIVE_CHECKOUT_ENABLED==='true';let adapter=null;if(liveCheckoutEnabled&&env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
  let emailAudit=null;
- if(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN){
+ // Reuse the AgentZentrale's existing server-side Gmail connector when one
+ // has explicitly been configured. Do not export or replicate its credentials.
+ // The module must implement the same read-only inspect({date}) contract.
+ if(env.GMAIL_AUDIT_MODULE){
+  const mod=await import(pathToFileURL(resolve(env.GMAIL_AUDIT_MODULE)).href);
+  if(typeof mod.createGmailAudit!=='function')
+   throw new Error('Vorhandene Gmail-Anbindung hat keine createGmailAudit-Funktion.');
+  emailAudit=await mod.createGmailAudit({env});
+  if(typeof emailAudit?.inspect!=='function')
+   throw new Error('Vorhandene Gmail-Anbindung unterstützt keine read-only inspect-Funktion.');
+ }else if(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN){
   emailAudit=createGmailAudit({clientId:env.GMAIL_CLIENT_ID,clientSecret:env.GMAIL_CLIENT_SECRET,refreshToken:env.GMAIL_REFRESH_TOKEN});
  }
  if(adapter&&!emailAudit)throw new Error('WESTbahn-Buchungsadapter ohne Gmail-Doppelbuchungskontrolle gesperrt.');
