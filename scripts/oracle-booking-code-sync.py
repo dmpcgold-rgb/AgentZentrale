@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply three public, reviewed booking fixes to a new PRIVATE Oracle stage.
+"""Apply reviewed public booking sources to a new PRIVATE Oracle stage.
 Reads an allowlisted tar stream from GitHub Actions; no production mutation.
 """
 import io
