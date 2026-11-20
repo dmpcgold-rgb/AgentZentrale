@@ -34,4 +34,24 @@ for line in raw.splitlines():
   elif 'apt-get' in line:step='APT'
   elif 'COPY' in line:step='COPY'
 print('BUILD_FAILURE_STEP='+step)
+# Test descriptions are printed only when they exactly match public Node tests
+# copied into the private stage; never emit arbitrary Docker log text.
+known=set()
+stage=Path('/root/agentzentrale-private-staging')
+copies=[p for p in stage.glob('source-*/code/server/tests') if p.is_dir()]
+if copies:
+ tests=max(copies,key=lambda p:p.parent.parent.stat().st_mtime)
+ for name in ('gmail-audit.test.mjs','westbahn.test.mjs','browser_audit.test.mjs',
+              'browser_route.test.mjs','weekly-review.test.mjs',
+              'booking-readiness.test.mjs','trip-preview.test.mjs'):
+  f=tests/name
+  if f.is_file():
+   for title in re.findall(r"""test\\(['"]([^'"]{1,120})['"]""",f.read_text(encoding='utf-8')):
+    known.add(title)
+fails=re.findall(r'(?m)^#?\\d*(?:\\.\\d+)?\\s*not ok \\d+ - ([^\\r\\n]+)',raw)
+print('NODE_FAILED_TEST_COUNT='+str(len(fails)))
+for i,title in enumerate(fails[:8],1):
+ print('FAILED_PUBLIC_TEST_'+str(i)+'='+title if title in known else 'FAILED_PUBLIC_TEST_'+str(i)+'=UNMATCHED')
+print('NODE_ASSERTION_ERROR='+('yes' if 'ERR_ASSERTION' in raw else 'no'))
+print('NODE_TESTCODE_FAILURE='+('yes' if 'testCodeFailure' in raw else 'no'))
 print('BUILD_DIAG=COMPLETE')
