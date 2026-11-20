@@ -47,7 +47,10 @@ for row in data['rows'].values():
 print('ROLLOUT_LEDGER_IDLE=YES')
 PY
 # Detect in-flight Playwright/checkout jobs. A read-only node server is expected.
-if docker top "$running" -eo args 2>/dev/null | grep -Ei '(^|[ /])(checkout_202611[0-9]+[.]py|ticketshop_station_dry_run[.]py|worker[.]py)([[:space:]]|$)' >/dev/null; then
+if ! docker top "$running" -eo args >"$guard_dir/live-processes" 2>/dev/null; then
+  echo 'ROLLOUT=BLOCKED_PROCESS_INSPECTION_FAILED'; exit 3
+fi
+if grep -Ei '(^|[ /])(checkout_202611[0-9]+[.]py|ticketshop_station_dry_run[.]py|worker[.]py)([[:space:]]|$)' "$guard_dir/live-processes" >/dev/null; then
   echo 'ROLLOUT=BLOCKED_BROWSER_WORK_ACTIVE'; exit 3
 fi
 # Old container's untracked docker-cp checkout code is preserved in the rollback image.
@@ -75,6 +78,7 @@ chmod 600 "$run/"*.override.yaml
 dc() { docker compose --project-directory /opt/agentzentrale -f "$compose" -f "$1" "${@:2}"; }
 dc "$run/candidate.override.yaml" config -q || { echo 'ROLLOUT=BLOCKED_COMPOSE_INVALID'; exit 4; }
 dc "$run/rollback.override.yaml" config -q || { echo 'ROLLOUT=BLOCKED_ROLLBACK_CONFIG_INVALID'; exit 4; }
+[[ ! -e /opt/agentzentrale/compose.override.yaml ]] || { echo 'ROLLOUT=BLOCKED_EXISTING_COMPOSE_OVERRIDE'; exit 4; }
 
 health_ok() {
   local override="$1" target="$2" new_id state
@@ -119,12 +123,12 @@ fi
 if ! health_ok "$run/candidate.override.yaml" "$new_image_id"; then
   echo 'ROLLOUT=NEW_CONTAINER_HEALTH_FAILED'; exit 5
 fi
-rollback_needed=0
-trap - EXIT
 # Use a permanent override for ordinary docker compose commands, but preserve
 # the private rollback image and the previous ledger snapshot on Oracle.
 cp "$run/candidate.override.yaml" /opt/agentzentrale/compose.override.yaml
 chmod 600 /opt/agentzentrale/compose.override.yaml
+rollback_needed=0
+trap - EXIT
 echo 'ROLLOUT=SUCCESS'
 echo 'PRODUCTION_CANDIDATE_RUNNING=yes'
 echo 'ROLLBACK_IMAGE_SAVED_ON_ORACLE=yes'
