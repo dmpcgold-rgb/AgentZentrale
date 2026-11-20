@@ -4,13 +4,14 @@ on:
     branches: [main]
     paths:
       - scripts/oracle-source-inventory.sh
+      - scripts/oracle-private-reconcile.sh
       - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
     inputs:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [inventory, snapshot, check, apply]
+        options: [inventory, snapshot, reconcile, check, apply]
         default: check
 permissions:
   contents: read
@@ -26,6 +27,7 @@ jobs:
         run: |
           bash -n scripts/oracle-safe-deploy.sh
           bash -n scripts/oracle-source-inventory.sh
+          bash -n scripts/oracle-private-reconcile.sh
       - name: Verify checkout is not silently rebuilt
         run: |
           test -f scripts/oracle-safe-deploy.sh
@@ -51,7 +53,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode || 'snapshot' }}
+          MODE: ${{ inputs.mode || 'reconcile' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
@@ -61,6 +63,8 @@ jobs:
           script="scripts/oracle-safe-deploy.sh"
           if [[ "$MODE" == inventory || "$MODE" == snapshot ]]; then
             script="scripts/oracle-source-inventory.sh"
+          elif [[ "$MODE" == reconcile ]]; then
+            script="scripts/oracle-private-reconcile.sh"
           fi
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
