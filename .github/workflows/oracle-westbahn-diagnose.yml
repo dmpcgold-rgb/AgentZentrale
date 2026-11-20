@@ -1,4 +1,5 @@
 name: Oracle WESTbahn - private build diagnostics
+# Check public Node test identifiers on third build attempt.
 on:
   push:
     branches: [main]
