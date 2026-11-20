@@ -1,5 +1,5 @@
 name: Oracle WESTbahn - targeted 3-day private upgrade and booking
-# Second one-shot attempt: allow new public files in older private staging.
+# Third one-shot attempt: synchronize compatible public Node source while retaining private checkout.
 on:
   push:
     branches: [main]
@@ -49,7 +49,7 @@ jobs:
           ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes -i ~/.ssh/oracle_deploy)
           # Upload only reviewed PUBLIC code, never Oracle's private checkout/session.
           ssh "${ssh_opts[@]}" "$remote" "sudo -n install -d -m 700 /root/agentzentrale-private-staging"
-          tar -czf -             server/westbahn.mjs server/index.mjs server/gmail-audit.mjs             server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs             | ssh "${ssh_opts[@]}" "$remote" "sudo -n tee /root/agentzentrale-private-staging/westbahn-public-overlay.tar.gz >/dev/null"
+          git ls-files -z -- 'server/*.mjs' 'server/tests/*.mjs' 'src/core/*.js' package.json | tar --null -T - -czf - | ssh "${ssh_opts[@]}" "$remote" "sudo -n tee /root/agentzentrale-private-staging/westbahn-public-overlay.tar.gz >/dev/null"
           echo 'UPGRADE_STEP=PRIVATE_STAGE'
           ssh "${ssh_opts[@]}" "$remote" "sudo -n python3 - --refresh" < scripts/oracle-westbahn-private-upgrade.py
           echo 'UPGRADE_STEP=PRIVATE_BUILD'
