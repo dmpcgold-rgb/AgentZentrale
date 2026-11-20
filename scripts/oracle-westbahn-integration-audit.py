@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read-only WESTbahn/Gmail compatibility audit; never publish source or credentials."""
+import json
 import os
 import re
 from pathlib import Path
@@ -123,7 +124,7 @@ gmail_patterns = {
     "HOST_GMAIL_MODULE_KEY_DECLARED": ("GMAIL_AUDIT_MODULE",),
 }
 declarations = set()
-for config in (root / ".env", root / ".env.local", root / "compose.yaml",
+for config in (root / ".env", root / ".env.local", root / "server" / ".env", root / "compose.yaml",
                root / "compose.override.yaml"):
     try:
         if not config.is_file() or config.stat().st_size > 1024 * 1024:
@@ -137,7 +138,35 @@ for config in (root / ".env", root / ".env.local", root / "compose.yaml",
 for name, keys in gmail_patterns.items():
     print(name + "=" + ("yes" if set(keys) <= declarations else "no"))
 
-# This is NOT a live API verification and never runs a checkout.
+# The existing inventory mode blocks outbound writes. Emit only states for
+# these three dates, never ticket details, profile data, or process errors.
+dates = ("2026-11-25", "2026-11-26", "2026-11-27")
+try:
+    probe = subprocess.run(
+        ["docker", "exec", container, "/opt/agent-venv/bin/python",
+         "/app/server/browser/worker.py", "inventory-batch",
+         "--dates", ",".join(dates)],
+        capture_output=True, text=True, timeout=245, check=True,
+    )
+    snapshot = json.loads(probe.stdout)
+except (OSError, subprocess.SubprocessError, ValueError):
+    snapshot = {}
+if not isinstance(snapshot, dict):
+    snapshot = {}
+authenticated = snapshot.get("status") == "inventory_batch_read"
+print("ACCOUNT_AUTHENTICATED=" + ("yes" if authenticated else "no"))
+print("ACCOUNT_INVENTORY_COMPLETE=" + (
+    "yes" if authenticated and snapshot.get("inventoryComplete") is True else "no"
+))
+days = snapshot.get("days")
+if isinstance(days, list) and authenticated:
+    for date in dates:
+        matches = [day for day in days if isinstance(day, dict) and day.get("date") == date]
+        verified = len(matches) == 1 and matches[0].get("detailVerified") is True
+        print("ACCOUNT_" + date.replace("-", "") + "_DETAIL_VERIFIED=" +
+              ("yes" if verified else "no"))
+
+# This audit never runs a checkout.
 private_dir=Path("/root/agentzentrale-private-snapshots")
 print("PRIVATE_SNAPSHOT_ROOT_PRESENT="+("yes" if private_dir.is_dir() else "no"))
 print("INTEGRATION_AUDIT=COMPLETE")
