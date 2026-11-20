@@ -214,6 +214,17 @@ test('positive Gmail booking confirmation blocks checkout, absence does not prov
  assert.equal(p.count,0);
  assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
 });
+test('explicit dates never expand the booking run beyond the requested three days',async()=>{
+ const visited=[];
+ const a=createWestbahn({now:()=>new Date('2026-11-20T10:00:00Z'),emailAudit:mockEmail,adapter:{
+  existing:async({date})=>{visited.push(date);return {status:'none',accountVerified:true,inventoryComplete:true};},
+  search:async()=>({status:'unavailable'})
+ }});
+ await a.run({dates:['2026-11-25','2026-11-26','2026-11-27']});
+ assert.deepEqual(visited,['2026-11-25','2026-11-26','2026-11-27']);
+ await assert.rejects(a.run({dates:['2026-11-25','2026-11-25']}),/eindeutige/);
+ await assert.rejects(a.run({dates:['2026-11-21']}),/Werktage/);
+});
 test('unavailable Gmail audit prevents checkout',async()=>{
  const p=provider();
  const a=createWestbahn({now,adapter:p,emailAudit:{inspect:async()=>{throw Error('OAuth unavailable');}}});

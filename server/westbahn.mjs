@@ -65,7 +65,8 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
   return status();
  };
 
- async function run(){
+ async function run({dates}={}){
+  if(dates!==undefined && (!Array.isArray(dates)||dates.length<1||dates.length>5||new Set(dates).size!==dates.length||dates.some(date=>typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!planDates(now()).includes(date)))) throw new Error('Nur 1–5 eindeutige zukünftige Werktage dürfen gezielt gebucht werden.');
   if(!liveCheckoutEnabled)throw new Error('Live-Checkout nicht freigegeben. Keine Bestellung.');
   if(!emailAudit)throw new Error('Gmail-Doppelbuchungskontrolle fehlt. Keine Bestellung.');
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
@@ -73,7 +74,7 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
   try{
    // Process at most five distinct dates sequentially per execution.
    // Previously confirmed, uncertain, or user-reported dates are not retried.
-   const pending=planDates(now()).filter(date=>{
+   const pending=(dates??planDates(now())).filter(date=>{
     const previous=state.rows[date];
     return !previous || !['confirmed','uncertain','booking','user_reported','existing_verified'].includes(previous.status);
    }).slice(0,5);
@@ -97,7 +98,9 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
        record(date,'blocked','Buchungsbestand nicht vollständig und authentifiziert geprüft; keine Buchung.');
        continue;
      }
-     // Email is an additional duplicate warning, never proof of absence.
+     // No matching confirmation email permits proceeding ONLY after a complete,
+     // authenticated provider-account inventory proved there is no existing ticket.
+     // Any positive or ambiguous email evidence blocks checkout.
      if(emailAudit){
       const mail=await emailAudit.inspect({date,...RULES});
       if(mail?.possibleExisting===true){record(date,'blocked','Mögliche vorhandene WESTbahn-Bestätigung per E-Mail; manuell prüfen.');continue;}
