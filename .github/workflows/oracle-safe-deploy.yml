@@ -1,5 +1,10 @@
 name: Oracle AgentZentrale - safe manual deployment
 on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/oracle-source-inventory.sh
+      - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
     inputs:
       mode:
@@ -46,7 +51,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode }}
+          MODE: ${{ inputs.mode || 'snapshot' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
