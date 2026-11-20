@@ -38,8 +38,7 @@ export function createGmailAudit({clientId,clientSecret,refreshToken,fetchImpl=f
  return {async inspect({date}){
   if(!DATE.test(date))throw Error('Invalid travel date');
   const access=await token(),headers={Authorization:`Bearer ${access}`};
-  const q='(westbahn OR "Comfort Class") after:'+date.replace(/-/g,'/')+' before:'+
-   new Date(Date.parse(date+'T00:00:00Z')+86400000*8).toISOString().slice(0,10).replace(/-/g,'/');
+  const q='(westbahn OR "Comfort Class") newer_than:12m';
   const messages=[];let next=null,pages=0;
   do{
    const url=new URL(gmail+'/messages');url.searchParams.set('q',q);url.searchParams.set('maxResults','100');
