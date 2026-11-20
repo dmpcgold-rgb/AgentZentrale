@@ -19,7 +19,7 @@ const binary=(key, yes)=>console.log(key+'='+(yes?'yes':'no'));
 const live=env.WESTBAHN_LIVE_CHECKOUT_ENABLED==='true';
 const adapterPath=env.WESTBAHN_ADAPTER_MODULE||'';
 const adapter=Boolean(adapterPath && fs.existsSync(path.resolve(adapterPath)));
-const gmail=Boolean(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN);
+const gmail=Boolean((env.GMAIL_AUDIT_MODULE&&fs.existsSync(path.resolve(env.GMAIL_AUDIT_MODULE)))||(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN));
 const ledgerFile=env.WESTBAHN_LEDGER||'/app/server/data/westbahn.json';
 let ledgerOk=false, enabled=false, pending=false, running=false;
 try{
@@ -61,7 +61,7 @@ if(!(rows&&typeof rows==='object') || data.lastRun?.status==='running' ||
 if(e.WESTBAHN_LIVE_CHECKOUT_ENABLED!=='true' ||
  !e.WESTBAHN_ADAPTER_MODULE ||
  !fs.existsSync(path.resolve(e.WESTBAHN_ADAPTER_MODULE)) ||
- !e.GMAIL_CLIENT_ID || !e.GMAIL_CLIENT_SECRET || !e.GMAIL_REFRESH_TOKEN ||
+ !((e.GMAIL_AUDIT_MODULE&&fs.existsSync(path.resolve(e.GMAIL_AUDIT_MODULE))) || (e.GMAIL_CLIENT_ID&&e.GMAIL_CLIENT_SECRET&&e.GMAIL_REFRESH_TOKEN)) ||
  !e.AGENTZENTRALE_ACCESS_TOKEN){
  console.log('BOOKING_ACTIVATION=BLOCKED_MISSING_PREREQUISITES');process.exitCode=3;return;
 }

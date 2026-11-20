@@ -74,6 +74,8 @@ allowed_checks = {
     "LIVE_GATE_ON": ("yes","no"),
     "ADAPTER_PATH_SET": ("yes","no"),
     "ADAPTER_FILE_PRESENT": ("yes","no"),
+    "GMAIL_AUDIT_MODULE_SET": ("yes","no"),
+    "GMAIL_AUDIT_MODULE_PRESENT": ("yes","no"),
     "GMAIL_OAUTH_CLIENT_SET": ("yes","no"),
     "GMAIL_OAUTH_SECRET_SET": ("yes","no"),
     "GMAIL_OAUTH_REFRESH_SET": ("yes","no"),
