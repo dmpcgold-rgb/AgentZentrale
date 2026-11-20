@@ -97,6 +97,28 @@ class OracleAuditReportTests(unittest.TestCase):
                            check=True, capture_output=True, text=True)
             self.assertNotEqual(json.loads((d / "out").read_text())["status"], "rollout_success")
 
+    def test_booking_activation_requires_actual_success_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = pathlib.Path(td)
+            (d / "status").write_text("0\n")
+            (d / "log").write_text(
+                "BOOKING_CONFIG_CHECK=COMPLETE\n"
+                "BOOKING_ACTIVATION=ENABLED\n"
+                "NO_MANUAL_BOOKING_TRIGGERED=yes\n")
+            subprocess.run([sys.executable,str(SCRIPT),str(d/"log"),
+                            str(d/"status"),str(d/"out")],
+                           env={**os.environ,"MODE":"booking-enable"},
+                           check=True,capture_output=True,text=True)
+            self.assertEqual(json.loads((d/"out").read_text())["status"],
+                             "booking_automation_enabled")
+            (d / "log").write_text("BOOKING_CONFIG_CHECK=COMPLETE\n")
+            subprocess.run([sys.executable,str(SCRIPT),str(d/"log"),
+                            str(d/"status"),str(d/"out")],
+                           env={**os.environ,"MODE":"booking-enable"},
+                           check=True,capture_output=True,text=True)
+            self.assertNotEqual(json.loads((d/"out").read_text())["status"],
+                                "booking_automation_enabled")
+
     def test_failed_remote_command_never_claims_verified(self):
         with tempfile.TemporaryDirectory() as td:
             d=pathlib.Path(td)
