@@ -36,15 +36,15 @@ class OracleAuditReportTests(unittest.TestCase):
             d=pathlib.Path(td)
             secret="PRIVATE-CHECKOUT-PASSWORD-DO-NOT-SHARE"
             (d/"log").write_text(
-                "PRIVATE_STAGE_COMPLETE\\n"
-                "SOURCE_FILES_STAGED=132\\n"
-                "CHECKOUT_FILES_STAGED=6\\n"
-                "PYTHON_FILES_VALIDATED=50\\n"
-                "STAGED_SOURCE_ONLY_ON_ORACLE=yes\\n"
-                "SNAPSHOT_CHECKSUMS=OK\\n"
-                "NO_DEPLOYMENT_EXECUTED=yes\\n"
-                f"SECRET={secret}\\n", encoding="utf-8")
-            (d/"status").write_text("0\\n")
+                "PRIVATE_STAGE_COMPLETE\n"
+                "SOURCE_FILES_STAGED=132\n"
+                "CHECKOUT_FILES_STAGED=6\n"
+                "PYTHON_FILES_VALIDATED=50\n"
+                "STAGED_SOURCE_ONLY_ON_ORACLE=yes\n"
+                "SNAPSHOT_CHECKSUMS=OK\n"
+                "NO_DEPLOYMENT_EXECUTED=yes\n"
+                f"SECRET={secret}\n", encoding="utf-8")
+            (d/"status").write_text("0\n")
             subprocess.run([sys.executable,str(SCRIPT),str(d/"log"),str(d/"status"),
                             str(d/"out")],env={**os.environ,"MODE":"stage"},
                            check=True,capture_output=True,text=True)
