@@ -11,7 +11,7 @@ on:
       - scripts/oracle-production-release-gate.sh
       - scripts/oracle-controlled-rollout.sh
       - scripts/oracle-westbahn-booking-status.sh
-      - scripts/oracle-booking-code-sync.py scripts/oracle-booking-build-diagnose.py
+      - scripts/oracle-booking-code-sync.py
       - scripts/oracle-booking-build-diagnose.py
       - scripts/oracle-westbahn-book-three.sh
       - .github/workflows/oracle-safe-deploy.yml
@@ -43,7 +43,7 @@ jobs:
           bash -n scripts/oracle-controlled-rollout.sh
           bash -n scripts/oracle-westbahn-booking-status.sh
           bash -n scripts/oracle-westbahn-book-three.sh
-          python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py scripts/oracle-booking-code-sync.py
+          python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py scripts/oracle-booking-code-sync.py scripts/oracle-booking-build-diagnose.py
           python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
       - name: Verify checkout is not silently rebuilt
         run: |
