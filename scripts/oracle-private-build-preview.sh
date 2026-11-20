@@ -33,7 +33,10 @@ log="$(mktemp /root/agentzentrale-private-snapshots/build-log-XXXXXXXX)"
 chmod 600 "$log"
 tag="agentzentrale-oracle-candidate:private-preview"
 echo "PREVIEW_BUILD_STARTED=yes"
-if docker build --pull=false --progress=plain --tag "$tag" "$latest/code" >"$log" 2>&1; then
+fingerprint="$(cd "$latest/code" && sha256sum Dockerfile server/browser/worker.py server/browser/ticketshop_station_dry_run.py server/browser/checkout_202611{23,24,25,26,27}.py | sha256sum | awk '{print $1}')"
+if docker build --pull=false --progress=plain --label "at.agentzentrale.private-stage-fingerprint=$fingerprint" --tag "$tag" "$latest/code" >"$log" 2>&1; then
+ label="$(docker image inspect --format '{{ index .Config.Labels "at.agentzentrale.private-stage-fingerprint" }}' "$tag")"
+ [[ "$label" == "$fingerprint" ]] || { echo "PREVIEW_BUILD=FAILED"; exit 5; }
  echo "PREVIEW_BUILD=OK"
  echo "PRIVATE_CANDIDATE_IMAGE_BUILT=yes"
  echo "LIVE_CONTAINER_RESTARTED=no"
