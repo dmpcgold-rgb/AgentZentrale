@@ -86,7 +86,23 @@ chmod 600 "$run/"*.override.yaml
 dc() { docker compose --project-directory /opt/agentzentrale -f "$compose" -f "$1" "${@:2}"; }
 dc "$run/candidate.override.yaml" config -q || { echo 'ROLLOUT=BLOCKED_COMPOSE_INVALID'; exit 4; }
 dc "$run/rollback.override.yaml" config -q || { echo 'ROLLOUT=BLOCKED_ROLLBACK_CONFIG_INVALID'; exit 4; }
-[[ ! -e /opt/agentzentrale/compose.override.yaml ]] || { echo 'ROLLOUT=BLOCKED_EXISTING_COMPOSE_OVERRIDE'; exit 4; }
+# A previous successful controlled rollout creates a minimal, image-only override.
+# Permit replacing precisely that known file, never an unknown custom override.
+if [[ -e /opt/agentzentrale/compose.override.yaml ]]; then
+  current_tag="$(python3 - <<'PY'
+from pathlib import Path
+import re
+p=Path('/opt/agentzentrale/compose.override.yaml')
+s=p.read_text()
+m=re.fullmatch(r'services:\\n  agentzentrale:\\n    image: (agentzentrale-oracle-promoted:release-[a-zA-Z0-9]+)\\n',s)
+print(m.group(1) if m else '')
+PY
+)"
+  [[ -n "$current_tag" ]] || { echo 'ROLLOUT=BLOCKED_UNKNOWN_COMPOSE_OVERRIDE'; exit 4; }
+  previous_id="$(docker image inspect -f '{{.Id}}' "$current_tag" 2>/dev/null || true)"
+  current_id="$(docker inspect -f '{{.Image}}' "$running")"
+  [[ -n "$previous_id" && "$previous_id" == "$current_id" ]] || { echo 'ROLLOUT=BLOCKED_OVERRIDE_IMAGE_MISMATCH'; exit 4; }
+fi
 
 health_ok() {
   local override="$1" target="$2" new_id state
