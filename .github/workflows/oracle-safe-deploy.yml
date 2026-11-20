@@ -45,6 +45,13 @@ jobs:
           bash -n scripts/oracle-westbahn-book-three.sh
           python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py scripts/oracle-booking-code-sync.py scripts/oracle-booking-build-diagnose.py
           python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
+      - name: Verify public Node booking logic before remote build
+        run: |
+          node --version
+          node --check server/index.mjs
+          node --check server/westbahn.mjs
+          node --check server/gmail-audit.mjs
+          node --test server/tests/gmail-audit.test.mjs server/tests/westbahn.test.mjs
       - name: Verify checkout is not silently rebuilt
         run: |
           test -f scripts/oracle-safe-deploy.sh
