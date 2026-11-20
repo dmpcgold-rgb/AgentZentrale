@@ -1,0 +1,59 @@
+name: Oracle WESTbahn - targeted 3-day private upgrade and booking
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oracle-westbahn-live.yml
+permissions:
+  contents: read
+concurrency:
+  group: oracle-agentzentrale-deploy
+  cancel-in-progress: false
+jobs:
+  upgrade-and-book:
+    if: contains(github.event.head_commit.message, '[oracle-westbahn-three-once]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify public booking changes, scripts and scope
+        run: |
+          set -Eeuo pipefail
+          node --test server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs
+          bash -n scripts/oracle-controlled-rollout.sh
+          bash -n scripts/oracle-private-build-preview.sh
+          bash -n scripts/oracle-westbahn-targeted-book.sh
+          python3 -m py_compile scripts/oracle-westbahn-private-upgrade.py
+          grep -Fq "dates:['2026-11-25','2026-11-26','2026-11-27']" server/tests/westbahn.test.mjs
+      - name: Verify secrets for private Oracle deployment
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: test -n "$ORACLE_HOST" && test -n "$ORACLE_SSH_KEY" && test -n "$ORACLE_KNOWN_HOSTS"
+      - name: Overlay public changes, build private image, roll out and book three days
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle_deploy
+          printf '%s\n' "$ORACLE_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          user="${ORACLE_USER:-ubuntu}"
+          remote="$user@$ORACLE_HOST"
+          ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes -i ~/.ssh/oracle_deploy)
+          # Upload only reviewed PUBLIC code, never Oracle's private checkout/session.
+          ssh "${ssh_opts[@]}" "$remote" "sudo -n install -d -m 700 /root/agentzentrale-private-staging"
+          tar -czf -             server/westbahn.mjs server/index.mjs server/gmail-audit.mjs             server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs             | ssh "${ssh_opts[@]}" "$remote" "sudo -n tee /root/agentzentrale-private-staging/westbahn-public-overlay.tar.gz >/dev/null"
+          echo 'UPGRADE_STEP=PRIVATE_STAGE'
+          ssh "${ssh_opts[@]}" "$remote" "sudo -n python3 - --refresh" < scripts/oracle-westbahn-private-upgrade.py
+          echo 'UPGRADE_STEP=PRIVATE_BUILD'
+          ssh "${ssh_opts[@]}" "$remote" "sudo -n bash -s -- --preview" < scripts/oracle-private-build-preview.sh
+          echo 'UPGRADE_STEP=CONTROLLED_ROLLOUT'
+          ssh "${ssh_opts[@]}" "$remote" "sudo -n bash -s -- --rollout" < scripts/oracle-controlled-rollout.sh
+          echo 'UPGRADE_STEP=TARGETED_BOOKING'
+          ssh "${ssh_opts[@]}" "$remote" "sudo -n bash -s -- --book-target-20261125-27" < scripts/oracle-westbahn-targeted-book.sh
