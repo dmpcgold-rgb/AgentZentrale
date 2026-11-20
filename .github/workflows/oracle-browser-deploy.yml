@@ -1,0 +1,99 @@
+name: Oracle – gezieltes Browser-Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_file:
+        description: 'Vorhandene Python-Datei, z.B. server/browser/worker.py'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-browser-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Eingabe und Python-Syntax prüfen
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.python_file }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_PATH" =~ ^server/browser/[A-Za-z0-9_-]+\.py$ ]] || { echo "Ungültiger Pfad"; exit 1; }
+          test -f "$DEPLOY_PATH"
+          python3 - <<'PY'
+          import ast, os, pathlib
+          p = pathlib.Path(os.environ["DEPLOY_PATH"])
+          ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+          print("Python-Syntax OK:", p)
+          PY
+
+      - name: Sichere SSH-Verbindung vorbereiten
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.ORACLE_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ORACLE_DEPLOY_KNOWN_HOSTS }}
+          ORACLE_HOST: ${{ secrets.ORACLE_DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS" && test -n "$ORACLE_HOST"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/id_oracle_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_oracle_deploy"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Einzelne Datei auf Oracle mit Sicherung aktualisieren
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ inputs.python_file }}
+          ORACLE_HOST: ${{ secrets.ORACLE_DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          BASENAME="${DEPLOY_PATH##*/}"
+          SHA="$(sha256sum "$DEPLOY_PATH" | cut -d' ' -f1)"
+          SSH=(ssh -i "$HOME/.ssh/id_oracle_deploy" -o StrictHostKeyChecking=yes -o BatchMode=yes)
+          SCP=(scp -i "$HOME/.ssh/id_oracle_deploy" -o StrictHostKeyChecking=yes -o BatchMode=yes)
+          "${SSH[@]}" "ubuntu@$ORACLE_HOST" 'mkdir -p "$HOME/.agentzentrale-deploy/incoming" "$HOME/.agentzentrale-deploy/backups"'
+          "${SCP[@]}" "$DEPLOY_PATH" "ubuntu@$ORACLE_HOST:.agentzentrale-deploy/incoming/$BASENAME"
+          "${SSH[@]}" "ubuntu@$ORACLE_HOST" "bash -s -- '$BASENAME' '$SHA'" <<'REMOTE'
+          set -euo pipefail
+          NAME="$1"
+          EXPECTED_SHA="$2"
+          [[ "$NAME" =~ ^[A-Za-z0-9_-]+\.py$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{64}$ ]]
+          SRC="$HOME/.agentzentrale-deploy/incoming/$NAME"
+          test -f "$SRC"
+          test "$(sha256sum "$SRC" | cut -d' ' -f1)" = "$EXPECTED_SHA"
+          python3 - "$SRC" <<'PY'
+          import ast, pathlib, sys
+          ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          PY
+          CID="$(sudo docker compose -f /opt/agentzentrale/compose.yaml ps -q agentzentrale)"
+          test -n "$CID"
+          TARGET="/app/server/browser/$NAME"
+          BACKUP="$HOME/.agentzentrale-deploy/backups/$NAME.$(date -u +%Y%m%dT%H%M%SZ).bak"
+          # Nur vorhandene Dateien patchen; neue Checkout-Module separat prüfen.
+          sudo docker cp "$CID:$TARGET" "$BACKUP"
+          chmod 600 "$BACKUP"
+          if ! sudo docker cp "$SRC" "$CID:$TARGET"; then
+            sudo docker cp "$BACKUP" "$CID:$TARGET"
+            exit 1
+          fi
+          if ! sudo docker compose -f /opt/agentzentrale/compose.yaml exec -T agentzentrale /opt/agent-venv/bin/python -c 'import ast,hashlib,pathlib,sys; p=pathlib.Path(sys.argv[1]); ast.parse(p.read_text()); assert hashlib.sha256(p.read_bytes()).hexdigest()==sys.argv[2]' "$TARGET" "$EXPECTED_SHA"; then
+            sudo docker cp "$BACKUP" "$CID:$TARGET"
+            echo "Prüfung fehlgeschlagen; Backup wiederhergestellt." >&2
+            exit 1
+          fi
+          echo "Installiert und geprüft: $TARGET (Backup vorhanden)"
+          REMOTE
