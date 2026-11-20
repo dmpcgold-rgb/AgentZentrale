@@ -206,7 +206,11 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const body = await readJson(req);
         if (body.confirm !== 'NUR-0-EURO') throw new ApiError(403, 'Freigabe für 0-Euro-Buchungen fehlt.');
         if (!westbahn.status().providerConnected || westbahn.status().running) throw new ApiError(409, 'Kein Buchungsadapter verbunden oder Lauf bereits aktiv.');
-        westbahn.run().catch(e => console.error('WESTbahn-Lauf fehlgeschlagen:', e.message));
+        // A dated manual request must never silently expand to later travel days.
+        const dates=body.dates;
+        if(dates!==undefined && (!Array.isArray(dates)||dates.length<1||dates.length>5||new Set(dates).size!==dates.length||dates.some(date=>typeof date!=='string'||!planDates(new Date()).includes(date))))
+          throw new ApiError(400,'Nur 1–5 eindeutige, zulässige Reisedaten erlaubt.');
+        westbahn.run(dates===undefined?{}:{dates}).catch(e => console.error('WESTbahn-Lauf fehlgeschlagen:', e.message));
         return write(res, 202, {accepted:true,message:'Buchungslauf gestartet. Buchungen erst nach bestätigtem Ergebnis zählen.'});
       }
       if (is('POST', '/chat')) {
