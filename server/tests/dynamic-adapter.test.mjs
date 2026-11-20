@@ -16,7 +16,7 @@ const capabilities={dynamicItineraries:true,authenticatedFullInventory:true,
 const audit={verified:true,bookingAuthorized:false,
  checks:Object.fromEntries(Array.from({length:11},(_,i)=>['check'+i,true]))};
 function fixture({inventoryComplete=true,price=0,misroute=false,
- auditApproved=true,throwBooking=false,readbackMatch=true}={}){
+ auditApproved=true,throwBooking=false,readbackMatch=true,existingConflict=false}={}){
  let count=0, accountReads=0, bookings=[];
  const trip={date:day,origin:misroute?'Wrong City':plan.origin,
   destination:plan.destination,departure:plan.departure,arrival:'12:40',
@@ -31,6 +31,10 @@ function fixture({inventoryComplete=true,price=0,misroute=false,
   get bookings(){return bookings},
   existing:async ()=>{
    accountReads++;
+   if(existingConflict&&!count){
+    return {status:'confirmed',accountVerified:true,inventoryComplete:true,
+     receiptSource:'provider_account',receipt:{...receipt,origin:'Wrong City'}};
+   }
    if(count){
     return {status:'confirmed',accountVerified:true,inventoryComplete:true,
      receiptSource:'provider_account',
@@ -99,4 +103,15 @@ test('uncertain checkout and missing independent readback remain locked',async()
   await a.run();
   assert.equal(adapter.count,1);
  }
+});
+
+test('contradictory positive existing ticket is permanently protected against later missing inventory',async()=>{
+ const adapter=fixture({existingConflict:true});
+ const a=createWestbahn({getPlan:()=>plan,adapter,now});
+ await a.run();
+ assert.equal(adapter.count,0);
+ assert.equal(a.status().rows[0].status,'uncertain');
+ await a.run();
+ assert.equal(adapter.count,0);
+ assert.equal(a.status().rows[0].status,'uncertain');
 });
