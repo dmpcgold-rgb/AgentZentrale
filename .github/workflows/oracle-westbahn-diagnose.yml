@@ -1,5 +1,5 @@
 name: Oracle WESTbahn - private build diagnostics
-# Check public Node test identifiers on third build attempt.
+# Retry diagnostic: parse staged public test titles without regex.
 on:
   push:
     branches: [main]
