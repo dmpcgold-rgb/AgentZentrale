@@ -11,13 +11,14 @@ on:
       - scripts/oracle-production-release-gate.sh
       - scripts/oracle-controlled-rollout.sh
       - scripts/oracle-westbahn-booking-status.sh
+      - scripts/oracle-booking-code-sync.py
       - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
     inputs:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, booking-status, booking-enable, check, apply]
+        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, booking-status, booking-enable, booking-update, check, apply]
         default: check
 permissions:
   contents: read
@@ -39,7 +40,7 @@ jobs:
           bash -n scripts/oracle-production-release-gate.sh
           bash -n scripts/oracle-controlled-rollout.sh
           bash -n scripts/oracle-westbahn-booking-status.sh
-          python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py
+          python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py scripts/oracle-booking-code-sync.py
           python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
       - name: Verify checkout is not silently rebuilt
         run: |
@@ -66,7 +67,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
@@ -98,7 +99,38 @@ jobs:
             remote_command="sudo -n bash -s -- --preview"
           fi
           set +e
-          if [[ "$MODE" == verify ]]; then
+          if [[ "$MODE" == booking-update ]]; then
+            script64="$(base64 -w0 scripts/oracle-booking-code-sync.py)"
+            set +e
+            tar -cf - server/westbahn.mjs server/index.mjs server/gmail-audit.mjs \
+              server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs |
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$script64\"),\"sync\",\"exec\"))' --booking-code-sync" \
+              | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[1]}
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --preview" \
+                < scripts/oracle-private-build-preview.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --rollout" \
+                < scripts/oracle-controlled-rollout.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --booking-status" \
+                < scripts/oracle-westbahn-booking-status.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+          elif [[ "$MODE" == verify ]]; then
             # A single run must first rebuild the exact private candidate
             # and only then check its fingerprint against the staged source.
             ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
@@ -125,7 +157,7 @@ jobs:
       - name: Generate sanitized audit report
         if: always()
         env:
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           python3 scripts/oracle-audit-report.py \
             "$RUNNER_TEMP/oracle-command.log" \
