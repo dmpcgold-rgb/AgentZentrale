@@ -94,8 +94,9 @@ from pathlib import Path
 import re
 p=Path('/opt/agentzentrale/compose.override.yaml')
 s=p.read_text()
-m=re.fullmatch(r'services:\\n  agentzentrale:\\n    image: (agentzentrale-oracle-promoted:release-[a-zA-Z0-9]+)\\n',s)
-print(m.group(1) if m else '')
+lines=s.splitlines()
+match=re.fullmatch(r'    image: (agentzentrale-oracle-promoted:release-[a-zA-Z0-9]+)',lines[2]) if len(lines)==3 and lines[:2]==['services:','  agentzentrale:'] and s.endswith(chr(10)) else None
+print(match.group(1) if match else '')
 PY
 )"
   [[ -n "$current_tag" ]] || { echo 'ROLLOUT=BLOCKED_UNKNOWN_COMPOSE_OVERRIDE'; exit 4; }
