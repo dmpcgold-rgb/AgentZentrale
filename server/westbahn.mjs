@@ -15,6 +15,19 @@ export function verifiedAccountReadback(snapshot, date, seat, bookingId){
         typeof bookingId==='string' && bookingId.trim().length>0 &&
         snapshot.receipt.bookingId===bookingId;
 }
+// For a date-specific ticket view, a verified no-match can be sufficient
+// without a global inventory-completeness flag. An unauthenticated,
+// unscoped, unfinished or ambiguous search never authorizes checkout.
+export function verifiedNoExistingTicket(snapshot,date){
+ return snapshot?.status==='none' &&
+        snapshot.accountVerified===true &&
+        (snapshot.inventoryComplete===true ||
+         (snapshot.ticketsViewVerified===true &&
+          snapshot.searchedDate===date &&
+          snapshot.dateFilterVerified===true &&
+          snapshot.matchingTicketFound===false &&
+          snapshot.searchComplete===true));
+}
 const empty=()=>({enabled:false,rows:{},lastSchedule:null,lastRun:null});
 export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled=true,file=null,now=()=>new Date()}={}){
  let state=empty(), running=false;
@@ -92,15 +105,15 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
         record(date,'blocked','Vorhandene Buchung ist nicht eindeutig passend; keine Doppelbuchung.');
       continue;
      }
-     // The provider must prove that all relevant existing bookings were
-     // checked, otherwise a "none" response cannot authorize a checkout.
-     if(before?.status!=='none'||before.accountVerified!==true||before.inventoryComplete!==true){
-       record(date,'blocked','Buchungsbestand nicht vollständig und authentifiziert geprüft; keine Buchung.');
+     // User-approved two-source absence rule: no matching Gmail confirmation
+     // AND no ticket in a completed, authenticated, date-scoped Tickets search.
+     // The provider may alternatively prove a complete account inventory.
+     // No proof of a completed check is NOT proof that no ticket exists.
+     if(!verifiedNoExistingTicket(before,date)){
+       record(date,'blocked','WESTbahn-Ticketsuche nicht vollständig oder nicht authentifiziert geprüft; keine Buchung.');
        continue;
      }
-     // No matching confirmation email permits proceeding ONLY after a complete,
-     // authenticated provider-account inventory proved there is no existing ticket.
-     // Any positive or ambiguous email evidence blocks checkout.
+     // Any positive or ambiguous Gmail evidence still blocks checkout.
      if(emailAudit){
       const mail=await emailAudit.inspect({date,...RULES});
       if(mail?.possibleExisting===true){record(date,'blocked','Mögliche vorhandene WESTbahn-Bestätigung per E-Mail; manuell prüfen.');continue;}
