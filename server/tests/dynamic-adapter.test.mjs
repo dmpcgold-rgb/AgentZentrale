@@ -115,3 +115,15 @@ test('contradictory positive existing ticket is permanently protected against la
  assert.equal(adapter.count,0);
  assert.equal(a.status().rows[0].status,'uncertain');
 });
+
+test('custom adapter missing complete account proof cannot run or purchase',async()=>{
+ const adapter=fixture();
+ adapter.capabilities.authenticatedFullInventory=false;
+ const a=createWestbahn({getPlan:()=>plan,adapter,now});
+ assert.equal(a.status().dynamicProviderVerified,false);
+ assert.throws(()=>a.setEnabled(true),/verifizierten Buchungsadapter/);
+ await a.run();
+ assert.equal(adapter.count,0);
+ assert.equal(adapter.reads,0);
+ assert.equal(a.status().lastRun.status,'blocked_unverified_custom_itinerary');
+});
