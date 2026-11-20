@@ -48,7 +48,7 @@ if copies:
   if f.is_file():
    for title in re.findall(r"""test\\(['"]([^'"]{1,120})['"]""",f.read_text(encoding='utf-8')):
     known.add(title)
-fails=re.findall(r'(?m)^#?\\d*(?:\\.\\d+)?\\s*not ok \\d+ - ([^\\r\\n]+)',raw)
+fails=re.findall(r'(?m)^.*?\\bnot ok \\d+ - ([^\\r\\n]+)',raw)
 print('NODE_FAILED_TEST_COUNT='+str(len(fails)))
 for i,title in enumerate(fails[:8],1):
  print('FAILED_PUBLIC_TEST_'+str(i)+'='+title if title in known else 'FAILED_PUBLIC_TEST_'+str(i)+'=UNMATCHED')
