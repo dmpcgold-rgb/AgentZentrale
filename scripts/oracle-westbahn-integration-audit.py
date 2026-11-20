@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only private WESTbahn adapter capability audit; publish no source/credentials."""
+"""Read-only WESTbahn/Gmail compatibility audit; never publish source or credentials."""
 import ast
 import os
 from pathlib import Path
