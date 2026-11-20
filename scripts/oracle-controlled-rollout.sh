@@ -47,10 +47,18 @@ for row in data['rows'].values():
 print('ROLLOUT_LEDGER_IDLE=YES')
 PY
 # Detect in-flight Playwright/checkout jobs. A read-only node server is expected.
-if ! docker top "$running" -eo args >"$guard_dir/live-processes" 2>/dev/null; then
+# Docker's default process format is more portable than "-eo args" on
+# Oracle host builds. Never let a failed inspection silently authorize rollout.
+if ! docker top "$running" >"$guard_dir/live-processes" 2>/dev/null; then
   echo 'ROLLOUT=BLOCKED_PROCESS_INSPECTION_FAILED'; exit 3
 fi
-if grep -Ei '(^|[ /])(checkout_202611[0-9]+[.]py|ticketshop_station_dry_run[.]py|worker[.]py)([[:space:]]|$)' "$guard_dir/live-processes" >/dev/null; then
+# Reject unexpected output instead of interpreting an empty/unsupported
+# process listing as idle. Never print process arguments to Actions logs.
+if ! head -n 1 "$guard_dir/live-processes" | grep -Eiq '(^|[[:space:]])(CMD|COMMAND|ARGS)([[:space:]]|$)' ||
+   ! tail -n +2 "$guard_dir/live-processes" | grep -Eq '[[:space:]]node([[:space:]]|$)|node[[:space:]].*index[.]mjs'; then
+  echo 'ROLLOUT=BLOCKED_PROCESS_LIST_UNVERIFIED'; exit 3
+fi
+if grep -Ei '(^|[ /])(checkout_202611[0-9]+[.]py|ticketshop_station_dry_run[.]py|worker[.]py|chromium|chrome|playwright)([[:space:]]|$)' "$guard_dir/live-processes" >/dev/null; then
   echo 'ROLLOUT=BLOCKED_BROWSER_WORK_ACTIVE'; exit 3
 fi
 # Old container's untracked docker-cp checkout code is preserved in the rollback image.
