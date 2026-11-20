@@ -53,6 +53,10 @@ jobs:
           printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle_deploy
           printf '%s\n' "$ORACLE_KNOWN_HOSTS" > ~/.ssh/known_hosts
           user="${ORACLE_USER:-ubuntu}"
+          script="scripts/oracle-safe-deploy.sh"
+          if [[ "$MODE" == inventory || "$MODE" == snapshot ]]; then
+            script="scripts/oracle-source-inventory.sh"
+          fi
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
-            "sudo -n bash -s -- --$MODE" < "${MODE:+$(case "$MODE" in inventory|snapshot) echo scripts/oracle-source-inventory.sh;; *) echo scripts/oracle-safe-deploy.sh;; esac)}"
+            "sudo -n bash -s -- --$MODE" < "$script"
