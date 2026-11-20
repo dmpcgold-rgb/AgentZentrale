@@ -31,6 +31,7 @@ jobs:
           bash -n scripts/oracle-private-reconcile.sh
           bash -n scripts/oracle-snapshot-audit.sh
           python3 -m py_compile scripts/oracle-audit-report.py
+          python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
       - name: Verify checkout is not silently rebuilt
         run: |
           test -f scripts/oracle-safe-deploy.sh
