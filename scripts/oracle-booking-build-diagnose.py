@@ -50,6 +50,30 @@ for label,pattern in stages.items():
 # Never print private test titles; report only whether expected public test
 # failures were detected, for accurate guided repairs.
 print('BUILD_TAP_FAILURES_FOUND='+('yes' if failed else 'no'))
+# Exact diagnosis categories extracted from Node errors, without printing any
+# source lines or error strings. A missing named export is a SyntaxError even
+# when every source file parses correctly.
+kinds={
+ 'MISSING_NAMED_EXPORT':r'does not provide an export named',
+ 'UNEXPECTED_TOKEN':r'SyntaxError: Unexpected token',
+ 'UNEXPECTED_IDENTIFIER':r'SyntaxError: Unexpected identifier',
+ 'INVALID_REGEXP':r'SyntaxError: Invalid regular expression',
+ 'MODULE_MISSING':r'ERR_MODULE_NOT_FOUND|Cannot find module',
+ 'JS_ASSERTION':r'ERR_ASSERTION|AssertionError',
+ 'JS_REFERENCE_ERROR':r'ReferenceError:',
+ 'JS_TYPE_ERROR':r'TypeError:',
+}
+for label,pattern in kinds.items():
+ print('BUILD_NODE_ERROR_'+label+'='+('yes' if bool(re.search(pattern,raw,re.I)) else 'no'))
+# Restrict attribution to known, public JavaScript modules only.
+known=['server/index.mjs','server/westbahn.mjs','server/gmail-audit.mjs',
+ 'src/core/westbahn.js','server/tests/westbahn.test.mjs',
+ 'server/tests/gmail-audit.test.mjs','server/booking-readiness.mjs',
+ 'server/trip-preview.mjs','server/weekly-review.mjs']
+for filename in known:
+ safe=filename.replace('/','_').replace('.','_').upper()
+ print('BUILD_NODE_PUBLIC_'+safe+'='+('yes' if filename in raw else 'no'))
+
 print('NO_BOOKINGS_EXECUTED=yes')
 print('NO_DEPLOYMENT_EXECUTED=yes')
 print('NO_PRIVATE_SOURCE_UPLOADED=yes')
