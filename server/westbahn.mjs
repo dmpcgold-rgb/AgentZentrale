@@ -16,15 +16,15 @@ export function verifiedAccountReadback(snapshot, date, seat, bookingId){
         snapshot.receipt.bookingId===bookingId;
 }
 const empty=()=>({enabled:false,rows:{},lastSchedule:null,lastRun:null});
-export function createWestbahn({adapter=null,emailAudit=null,file=null,now=()=>new Date()}={}){
+export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled=true,file=null,now=()=>new Date()}={}){
  let state=empty(), running=false;
  if(file){try{state=JSON.parse(readFileSync(file,'utf8'));if(!state.rows||typeof state.enabled!=='boolean')throw new Error('Invalid ledger');}catch(e){if(e.code!=='ENOENT')throw e;}}
  const save=()=>{if(file){mkdirSync(dirname(file),{recursive:true,mode:0o700});writeFileSync(file+'.tmp',JSON.stringify(state),{mode:0o600});renameSync(file+'.tmp',file);}};
  // An interrupted checkout is never retried automatically.
  for(const row of Object.values(state.rows)) if(row.status==='booking') {row.status='uncertain';row.detail='Buchung unterbrochen: zuerst beim Anbieter abgleichen.';}
  save();
- const status=()=>({providerConnected:!!adapter,emailControlConnected:!!emailAudit,automatic:state.enabled,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:planDates(now()),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
- const setEnabled=enabled=>{if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');if(enabled&&!emailAudit)throw new Error('Gmail-Buchungsprüfung auf dem Server fehlt.');state.enabled=!!enabled;save();return status();};
+ const status=()=>({providerConnected:!!adapter,emailControlConnected:!!emailAudit,liveCheckoutEnabled:!!liveCheckoutEnabled,automatic:state.enabled&&!!liveCheckoutEnabled&&!!adapter&&!!emailAudit,running,lastRun:state.lastRun,lastSchedule:state.lastSchedule,rules:RULES,rows:Object.values(state.rows).sort((a,b)=>a.date.localeCompare(b.date)),planned:planDates(now()),confirmedThrough:Object.values(state.rows).filter(x=>x.status==='confirmed').map(x=>x.date).sort().at(-1)||null});
+ const setEnabled=enabled=>{if(enabled&&!liveCheckoutEnabled)throw new Error('Live-Checkout auf Oracle nicht ausdrücklich freigeschaltet.');if(enabled&&!adapter)throw new Error('Kein verifizierter WESTbahn-Buchungsadapter verbunden.');if(enabled&&!emailAudit)throw new Error('Gmail-Buchungsprüfung auf dem Server fehlt.');state.enabled=!!enabled;save();return status();};
  const record=(date,status,detail,extra={})=>{state.rows[date]={date,status,detail,updatedAt:now().toISOString(),...extra};save();};
  const recordUserReported=(travelDate,seat)=>{
   if(typeof travelDate!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(travelDate)||Number.isNaN(Date.parse(travelDate+'T00:00:00Z'))||new Date(travelDate+'T00:00:00Z').toISOString().slice(0,10)!==travelDate)throw new Error('Reisedatum ungültig.');
@@ -66,6 +66,8 @@ export function createWestbahn({adapter=null,emailAudit=null,file=null,now=()=>n
  };
 
  async function run(){
+  if(!liveCheckoutEnabled)throw new Error('Live-Checkout nicht freigegeben. Keine Bestellung.');
+  if(!emailAudit)throw new Error('Gmail-Doppelbuchungskontrolle fehlt. Keine Bestellung.');
   if(!adapter)throw new Error('Kein WESTbahn-Buchungsadapter verbunden.');if(running)throw new Error('Buchungslauf läuft bereits.');running=true;
   state.lastRun={startedAt:now().toISOString(),status:'running'};save();
   try{
@@ -134,15 +136,15 @@ export function createWestbahn({adapter=null,emailAudit=null,file=null,now=()=>n
   }catch(e){state.lastRun={...state.lastRun,status:'failed',finishedAt:now().toISOString()};throw e;}finally{running=false;save();}
   return status();
  }
- async function tick(){const c=viennaClock(now());if(!state.enabled||!adapter||running||c.weekday!=='Mon'||c.time<'07:00'||state.lastSchedule===c.date)return false;state.lastSchedule=c.date;save();await run();return true;}
+ async function tick(){const c=viennaClock(now());if(!liveCheckoutEnabled||!state.enabled||!emailAudit||!adapter||running||c.weekday!=='Mon'||c.time<'07:00'||state.lastSchedule===c.date)return false;state.lastSchedule=c.date;save();await run();return true;}
  return {status,setEnabled,run,tick,recordUserReported,recordVerifiedExisting};
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
-export async function loadWestbahn(env=process.env){let adapter=null;if(env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
+export async function loadWestbahn(env=process.env){const liveCheckoutEnabled=env.WESTBAHN_LIVE_CHECKOUT_ENABLED==='true';let adapter=null;if(liveCheckoutEnabled&&env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
  let emailAudit=null;
  if(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN){
   emailAudit=createGmailAudit({clientId:env.GMAIL_CLIENT_ID,clientSecret:env.GMAIL_CLIENT_SECRET,refreshToken:env.GMAIL_REFRESH_TOKEN});
  }
  if(adapter&&!emailAudit)throw new Error('WESTbahn-Buchungsadapter ohne Gmail-Doppelbuchungskontrolle gesperrt.');
- return createWestbahn({adapter,emailAudit,file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
+ return createWestbahn({adapter,emailAudit,liveCheckoutEnabled,file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
