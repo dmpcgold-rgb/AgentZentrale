@@ -53,6 +53,29 @@ class OracleAuditReportTests(unittest.TestCase):
             self.assertEqual(result["status"],"stage_verified")
             self.assertNotIn(secret,raw)
 
+    def test_combined_verification_requires_build_and_release_gate(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = pathlib.Path(td)
+            (d / "log").write_text(
+                "PREVIEW_BUILD=OK\n"
+                "PRIVATE_CANDIDATE_IMAGE_BUILT=yes\n"
+                "RELEASE_GATE=READY_FOR_CONTROLLED_ROLLOUT\n"
+                "CANDIDATE_MATCHES_PRIVATE_STAGE=yes\n"
+                "LIVE_DATA_VOLUME_PERSISTENT=yes\n"
+                "NO_DEPLOYMENT_EXECUTED=yes\n")
+            (d / "status").write_text("0\n")
+            subprocess.run([sys.executable, str(SCRIPT), str(d / "log"),
+                            str(d / "status"), str(d / "out")],
+                           env={**os.environ, "MODE": "verify"},
+                           check=True, capture_output=True, text=True)
+            self.assertEqual(json.loads((d / "out").read_text())["status"], "verify_ready")
+            (d / "log").write_text("PREVIEW_BUILD=OK\nNO_DEPLOYMENT_EXECUTED=yes\n")
+            subprocess.run([sys.executable, str(SCRIPT), str(d / "log"),
+                            str(d / "status"), str(d / "out")],
+                           env={**os.environ, "MODE": "verify"},
+                           check=True, capture_output=True, text=True)
+            self.assertNotEqual(json.loads((d / "out").read_text())["status"], "verify_ready")
+
     def test_failed_remote_command_never_claims_verified(self):
         with tempfile.TemporaryDirectory() as td:
             d=pathlib.Path(td)
