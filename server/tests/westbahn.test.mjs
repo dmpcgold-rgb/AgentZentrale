@@ -4,7 +4,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {RULES,planDates,chooseSeat,validateQuote,confirmedReceipt,viennaClock} from '../../src/core/westbahn.js';
-import {createWestbahn,verifiedAccountReadback} from '../westbahn.mjs';
+import {createWestbahn,verifiedAccountReadback,verifiedNoExistingTicket} from '../westbahn.mjs';
 const now=()=>new Date('2026-11-16T06:00:00Z');
 const day='2026-11-17';
 const mockEmail={inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false})};
@@ -70,6 +70,42 @@ test('unauthenticated or incomplete account inventory must never trigger checkou
  }
 });
 
+test('completed authenticated date-specific Tickets no-match plus Gmail no-match permits exact-zero checkout',async()=>{
+ const p=provider();
+ const old=p.existing;
+ p.existing=async({date})=>{
+  const result=await old({date});
+  if(result.status==='none')return {status:'none',accountVerified:true,
+   inventoryComplete:false,ticketsViewVerified:true,searchedDate:date,
+   dateFilterVerified:true,matchingTicketFound:false,searchComplete:true};
+  return result;
+ };
+ const a=createWestbahn({now,adapter:p,emailAudit:mockEmail});
+ await a.run();
+ assert.equal(p.count,1);
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'confirmed');
+});
+test('missing ticket only counts after authenticated completed date-specific Tickets check',()=>{
+ const evidence={status:'none',accountVerified:true,inventoryComplete:false,
+  ticketsViewVerified:true,searchedDate:day,dateFilterVerified:true,
+  matchingTicketFound:false,searchComplete:true};
+ assert.equal(verifiedNoExistingTicket(evidence,day),true);
+ for(const patch of [
+  {accountVerified:false},{ticketsViewVerified:false},{searchedDate:'2026-11-18'},
+  {dateFilterVerified:false},{matchingTicketFound:true},{searchComplete:false},
+  {status:'unknown'}
+ ]) assert.equal(verifiedNoExistingTicket({...evidence,...patch},day),false);
+});
+test('unconfirmed Tickets no-match with Gmail absence never attempts purchase',async()=>{
+ const p=provider();
+ p.existing=async()=>({status:'none',accountVerified:true,inventoryComplete:false,
+  ticketsViewVerified:true,searchedDate:day,dateFilterVerified:true,
+  matchingTicketFound:false,searchComplete:false});
+ const a=createWestbahn({now,adapter:p,emailAudit:mockEmail});
+ await a.run();
+ assert.equal(p.count,0);
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
+});
 test('missing, mismatched or unreachable account readback is uncertain, never retried',async()=>{
  for(const opts of [
   {readbackMissing:true},{readbackWrongId:true},
