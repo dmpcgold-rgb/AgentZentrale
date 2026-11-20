@@ -20,6 +20,11 @@ test('different travel date is not treated as the requested date',()=>{
  const r=evaluateBookingEmail([{subject:'WESTbahn Reservierung',body:'24.11.2026 Wien Meidling - Wiener Neustadt'}],date);
  assert.equal(r.possibleExisting,false);
 });
+test('actual WESTbahn message with abbreviated stations and Nov date is recognized',()=>{
+ const r=evaluateBookingEmail([{subject:'Ihr Westbahn-Ticket',body:'Abfahrt 18:22 Di 24 Nov Ankunft 18:49 W. Meidling Wr. Neustadt 2+ | Reservierung Comfort Class'}],'2026-11-24');
+ assert.equal(r.possibleExisting,true);
+ assert.equal(evaluateBookingEmail([{subject:'Ihr Westbahn-Ticket',body:'Abfahrt 18:22 Di 24 Nov W. Meidling Wr. Neustadt 2+ Reservierung Comfort Class'}],'2026-11-25').possibleExisting,false);
+});
 test('Gmail OAuth errors fail closed',async()=>{
  const checker=createGmailAudit({clientId:'c',clientSecret:'s',refreshToken:'r',
  fetchImpl:async()=>({ok:false})});
