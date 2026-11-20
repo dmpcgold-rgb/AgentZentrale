@@ -384,3 +384,9 @@ Ab Version **1.4.7** gibt `seat-preview` ausschließlich fest vorgegebene, nicht
 Der neue `reason`-Code dient der gezielten Fehlerbehebung im isolierten Browser. Es wird **kein** Preis als verbindlicher KlimaTicket-Kaufpreis ausgelegt, keine Live-Verfügbarkeit behauptet, kein bestehender Reservierungseintrag überschrieben und kein Sitzplatz gekauft. Die Sicherheitsflags bleiben `liveAvailabilityVerified:false`, `bookingAuthorized:false` und `canPurchase:false`. Die Android-Testoberfläche zeigt eine verständliche Erklärung an.
 
 Nach erfolgreichem Docker-Build kann der Operator denselben `POST /westbahn/browser/seat-preview`-Test für 18.11.2026 erneut durchführen; nur der neue feste Fehlergrund ist für die nächste Korrektur relevant. Diesen Test nicht für den bereits geschützten 17.11. verwenden.
+
+## Serverseitige Gmail-Doppelbuchungsprüfung
+
+Der WESTbahn-Server kann vor einer Buchung über ein separates Gmail-OAuth-Token (Scope `gmail.readonly`) nach potenziellen Reservierungsbestätigungen suchen. `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` und `GMAIL_REFRESH_TOKEN` gehören ausschließlich in private Server-Secrets, niemals nach GitHub oder in die APK. Die Kontrolle prüft passende Reisedaten, Strecke und Reservierungshinweise in Nachrichten. Treffer sperren den Checkout und verlangen Abgleich. Keine Treffer beweisen **nicht**, dass kein Ticket existiert. Fehler bei Gmail sperren ebenso den Checkout.
+
+Die Buchungsautomatik verlangt jetzt sowohl einen echten WESTbahn-Adapter als auch diese Gmail-Kontrolle. Das Modul versendet keine Nachrichten und kann kein Gmail-OAuth-Token aus der ChatGPT-Verbindung übernehmen. Der Buchungsadapter samt verifiziertem WESTbahn-Kaufabschluss fehlt weiterhin; die Checkout-Sperre darf nicht durch einen bloßen Null-Euro-Warenkorb umgangen werden.
