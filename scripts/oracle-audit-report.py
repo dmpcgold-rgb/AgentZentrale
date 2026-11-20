@@ -47,6 +47,7 @@ allowed_checks = {
     "BOOKING_WEEKLY_SCHEDULER_PRESENT": ("yes","no"),
     "BOOKING_PREREQUISITES_READY": ("yes","no"),
     "BOOKING_ACTION_EXECUTED": ("no",),
+    "NO_MANUAL_BOOKING_TRIGGERED": ("yes",),
 }
 allowed_counts = {
     "SOURCE_FILES_ARCHIVED", "TRACKED_CHANGES", "UNTRACKED_FILES",
@@ -70,11 +71,12 @@ for line in log.splitlines():
         values[key] = int(value)
 
 mode = os.environ.get("MODE", "unknown")
-if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "check", "apply"):
+if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "booking-enable", "check", "apply"):
     mode = "unknown"
 markers = {
     "audit_complete": "AUDIT_COMPLETE:" in log,
     "booking_config_checked": "BOOKING_CONFIG_CHECK=COMPLETE" in log,
+    "booking_automation_enabled": "BOOKING_ACTIVATION=ENABLED" in log,
     "release_ready": "RELEASE_GATE=READY_FOR_CONTROLLED_ROLLOUT" in log,
     "rollout_complete": "ROLLOUT=SUCCESS" in log,
     "rollout_rolled_back": "ROLLOUT=ROLLED_BACK_TO_OLD_CONTAINER" in log,
@@ -95,6 +97,7 @@ report = {
         values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_PYTHON_SYNTAX") == "OK" else
         "stage_verified" if mode == "stage" and markers["private_stage_complete"] and values.get("STAGED_SOURCE_ONLY_ON_ORACLE") == "yes" and values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_FILES_STAGED") == 6 and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "preview_verified" if mode == "preview" and values.get("PREVIEW_BUILD") == "OK" and values.get("PREVIEW_CHECKOUT_SYNTAX") == "OK" and values.get("PRIVATE_CANDIDATE_IMAGE_BUILT") == "yes" and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
+        "booking_automation_enabled" if mode == "booking-enable" and markers["booking_automation_enabled"] and values.get("NO_MANUAL_BOOKING_TRIGGERED") == "yes" else
         "booking_prerequisites_ready" if mode == "booking-status" and markers["booking_config_checked"] and values.get("BOOKING_PREREQUISITES_READY") == "yes" and values.get("BOOKING_ACTION_EXECUTED") == "no" else
         "booking_config_incomplete" if mode == "booking-status" and markers["booking_config_checked"] and values.get("BOOKING_ACTION_EXECUTED") == "no" else
         "rollout_success" if mode == "rollout" and markers["rollout_complete"] and values.get("PRODUCTION_CANDIDATE_RUNNING") == "yes" and values.get("ROLLBACK_IMAGE_SAVED_ON_ORACLE") == "yes" and values.get("LEDGER_VOLUME_PRESERVED") == "yes" else
