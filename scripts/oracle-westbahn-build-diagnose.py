@@ -46,9 +46,20 @@ if copies:
               'booking-readiness.test.mjs','trip-preview.test.mjs'):
   f=tests/name
   if f.is_file():
-   for title in re.findall(r"""test\\(['"]([^'"]{1,120})['"]""",f.read_text(encoding='utf-8')):
-    known.add(title)
-fails=re.findall(r'(?m)^.*?\\bnot ok \\d+ - ([^\\r\\n]+)',raw)
+   for line in f.read_text(encoding='utf-8').splitlines():
+    line=line.lstrip()
+    if line.startswith("test('"):
+     known.add(line[6:].split("'",1)[0])
+    elif line.startswith('test("'):
+     known.add(line[6:].split('"',1)[0])
+fails=[]
+for line in raw.splitlines():
+ if 'not ok ' not in line:
+  continue
+ rest=line.split('not ok ',1)[1]
+ number,sep,title=rest.partition(' - ')
+ if sep and number.isdecimal():
+  fails.append(title.strip())
 print('NODE_FAILED_TEST_COUNT='+str(len(fails)))
 for i,title in enumerate(fails[:8],1):
  print('FAILED_PUBLIC_TEST_'+str(i)+'='+title if title in known else 'FAILED_PUBLIC_TEST_'+str(i)+'=UNMATCHED')
