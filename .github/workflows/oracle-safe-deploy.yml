@@ -22,8 +22,8 @@ jobs:
       - name: Verify checkout is not silently rebuilt
         run: |
           test -f scripts/oracle-safe-deploy.sh
-          grep -q 'git ls-files --error-unmatch' scripts/oracle-safe-deploy.sh
-          grep -q 'git status --porcelain' scripts/oracle-safe-deploy.sh
+          grep -q 'git_safe ls-files --error-unmatch' scripts/oracle-safe-deploy.sh
+          grep -q 'git_safe status --porcelain' scripts/oracle-safe-deploy.sh
   deploy:
     needs: validate
     runs-on: ubuntu-latest
