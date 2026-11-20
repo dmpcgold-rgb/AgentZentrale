@@ -1,0 +1,44 @@
+name: Oracle AgentZentrale - safe manual deployment
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Check-only, or deploy after all protections pass"
+        type: choice
+        options: [check, apply]
+        default: check
+permissions:
+  contents: read
+concurrency:
+  group: oracle-agentzentrale-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Oracle SSH secrets exist
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          test -n "$ORACLE_HOST" && test -n "$ORACLE_SSH_KEY" && test -n "$ORACLE_KNOWN_HOSTS" || {
+            echo "Missing SSH secrets. Configure them in repo Actions secrets."; exit 1;
+          }
+      - name: Run guarded Oracle deployment
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle_deploy
+          printf '%s\n' "$ORACLE_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          user="${ORACLE_USER:-ubuntu}"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+            "bash -s -- --$MODE" < scripts/oracle-safe-deploy.sh
