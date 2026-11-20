@@ -5,7 +5,7 @@ on:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [check, apply]
+        options: [inventory, snapshot, check, apply]
         default: check
 permissions:
   contents: read
@@ -18,7 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate deployment shell
-        run: bash -n scripts/oracle-safe-deploy.sh
+        run: |
+          bash -n scripts/oracle-safe-deploy.sh
+          bash -n scripts/oracle-source-inventory.sh
       - name: Verify checkout is not silently rebuilt
         run: |
           test -f scripts/oracle-safe-deploy.sh
@@ -53,4 +55,4 @@ jobs:
           user="${ORACLE_USER:-ubuntu}"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
-            "sudo -n bash -s -- --$MODE" < scripts/oracle-safe-deploy.sh
+            "sudo -n bash -s -- --$MODE" < "${MODE:+$(case "$MODE" in inventory|snapshot) echo scripts/oracle-source-inventory.sh;; *) echo scripts/oracle-safe-deploy.sh;; esac)}"
