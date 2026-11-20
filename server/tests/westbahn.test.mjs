@@ -102,7 +102,7 @@ test('readback accepts only account evidence for same booking ID and travel deta
 test('positive price never booked',async()=>{const p=provider({price:1});const a=createWestbahn({now,adapter:p});await a.run();assert.equal(p.count,0);assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');});
 test('missing confirmation and timeout never retried',async()=>{for(const p of [provider({fail:true}),provider({invalidReceipt:true})]){const a=createWestbahn({now,adapter:p});await a.run();assert.equal(a.status().rows.find(x=>x.date===day).status,'uncertain');await a.run();assert.equal(p.count,1);}});
 test('existing provider booking prevents duplicate',async()=>{const p=provider({already:true});const a=createWestbahn({now,adapter:p});await a.run();assert.equal(p.count,0);assert.equal(a.status().confirmedThrough,day);});
-test('durable ledger and weekly schedule survives restart',async()=>{const dir=mkdtempSync(join(tmpdir(),'az-westbahn-'));try{const file=join(dir,'ledger.json'),p=provider();const a=createWestbahn({now,adapter:p,file});a.setEnabled(true);assert.equal(await a.tick(),true);assert.equal(await a.tick(),false);const b=createWestbahn({now,adapter:p,file});assert.equal(b.status().confirmedThrough,day);assert.equal(await b.tick(),false);assert.equal(p.count,1);}finally{rmSync(dir,{recursive:true,force:true});}});
+test('durable ledger and weekly schedule survives restart',async()=>{const dir=mkdtempSync(join(tmpdir(),'az-westbahn-'));try{const file=join(dir,'ledger.json'),p=provider();const a=createWestbahn({now,adapter:p,emailAudit:{inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false})},file});a.setEnabled(true);assert.equal(await a.tick(),true);assert.equal(await a.tick(),false);const b=createWestbahn({now,adapter:p,file});assert.equal(b.status().confirmedThrough,day);assert.equal(await b.tick(),false);assert.equal(p.count,1);}finally{rmSync(dir,{recursive:true,force:true});}});
 
 test('uncertain post-checkout outcome survives server restart without duplicate booking',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'az-post-checkout-'));
@@ -202,4 +202,24 @@ test('five pending days per run, sequential and without rebooking verified dates
  await a.run();
  assert.deepEqual(visited,dates.slice(0,5));
  assert.equal(a.status().lastRun.status,'finished');
+});
+
+test('positive Gmail booking confirmation blocks checkout, absence does not prove provider inventory',async()=>{
+ const p=provider(),dateNow=now;
+ const a=createWestbahn({now:dateNow,adapter:p,emailAudit:{
+  inspect:async()=>({status:'possible_existing',possibleExisting:true})
+ }});
+ await a.run();
+ assert.equal(p.count,0);
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
+});
+test('unavailable Gmail audit prevents checkout',async()=>{
+ const p=provider();
+ const a=createWestbahn({now,adapter:p,emailAudit:{inspect:async()=>{throw Error('OAuth unavailable');}}});
+ await a.run();
+ assert.equal(p.count,0);
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
+});
+test('live automation requires email control in addition to booking adapter',()=>{
+ assert.throws(()=>createWestbahn({now,adapter:provider()}).setEnabled(true),/Gmail/);
 });
