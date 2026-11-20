@@ -6,10 +6,17 @@ if sys.argv[1:]!=['--refresh'] or os.geteuid()!=0:
  print('UPGRADE_STAGE=BLOCKED_MODE_OR_USER');sys.exit(2)
 root=Path('/root/agentzentrale-private-staging')
 incoming=root/'westbahn-public-overlay.tar.gz'
-allowed={
- 'server/westbahn.mjs','server/index.mjs','server/gmail-audit.mjs',
- 'server/tests/westbahn.test.mjs','server/tests/gmail-audit.test.mjs'
-}
+def allowed(p):
+ parts=p.split('/')
+ return (
+   p=='package.json'
+   or (len(parts)==2 and parts[0]=='server' and p.endswith('.mjs'))
+   or (len(parts)==3 and parts[:2]==['server','tests'] and p.endswith('.mjs'))
+   or (len(parts)==3 and parts[:2]==['src','core'] and p.endswith('.js'))
+ )
+required={'server/westbahn.mjs','server/index.mjs','server/gmail-audit.mjs',
+ 'server/tests/westbahn.test.mjs','server/tests/gmail-audit.test.mjs',
+ 'src/core/westbahn.js','package.json'}
 if not incoming.is_file():
  print('UPGRADE_STAGE=BLOCKED_OVERLAY_MISSING');sys.exit(3)
 candidates=[p for p in root.glob('source-*') if (p/'code/Dockerfile').is_file() and (p/'code/server/browser/checkout_20261125.py').is_file()]
@@ -20,7 +27,7 @@ source=max(candidates,key=lambda p:p.stat().st_mtime)
 with tarfile.open(incoming,'r:gz') as archive:
  members=archive.getmembers()
  names={m.name.removeprefix('./') for m in members if m.isfile()}
- if names!=allowed or len(members)>len(allowed)+5:
+ if not required.issubset(names) or not all(allowed(n) for n in names) or len(names)>90 or len(members)>len(names)+8:
   print('UPGRADE_STAGE=BLOCKED_PUBLIC_ALLOWLIST');sys.exit(3)
  if any((m.issym() or m.islnk() or not(m.isfile() or m.isdir()) or m.size>500000) for m in members):
   print('UPGRADE_STAGE=BLOCKED_ARCHIVE_TYPE');sys.exit(3)
@@ -54,7 +61,7 @@ with tarfile.open(incoming,'r:gz') as archive:
   print('UPGRADE_STAGE_FAILURE_TYPE='+type(exc).__name__)
   sys.exit(3)
 print('UPGRADE_STAGE=OK')
-print('PUBLIC_FILES_OVERLAID=5')
+print('PUBLIC_FILES_OVERLAID='+str(len(names)))
 print('PRIVATE_CHECKOUT_FILES_RETAINED=6')
 print('NO_DEPLOYMENT_EXECUTED=yes')
 print('NO_BOOKINGS_EXECUTED=yes')
