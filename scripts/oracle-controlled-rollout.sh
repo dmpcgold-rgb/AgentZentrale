@@ -47,8 +47,14 @@ for row in data['rows'].values():
 print('ROLLOUT_LEDGER_IDLE=YES')
 PY
 # Detect in-flight Playwright/checkout jobs. A read-only node server is expected.
-if ! docker top "$running" -eo args >"$guard_dir/live-processes" 2>/dev/null; then
+# Docker top uses the host ps syntax; "-eo args" is not portable across Oracle hosts.
+# Docker\u0027s default output lists the command line and does not depend on host ps flags.
+if ! docker top "$running" >"$guard_dir/live-processes" 2>/dev/null; then
   echo 'ROLLOUT=BLOCKED_PROCESS_INSPECTION_FAILED'; exit 3
+fi
+# Do not treat a successful but empty process listing as an idle container.
+if [[ "$(wc -l < "$guard_dir/live-processes")" -lt 2 ]]; then
+  echo 'ROLLOUT=BLOCKED_PROCESS_LIST_EMPTY'; exit 3
 fi
 if grep -Ei '(^|[ /])(checkout_202611[0-9]+[.]py|ticketshop_station_dry_run[.]py|worker[.]py)([[:space:]]|$)' "$guard_dir/live-processes" >/dev/null; then
   echo 'ROLLOUT=BLOCKED_BROWSER_WORK_ACTIVE'; exit 3
