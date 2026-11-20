@@ -15,7 +15,7 @@ on:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [inventory, snapshot, reconcile, audit, stage, preview, release-check, check, apply]
+        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, check, apply]
         default: check
 permissions:
   contents: read
@@ -62,7 +62,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode || 'release-check' }}
+          MODE: ${{ inputs.mode || 'verify' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
@@ -90,17 +90,34 @@ jobs:
             remote_command="sudo -n bash -s -- --preview"
           fi
           set +e
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
-            "$remote_command" < "$script" | tee "$RUNNER_TEMP/oracle-command.log"
-          status=${PIPESTATUS[0]}
+          if [[ "$MODE" == verify ]]; then
+            # A single run must first rebuild the exact private candidate
+            # and only then check its fingerprint against the staged source.
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+              "sudo -n bash -s -- --preview" \
+              < scripts/oracle-private-build-preview.sh | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[0]}
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --release-check" \
+                < scripts/oracle-production-release-gate.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+          else
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+              "$remote_command" < "$script" | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[0]}
+          fi
           set -e
           printf '%s\n' "$status" > "$RUNNER_TEMP/oracle-command-status"
           exit "$status"
       - name: Generate sanitized audit report
         if: always()
         env:
-          MODE: ${{ inputs.mode || 'audit' }}
+          MODE: ${{ inputs.mode || 'verify' }}
         run: |
           python3 scripts/oracle-audit-report.py \
             "$RUNNER_TEMP/oracle-command.log" \
