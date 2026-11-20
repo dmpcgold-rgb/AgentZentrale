@@ -13,7 +13,19 @@ concurrency:
   group: oracle-agentzentrale-deploy
   cancel-in-progress: false
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment shell
+        run: bash -n scripts/oracle-safe-deploy.sh
+      - name: Verify checkout is not silently rebuilt
+        run: |
+          test -f scripts/oracle-safe-deploy.sh
+          grep -q 'git ls-files --error-unmatch' scripts/oracle-safe-deploy.sh
+          grep -q 'git status --porcelain' scripts/oracle-safe-deploy.sh
   deploy:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
