@@ -93,6 +93,8 @@ allowed_checks = {
     "BOOKING_WEEKLY_SCHEDULER_PRESENT": ("yes","no"),
     "BOOKING_PREREQUISITES_READY": ("yes","no"),
     "BOOKING_ACTION_EXECUTED": ("no",),
+    "GMAIL_CHECK": ("CONNECTED_READ_ONLY","NOT_CONFIGURED_IN_CONTAINER","UNVERIFIED_RESPONSE","ACCESS_FAILED","CONTAINER_MISSING"),
+    "GMAIL_CHECKOUT_NOT_TRIGGERED": ("yes",),
     "NO_MANUAL_BOOKING_TRIGGERED": ("yes",),
 }
 allowed_counts = {
@@ -118,7 +120,7 @@ for line in log.splitlines():
         values[key] = int(value)
 
 mode = os.environ.get("MODE", "unknown")
-if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "booking-enable", "booking-update", "booking-diagnose", "integration-audit", "check", "apply"):
+if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "booking-enable", "booking-update", "booking-diagnose", "integration-audit", "gmail-check", "check", "apply"):
     mode = "unknown"
 markers = {
     "audit_complete": "AUDIT_COMPLETE:" in log,
@@ -146,6 +148,7 @@ report = {
         values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_PYTHON_SYNTAX") == "OK" else
         "stage_verified" if mode == "stage" and markers["private_stage_complete"] and values.get("STAGED_SOURCE_ONLY_ON_ORACLE") == "yes" and values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_FILES_STAGED") == 6 and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "preview_verified" if mode == "preview" and values.get("PREVIEW_BUILD") == "OK" and values.get("PREVIEW_CHECKOUT_SYNTAX") == "OK" and values.get("PRIVATE_CANDIDATE_IMAGE_BUILT") == "yes" and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
+        "gmail_connected_read_only" if mode == "gmail-check" and values.get("GMAIL_CHECK") == "CONNECTED_READ_ONLY" else
         "integration_audit_completed" if mode == "integration-audit" and markers["integration_audit_completed"] else
         "booking_build_diagnosed" if mode == "booking-diagnose" and markers["booking_build_diagnosed"] else
         "booking_update_deployed" if mode == "booking-update" and values.get("BOOKING_STAGE") == "READY" and values.get("BOOKING_TESTS") == "PASS" and markers["rollout_complete"] and markers["booking_config_checked"] else
