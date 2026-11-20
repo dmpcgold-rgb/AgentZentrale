@@ -31,6 +31,28 @@ class OracleAuditReportTests(unittest.TestCase):
             self.assertNotIn(secret, payload)
             self.assertEqual(json.loads(payload)["status"], "audit_verified")
             self.assertEqual(json.loads(payload)["checks"]["LIVE_SOURCE_DIFFERENCES"], 0)
+    def test_private_stage_verification_and_redaction(self):
+        with tempfile.TemporaryDirectory() as td:
+            d=pathlib.Path(td)
+            secret="PRIVATE-CHECKOUT-PASSWORD-DO-NOT-SHARE"
+            (d/"log").write_text(
+                "PRIVATE_STAGE_COMPLETE\\n"
+                "SOURCE_FILES_STAGED=132\\n"
+                "CHECKOUT_FILES_STAGED=6\\n"
+                "PYTHON_FILES_VALIDATED=50\\n"
+                "STAGED_SOURCE_ONLY_ON_ORACLE=yes\\n"
+                "SNAPSHOT_CHECKSUMS=OK\\n"
+                "NO_DEPLOYMENT_EXECUTED=yes\\n"
+                f"SECRET={secret}\\n", encoding="utf-8")
+            (d/"status").write_text("0\\n")
+            subprocess.run([sys.executable,str(SCRIPT),str(d/"log"),str(d/"status"),
+                            str(d/"out")],env={**os.environ,"MODE":"stage"},
+                           check=True,capture_output=True,text=True)
+            raw=(d/"out").read_text()
+            result=json.loads(raw)
+            self.assertEqual(result["status"],"stage_verified")
+            self.assertNotIn(secret,raw)
+
     def test_failed_remote_command_never_claims_verified(self):
         with tempfile.TemporaryDirectory() as td:
             d=pathlib.Path(td)
