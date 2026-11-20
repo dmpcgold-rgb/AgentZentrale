@@ -179,7 +179,7 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
           before.receipt.bookingId.trim()&&before.receipt?.confirmed===true){
         record(date,'existing_verified','Vorhandenes Ticket im Anbieter-Konto bestätigt; keine neue Bestellung.',
           {seat:before.receipt.seat,bookingId:before.receipt.bookingId});
-       }else record(date,'blocked','Bestehendes Ticket kann nicht eindeutig zugeordnet werden.');
+       }else record(date,'uncertain','Positives Anbietersignal für ein vorhandenes Ticket, aber Angaben widersprüchlich: keine weitere Buchung ohne manuellen Kontenabgleich.');
        continue;
       }
       if(before?.status!=='none'||before.accountVerified!==true||
