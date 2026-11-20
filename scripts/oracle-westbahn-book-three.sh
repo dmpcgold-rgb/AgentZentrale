@@ -14,8 +14,9 @@ const fs=require('node:fs');
  const read=()=>JSON.parse(fs.readFileSync(ledger,'utf8'));
  const before=read();
  if(e.WESTBAHN_LIVE_CHECKOUT_ENABLED!=='true'||!e.WESTBAHN_ADAPTER_MODULE||
-    !fs.existsSync(e.WESTBAHN_ADAPTER_MODULE)||!e.GMAIL_CLIENT_ID||
-    !e.GMAIL_CLIENT_SECRET||!e.GMAIL_REFRESH_TOKEN||
+    !fs.existsSync(e.WESTBAHN_ADAPTER_MODULE)||
+    !((e.GMAIL_AUDIT_MODULE&&fs.existsSync(e.GMAIL_AUDIT_MODULE)) ||
+      (e.GMAIL_CLIENT_ID&&e.GMAIL_CLIENT_SECRET&&e.GMAIL_REFRESH_TOKEN))||
     !e.AGENTZENTRALE_ACCESS_TOKEN){
    console.log('THREE_BOOKINGS=BLOCKED_PREREQUISITES');process.exitCode=3;return;
  }
