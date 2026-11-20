@@ -144,4 +144,5 @@ export async function loadWestbahn(env=process.env){let adapter=null;if(env.WEST
  if(env.GMAIL_CLIENT_ID&&env.GMAIL_CLIENT_SECRET&&env.GMAIL_REFRESH_TOKEN){
   emailAudit=createGmailAudit({clientId:env.GMAIL_CLIENT_ID,clientSecret:env.GMAIL_CLIENT_SECRET,refreshToken:env.GMAIL_REFRESH_TOKEN});
  }
+ if(adapter&&!emailAudit)throw new Error('WESTbahn-Buchungsadapter ohne Gmail-Doppelbuchungskontrolle gesperrt.');
  return createWestbahn({adapter,emailAudit,file:env.WESTBAHN_LEDGER||'./data/westbahn.json'});}
