@@ -53,4 +53,4 @@ jobs:
           user="${ORACLE_USER:-ubuntu}"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
-            "bash -s -- --$MODE" < scripts/oracle-safe-deploy.sh
+            "sudo -n bash -s -- --$MODE" < scripts/oracle-safe-deploy.sh
