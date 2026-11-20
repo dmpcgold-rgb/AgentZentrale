@@ -28,6 +28,11 @@ for name in categories:
 # Exit code is not inherently a stacktrace or source disclosure.
 codes=re.findall(r'exit code: ([0-9]{1,3})',raw)
 print('BUILD_LAST_EXIT_CODE='+(codes[-1] if codes else 'unknown'))
+# Public Node test suite: emit only the failed test ordinal, never its title.
+failed=re.findall(r'(?m)^\\s*(?:#\\s*)?not ok ([0-9]{1,3})(?:\\s|$)',raw)
+print('BUILD_FIRST_FAILED_TEST_INDEX='+(failed[0] if failed else '0'))
+print('BUILD_FAILED_TEST_COUNT='+str(min(len(failed),100)))
+print('BUILD_MODULE_SYNTAX_ERROR='+('yes' if bool(re.search(r'(?m)^SyntaxError:',raw)) else 'no'))
 print('NO_BOOKINGS_EXECUTED=yes')
 print('NO_DEPLOYMENT_EXECUTED=yes')
 print('NO_PRIVATE_SOURCE_UPLOADED=yes')
