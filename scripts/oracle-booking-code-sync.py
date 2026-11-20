@@ -45,15 +45,15 @@ try:
         if not target.is_file(): blocked("EXPECTED_SOURCE_MISSING")
         target.write_bytes(content)
         target.chmod(0o600)
-    # Run all Node tests before the private image is built.
-    test=subprocess.run(["node","--test","server/tests/westbahn.test.mjs",
-        "server/tests/gmail-audit.test.mjs"],cwd=output/"code",
-        capture_output=True,timeout=90)
-    if test.returncode: blocked("NODE_TESTS_FAILED")
-except (OSError,subprocess.TimeoutExpired):
+    # The Oracle HOST may not have Node installed. The PRIVATE Dockerfile runs
+    # the full Node test suite during docker build, before any rollout.
+    for name in allowed:
+        if not (output/"code"/name).is_file():
+            blocked("EXPECTED_SOURCE_MISSING")
+except OSError:
     blocked("STAGE_PREPARATION_FAILED")
 print("BOOKING_STAGE=READY")
-print("BOOKING_TESTS=PASS")
+print("BOOKING_STAGE_SOURCE=READY_FOR_DOCKER_TESTS")
 print("PRIVATE_CHECKOUT_PRESERVED=yes")
 print("PRODUCTION_FILES_MODIFIED=no")
 print("NO_BOOKINGS_EXECUTED=yes")

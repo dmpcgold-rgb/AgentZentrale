@@ -117,6 +117,7 @@ jobs:
                 "sudo -n bash -s -- --preview" \
                 < scripts/oracle-private-build-preview.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
               status=${PIPESTATUS[0]}
+              if [[ "$status" -eq 0 ]]; then echo BOOKING_TESTS=PASS | tee -a "$RUNNER_TEMP/oracle-command.log"; fi
             fi
             if [[ "$status" -eq 0 ]]; then
               ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
