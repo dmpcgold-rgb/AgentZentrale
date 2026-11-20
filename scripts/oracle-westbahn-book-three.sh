@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Authorized one-shot booking request, strictly three dates, no other days.
+# A verified date-specific Tickets no-match and Gmail no-match may permit an exact-zero quote.
+# Missing live credentials, adapter, incomplete checks, and ambiguous receipts still block.
 set -Eeuo pipefail
 [[ "${1:-}" == "--booking-three" ]] || { echo 'THREE_BOOKINGS=BLOCKED_MODE'; exit 64; }
 cd /opt/agentzentrale
