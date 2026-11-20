@@ -1,0 +1,30 @@
+name: Oracle WESTbahn - private build diagnostics
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/oracle-westbahn-diagnose.yml
+permissions:
+  contents: read
+concurrency:
+  group: oracle-agentzentrale-deploy
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: contains(github.event.head_commit.message, '[oracle-westbahn-diagnose-once]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Safe private build failure analysis
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle_deploy
+          printf '%s\n' "$ORACLE_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -i ~/.ssh/oracle_deploy "${ORACLE_USER:-ubuntu}@$ORACLE_HOST" "sudo -n python3 - --diagnose" < scripts/oracle-westbahn-build-diagnose.py
