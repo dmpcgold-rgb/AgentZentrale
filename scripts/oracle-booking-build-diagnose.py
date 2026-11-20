@@ -28,11 +28,28 @@ for name in categories:
 # Exit code is not inherently a stacktrace or source disclosure.
 codes=re.findall(r'exit code: ([0-9]{1,3})',raw)
 print('BUILD_LAST_EXIT_CODE='+(codes[-1] if codes else 'unknown'))
-# Public Node test suite: emit only the failed test ordinal, never its title.
-failed=re.findall(r'(?m)^\\s*(?:#\\s*)?not ok ([0-9]{1,3})(?:\\s|$)',raw)
-print('BUILD_FIRST_FAILED_TEST_INDEX='+(failed[0] if failed else '0'))
+# Docker BuildKit prefixes test output with '#17 2.3'; locate TAP ordinals
+# within those prefixed lines. Report numbers only, never test names.
+lines=raw.splitlines()
+failed=[]
+for line in lines:
+ match=re.search(r'(?:^|\\s)not ok\\s+([0-9]{1,3})(?:\\s|$)',line)
+ if match: failed.append(int(match.group(1)))
+print('BUILD_FIRST_FAILED_TEST_INDEX='+str(failed[0] if failed else 0))
 print('BUILD_FAILED_TEST_COUNT='+str(min(len(failed),100)))
-print('BUILD_MODULE_SYNTAX_ERROR='+('yes' if bool(re.search(r'(?m)^SyntaxError:',raw)) else 'no'))
+print('BUILD_MODULE_SYNTAX_ERROR='+('yes' if bool(re.search(r'SyntaxError:',raw)) else 'no'))
+# Identify only known public Dockerfile steps, not arbitrary filenames.
+stages={
+ 'NODE_PUBLIC_TESTS':r'RUN node --test server/tests/',
+ 'PYTHON_BROWSER_TESTS':r'RUN cd /app/server/browser &&',
+ 'PYTHON_COMPILATION':r'RUN /opt/agent-venv/bin/python -m compileall',
+ 'NPM_OR_NODE_SETUP':r'FROM node:22-bookworm-slim',
+}
+for label,pattern in stages.items():
+ print('BUILD_STAGE_'+label+'='+('yes' if bool(re.search(pattern,raw)) else 'no'))
+# Never print private test titles; report only whether expected public test
+# failures were detected, for accurate guided repairs.
+print('BUILD_TAP_FAILURES_FOUND='+('yes' if failed else 'no'))
 print('NO_BOOKINGS_EXECUTED=yes')
 print('NO_DEPLOYMENT_EXECUTED=yes')
 print('NO_PRIVATE_SOURCE_UPLOADED=yes')
