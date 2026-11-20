@@ -168,6 +168,12 @@ export function createWestbahn({adapter=null,file=null,now=()=>new Date(),gmailC
           before.receipt?.date===date&&before.receipt?.origin===plan.origin&&
           before.receipt?.destination===plan.destination&&
           before.receipt?.departure===plan.departure&&
+          before.receipt?.class===RULES.class&&
+          before.receipt?.ticket===RULES.ticket&&
+          before.receipt?.productType===RULES.productType&&
+          before.receipt?.quantity===1&&
+          before.receipt?.currency==='EUR'&&
+          before.receipt?.totalCents===0&&
           /^[0-9]{3}[A-D]$/.test(before.receipt?.seat||'')&&
           typeof before.receipt?.bookingId==='string'&&
           before.receipt.bookingId.trim()&&before.receipt?.confirmed===true){
