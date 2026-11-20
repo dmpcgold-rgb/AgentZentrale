@@ -12,6 +12,7 @@ on:
       - scripts/oracle-controlled-rollout.sh
       - scripts/oracle-westbahn-booking-status.sh
       - scripts/oracle-booking-code-sync.py
+      - scripts/oracle-westbahn-book-three.sh
       - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
     inputs:
@@ -40,6 +41,7 @@ jobs:
           bash -n scripts/oracle-production-release-gate.sh
           bash -n scripts/oracle-controlled-rollout.sh
           bash -n scripts/oracle-westbahn-booking-status.sh
+          bash -n scripts/oracle-westbahn-book-three.sh
           python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py scripts/oracle-booking-code-sync.py
           python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
       - name: Verify checkout is not silently rebuilt
@@ -128,6 +130,13 @@ jobs:
                 -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
                 "sudo -n bash -s -- --booking-status" \
                 < scripts/oracle-westbahn-booking-status.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --booking-three" \
+                < scripts/oracle-westbahn-book-three.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
               status=${PIPESTATUS[0]}
             fi
           elif [[ "$MODE" == verify ]]; then
