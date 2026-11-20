@@ -119,8 +119,96 @@ jobs:
           elif [[ "$MODE" == booking-update ]]; then
             script64="$(base64 -w0 scripts/oracle-booking-code-sync.py)"
             set +e
-            tar -cf - server/westbahn.mjs server/index.mjs server/gmail-audit.mjs \
-              server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs |
+            git ls-files -z -- Dockerfile package.json server src/core |
+              grep -zE '^(Dockerfile|package.json|server/.*[.](mjs|js|json|py|txt|html|css)|src/core/.*[.](mjs|js|json))
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$script64\"),\"sync\",\"exec\"))' --booking-code-sync" \
+              | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[1]}
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --preview" \
+                < scripts/oracle-private-build-preview.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+              if [[ "$status" -eq 0 ]]; then echo BOOKING_TESTS=PASS | tee -a "$RUNNER_TEMP/oracle-command.log"; fi
+              if [[ "$status" -ne 0 ]]; then
+                # On failed build, print sanitized failure categories in the SAME run.
+                diag64="$(base64 -w0 scripts/oracle-booking-build-diagnose.py)"
+                ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                  -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                  "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$diag64\"),\"diagnose\",\"exec\"))' --booking-diagnose" \
+                  | tee -a "$RUNNER_TEMP/oracle-command.log" || true
+              fi
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --rollout" \
+                < scripts/oracle-controlled-rollout.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --booking-status" \
+                < scripts/oracle-westbahn-booking-status.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --booking-three" \
+                < scripts/oracle-westbahn-book-three.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+          elif [[ "$MODE" == verify ]]; then
+            # A single run must first rebuild the exact private candidate
+            # and only then check its fingerprint against the staged source.
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+              "sudo -n bash -s -- --preview" \
+              < scripts/oracle-private-build-preview.sh | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[0]}
+            if [[ "$status" -eq 0 ]]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+                "sudo -n bash -s -- --release-check" \
+                < scripts/oracle-production-release-gate.sh | tee -a "$RUNNER_TEMP/oracle-command.log"
+              status=${PIPESTATUS[0]}
+            fi
+          else
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+              "$remote_command" < "$script" | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[0]}
+          fi
+          set -e
+          printf '%s\n' "$status" > "$RUNNER_TEMP/oracle-command-status"
+          exit "$status"
+      - name: Generate sanitized audit report
+        if: always()
+        env:
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-diagnose-once]') && 'booking-diagnose') || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+        run: |
+          python3 scripts/oracle-audit-report.py \
+            "$RUNNER_TEMP/oracle-command.log" \
+            "$RUNNER_TEMP/oracle-command-status" \
+            "$RUNNER_TEMP/oracle-audit-report.json"
+          echo '### Oracle audit (sanitized)' >> "$GITHUB_STEP_SUMMARY"
+          python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); print("Mode: **"+a["workflow_mode"]+"**"); print("Status: **"+a["status"]+"**"); print("Remote exit: **"+str(a["remote_command_exit_code"])+"**"); print("Checks:"); [print("- "+k+": "+str(v)) for k,v in sorted(a["checks"].items())]' "$RUNNER_TEMP/oracle-audit-report.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload sanitized audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-audit-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/oracle-audit-report.json
+          if-no-files-found: error
+          retention-days: 30
+ |
+              grep -zEv '(^|/)[.]|(^|/)data/|(^|/)checkout_|ticketshop_station_dry_run' |
+              tar --null -T - -cf - |
               ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
                 -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
                 "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$script64\"),\"sync\",\"exec\"))' --booking-code-sync" \
