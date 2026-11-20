@@ -119,8 +119,8 @@ jobs:
           elif [[ "$MODE" == booking-update ]]; then
             script64="$(base64 -w0 scripts/oracle-booking-code-sync.py)"
             set +e
-            tar -cf - server/westbahn.mjs server/index.mjs server/gmail-audit.mjs \
-              server/tests/westbahn.test.mjs server/tests/gmail-audit.test.mjs |
+            git ls-files -z -- Dockerfile package.json server src/core |
+              tar --null -T - -cf - |
               ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
                 -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
                 "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$script64\"),\"sync\",\"exec\"))' --booking-code-sync" \
