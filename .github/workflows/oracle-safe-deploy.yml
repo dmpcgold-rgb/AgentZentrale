@@ -11,7 +11,8 @@ on:
       - scripts/oracle-production-release-gate.sh
       - scripts/oracle-controlled-rollout.sh
       - scripts/oracle-westbahn-booking-status.sh
-      - scripts/oracle-booking-code-sync.py
+      - scripts/oracle-booking-code-sync.py scripts/oracle-booking-build-diagnose.py
+      - scripts/oracle-booking-build-diagnose.py
       - scripts/oracle-westbahn-book-three.sh
       - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
@@ -19,7 +20,7 @@ on:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, booking-status, booking-enable, booking-update, check, apply]
+        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, booking-status, booking-enable, booking-update, booking-diagnose, check, apply]
         default: check
 permissions:
   contents: read
@@ -69,7 +70,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-diagnose-once]') && 'booking-diagnose') || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
@@ -101,7 +102,14 @@ jobs:
             remote_command="sudo -n bash -s -- --preview"
           fi
           set +e
-          if [[ "$MODE" == booking-update ]]; then
+          if [[ "$MODE" == booking-diagnose ]]; then
+            script64="$(base64 -w0 scripts/oracle-booking-build-diagnose.py)"
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -i ~/.ssh/oracle_deploy "$user@$ORACLE_HOST" \
+              "sudo -n python3 -c 'import base64;exec(compile(base64.b64decode(\"$script64\"),\"diagnose\",\"exec\"))' --booking-diagnose" \
+              | tee "$RUNNER_TEMP/oracle-command.log"
+            status=${PIPESTATUS[0]}
+          elif [[ "$MODE" == booking-update ]]; then
             script64="$(base64 -w0 scripts/oracle-booking-code-sync.py)"
             set +e
             tar -cf - server/westbahn.mjs server/index.mjs server/gmail-audit.mjs \
@@ -167,7 +175,7 @@ jobs:
       - name: Generate sanitized audit report
         if: always()
         env:
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-diagnose-once]') && 'booking-diagnose') || (contains(github.event.head_commit.message, '[oracle-booking-update-once]') && 'booking-update') || (contains(github.event.head_commit.message, '[oracle-booking-enable-once]') && 'booking-enable') || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           python3 scripts/oracle-audit-report.py \
             "$RUNNER_TEMP/oracle-command.log" \
