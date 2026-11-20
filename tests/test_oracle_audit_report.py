@@ -76,6 +76,27 @@ class OracleAuditReportTests(unittest.TestCase):
                            check=True, capture_output=True, text=True)
             self.assertNotEqual(json.loads((d / "out").read_text())["status"], "verify_ready")
 
+    def test_rollout_report_requires_all_success_checks(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = pathlib.Path(td)
+            (d / "status").write_text("0\n")
+            (d / "log").write_text(
+                "ROLLOUT=SUCCESS\n"
+                "PRODUCTION_CANDIDATE_RUNNING=yes\n"
+                "ROLLBACK_IMAGE_SAVED_ON_ORACLE=yes\n"
+                "LEDGER_VOLUME_PRESERVED=yes\n")
+            subprocess.run([sys.executable, str(SCRIPT), str(d / "log"),
+                            str(d / "status"), str(d / "out")],
+                           env={**os.environ, "MODE": "rollout"},
+                           check=True, capture_output=True, text=True)
+            self.assertEqual(json.loads((d / "out").read_text())["status"], "rollout_success")
+            (d / "log").write_text("ROLLOUT=SUCCESS\nPRODUCTION_CANDIDATE_RUNNING=yes\n")
+            subprocess.run([sys.executable, str(SCRIPT), str(d / "log"),
+                            str(d / "status"), str(d / "out")],
+                           env={**os.environ, "MODE": "rollout"},
+                           check=True, capture_output=True, text=True)
+            self.assertNotEqual(json.loads((d / "out").read_text())["status"], "rollout_success")
+
     def test_failed_remote_command_never_claims_verified(self):
         with tempfile.TemporaryDirectory() as td:
             d=pathlib.Path(td)
