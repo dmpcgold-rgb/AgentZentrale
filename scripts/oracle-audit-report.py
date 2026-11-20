@@ -32,6 +32,8 @@ allowed_checks = {
     "PREVIEW_CHECKOUT_SYNTAX": ("OK",),
     "PREVIEW_BUILD": ("OK",),
     "PRIVATE_CANDIDATE_IMAGE_BUILT": ("yes",),
+    "CANDIDATE_MATCHES_PRIVATE_STAGE": ("yes",),
+    "LIVE_DATA_VOLUME_PERSISTENT": ("yes",),
 }
 allowed_counts = {
     "SOURCE_FILES_ARCHIVED", "TRACKED_CHANGES", "UNTRACKED_FILES",
@@ -55,10 +57,11 @@ for line in log.splitlines():
         values[key] = int(value)
 
 mode = os.environ.get("MODE", "unknown")
-if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "check", "apply"):
+if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "release-check", "check", "apply"):
     mode = "unknown"
 markers = {
     "audit_complete": "AUDIT_COMPLETE:" in log,
+    "release_ready": "RELEASE_GATE=READY_FOR_CONTROLLED_ROLLOUT" in log,
     "private_stage_complete": "PRIVATE_STAGE_COMPLETE" in log,
     "audit_complete_with_differences": "AUDIT_COMPLETE_WITH_DIFFERENCES:" in log,
     "private_reconcile_complete": "PRIVATE_RECONCILE_COMPLETE" in log,
@@ -76,6 +79,7 @@ report = {
         values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_PYTHON_SYNTAX") == "OK" else
         "stage_verified" if mode == "stage" and markers["private_stage_complete"] and values.get("STAGED_SOURCE_ONLY_ON_ORACLE") == "yes" and values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_FILES_STAGED") == 6 and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "preview_verified" if mode == "preview" and values.get("PREVIEW_BUILD") == "OK" and values.get("PREVIEW_CHECKOUT_SYNTAX") == "OK" and values.get("PRIVATE_CANDIDATE_IMAGE_BUILT") == "yes" and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
+        "release_ready" if mode == "release-check" and markers["release_ready"] and values.get("CANDIDATE_MATCHES_PRIVATE_STAGE") == "yes" and values.get("LIVE_DATA_VOLUME_PERSISTENT") == "yes" and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "audit_differences" if mode == "audit" and markers["audit_complete_with_differences"] else
         "completed_with_deploy_blocked" if markers["deploy_blocked"] else
         "completed_without_audit_verification"
