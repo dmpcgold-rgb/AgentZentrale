@@ -17,11 +17,11 @@ export function evaluateBookingEmail(messages,date){
  const [y,m,d]=date.split('-');
  const monthName=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'][Number(m)-1];
  const dateWords=[date,`${d}.${m}.${y}`,`${Number(d)}.${Number(m)}.${y}`];
- const spacedDate=new RegExp(`(?:^|\\\\s)${Number(d)}\\\\s+${monthName}(?:\\\\s|$)`,'i');
+ const spacedDate=new RegExp(String.raw`(?:^|\\s)${Number(d)}\\s+${monthName}(?:\\s|$)`,'i');
  const matches=(messages||[]).filter(msg=>{
   const text=[msg.subject,msg.snippet,msg.body].filter(Boolean).join(' ');
   const travel=dateWords.some(x=>text.includes(x))||spacedDate.test(text);
-  const route=/Wien\s+Meidling/i.test(text)&&/Wiener\s+Neustadt/i.test(text);
+  const route=/(?:Wien|W[.])\s*Meidling/i.test(text)&&/(?:Wiener|Wr[.])\s*Neustadt/i.test(text);
   const isReservation=/reservier|buchungsbestätig|booking confirmation|comfort class|sitzplatz|Westbahn-Ticket/i.test(text);
   return travel && route && isReservation;
  });
