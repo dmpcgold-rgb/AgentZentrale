@@ -10,13 +10,14 @@ on:
       - scripts/oracle-private-build-preview.sh
       - scripts/oracle-production-release-gate.sh
       - scripts/oracle-controlled-rollout.sh
+      - scripts/oracle-westbahn-booking-status.sh
       - .github/workflows/oracle-safe-deploy.yml
   workflow_dispatch:
     inputs:
       mode:
         description: "Check-only, or deploy after all protections pass"
         type: choice
-        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, check, apply]
+        options: [inventory, snapshot, reconcile, audit, stage, preview, verify, release-check, rollout, booking-status, check, apply]
         default: check
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
           bash -n scripts/oracle-private-build-preview.sh
           bash -n scripts/oracle-production-release-gate.sh
           bash -n scripts/oracle-controlled-rollout.sh
+          bash -n scripts/oracle-westbahn-booking-status.sh
           python3 -m py_compile scripts/oracle-audit-report.py scripts/oracle-private-stage.py
           python3 -m unittest discover -s tests -p test_oracle_audit_report.py -v
       - name: Verify checkout is not silently rebuilt
@@ -64,7 +66,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           umask 077
           mkdir -p ~/.ssh
@@ -86,6 +88,8 @@ jobs:
             script="scripts/oracle-production-release-gate.sh"
           elif [[ "$MODE" == rollout ]]; then
             script="scripts/oracle-controlled-rollout.sh"
+          elif [[ "$MODE" == booking-status ]]; then
+            script="scripts/oracle-westbahn-booking-status.sh"
           fi
           remote_command="sudo -n bash -s -- --$MODE"
           if [[ "$MODE" == stage ]]; then
@@ -121,7 +125,7 @@ jobs:
       - name: Generate sanitized audit report
         if: always()
         env:
-          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
+          MODE: ${{ inputs.mode || (contains(github.event.head_commit.message, '[oracle-booking-check-once]') && 'booking-status') || (contains(github.event.head_commit.message, '[oracle-rollout-once]') && 'rollout') || 'verify' }}
         run: |
           python3 scripts/oracle-audit-report.py \
             "$RUNNER_TEMP/oracle-command.log" \
