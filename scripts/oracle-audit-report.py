@@ -71,6 +71,16 @@ allowed_checks = {
     "BUILD_CLASS_DOCKER_PERMISSION": ("yes","no"),
     "BUILD_CLASS_DOCKER_OUT_OF_MEMORY": ("yes","no"),
     "BOOKING_TESTS": ("PASS",),
+    "LIVE_GATE_ON": ("yes","no"),
+    "ADAPTER_PATH_SET": ("yes","no"),
+    "ADAPTER_FILE_PRESENT": ("yes","no"),
+    "GMAIL_OAUTH_CLIENT_SET": ("yes","no"),
+    "GMAIL_OAUTH_SECRET_SET": ("yes","no"),
+    "GMAIL_OAUTH_REFRESH_SET": ("yes","no"),
+    "PRIVATE_CHECKOUT_25_PRESENT": ("yes","no"),
+    "PRIVATE_CHECKOUT_26_PRESENT": ("yes","no"),
+    "PRIVATE_CHECKOUT_27_PRESENT": ("yes","no"),
+    "PRIVATE_SNAPSHOT_ROOT_PRESENT": ("yes","no"),
     "BOOKING_LIVE_GATE_ENABLED": ("yes","no"),
     "BOOKING_ADAPTER_PRESENT": ("yes","no"),
     "BOOKING_GMAIL_CONFIGURED": ("yes","no"),
@@ -106,11 +116,12 @@ for line in log.splitlines():
         values[key] = int(value)
 
 mode = os.environ.get("MODE", "unknown")
-if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "booking-enable", "booking-update", "booking-diagnose", "check", "apply"):
+if mode not in ("inventory", "snapshot", "reconcile", "audit", "stage", "preview", "verify", "release-check", "rollout", "booking-status", "booking-enable", "booking-update", "booking-diagnose", "integration-audit", "check", "apply"):
     mode = "unknown"
 markers = {
     "audit_complete": "AUDIT_COMPLETE:" in log,
     "booking_config_checked": "BOOKING_CONFIG_CHECK=COMPLETE" in log,
+    "integration_audit_completed": "INTEGRATION_AUDIT=COMPLETE" in log,
     "booking_build_diagnosed": "BUILD_DIAGNOSIS=COMPLETE" in log,
     "booking_automation_enabled": "BOOKING_ACTIVATION=ENABLED" in log,
     "release_ready": "RELEASE_GATE=READY_FOR_CONTROLLED_ROLLOUT" in log,
@@ -133,6 +144,7 @@ report = {
         values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_PYTHON_SYNTAX") == "OK" else
         "stage_verified" if mode == "stage" and markers["private_stage_complete"] and values.get("STAGED_SOURCE_ONLY_ON_ORACLE") == "yes" and values.get("SNAPSHOT_CHECKSUMS") == "OK" and values.get("CHECKOUT_FILES_STAGED") == 6 and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
         "preview_verified" if mode == "preview" and values.get("PREVIEW_BUILD") == "OK" and values.get("PREVIEW_CHECKOUT_SYNTAX") == "OK" and values.get("PRIVATE_CANDIDATE_IMAGE_BUILT") == "yes" and values.get("NO_DEPLOYMENT_EXECUTED") == "yes" else
+        "integration_audit_completed" if mode == "integration-audit" and markers["integration_audit_completed"] else
         "booking_build_diagnosed" if mode == "booking-diagnose" and markers["booking_build_diagnosed"] else
         "booking_update_deployed" if mode == "booking-update" and values.get("BOOKING_STAGE") == "READY" and values.get("BOOKING_TESTS") == "PASS" and markers["rollout_complete"] and markers["booking_config_checked"] else
         "booking_automation_enabled" if mode == "booking-enable" and markers["booking_automation_enabled"] and values.get("NO_MANUAL_BOOKING_TRIGGERED") == "yes" else
