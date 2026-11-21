@@ -117,7 +117,7 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
      if(emailAudit){
       const mail=await emailAudit.inspect({date,...RULES});
       if(mail?.possibleExisting===true){record(date,'blocked','Mögliche vorhandene WESTbahn-Bestätigung per E-Mail; manuell prüfen.');continue;}
-      if(mail?.status!=='no_matching_email_observed'){
+      if(mail?.status!=='no_matching_email_observed'||mail?.searchComplete!==true){
        record(date,'blocked','Gmail-Kontrolle nicht eindeutig abgeschlossen; keine Buchung.');continue;
       }
      }
