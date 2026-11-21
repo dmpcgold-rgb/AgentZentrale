@@ -7,7 +7,7 @@ import {RULES,planDates,chooseSeat,validateQuote,confirmedReceipt,viennaClock} f
 import {createWestbahn,verifiedAccountReadback,verifiedNoExistingTicket} from '../westbahn.mjs';
 const now=()=>new Date('2026-11-16T06:00:00Z');
 const day='2026-11-17';
-const mockEmail={inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false})};
+const mockEmail={inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false,searchComplete:true})};
 const seat=(id,layout='opposite-table',groupSize=2)=>({id,layout,groupSize,available:true,class:'2+'});
 const trip=(date=day)=>({date,origin:RULES.origin,destination:RULES.destination,departure:RULES.departure,class:RULES.class,ticket:RULES.ticket,productType:RULES.productType,quantity:RULES.quantity});
 const quote=(over={})=>({...trip(),seat:'233A',quoteId:'q1',currency:'EUR',totalCents:0,...over});
@@ -281,4 +281,12 @@ test('Oracle live checkout is disabled unless explicitly enabled',async()=>{
  await assert.rejects(agent.run(),/Live-Checkout/);
  assert.equal(await agent.tick(),false);
  assert.equal(p.count,0);
+});
+
+test('incomplete Gmail inspection blocks checkout even if no match was observed',async()=>{
+ const p=provider();
+ const a=createWestbahn({now,adapter:p,emailAudit:{inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false,searchComplete:false})}});
+ await a.run();
+ assert.equal(p.count,0);
+ assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
 });
