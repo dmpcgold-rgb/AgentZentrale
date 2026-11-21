@@ -12,7 +12,7 @@ function flatten(part,parts=[]){
  for(const child of part.parts||[])flatten(child,parts);
  return parts;
 }
-export function evaluateBookingEmail(messages,date){
+export function evaluateBookingEmail(messages,date,{searchComplete=false}={}){
  if(!DATE.test(date))throw Error('Invalid travel date');
  const [y,m,d]=date.split('-');
  const monthName=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'][Number(m)-1];
@@ -26,7 +26,7 @@ export function evaluateBookingEmail(messages,date){
   return travel && route && isReservation;
  });
  return {status:matches.length?'possible_existing':'no_matching_email_observed',
-   possibleExisting:matches.length>0,mailboxComplete:false,absenceProven:false,
+   possibleExisting:matches.length>0,mailboxComplete:searchComplete,searchComplete,absenceProven:false,
    bookingAuthorized:false,matchingCount:matches.length};
 }
 export function createGmailAudit({clientId,clientSecret,refreshToken,fetchImpl=fetch}={}){
@@ -59,6 +59,8 @@ export function createGmailAudit({clientId,clientSecret,refreshToken,fetchImpl=f
    next=typeof data.nextPageToken==='string'?data.nextPageToken:null;
   }while(next&&++pages<9);
   if(next)throw Error('Gmail search not exhaustive');
-  return evaluateBookingEmail(messages,date);
+  // All pages and full message fetches completed for the scoped Gmail query.
+  // This does not prove the absence of tickets outside Gmail.
+  return evaluateBookingEmail(messages,date,{searchComplete:true});
  }};
 }
