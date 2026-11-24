@@ -10,7 +10,7 @@ const day='2026-11-17';
 const mockEmail={inspect:async()=>({status:'no_matching_email_observed',possibleExisting:false,searchComplete:true})};
 const seat=(id,layout='opposite-table',groupSize=2)=>({id,layout,groupSize,available:true,class:'2+'});
 const trip=(date=day)=>({date,origin:RULES.origin,destination:RULES.destination,departure:RULES.departure,class:RULES.class,ticket:RULES.ticket,productType:RULES.productType,quantity:RULES.quantity});
-const quote=(over={})=>({...trip(),seat:'233A',quoteId:'q1',currency:'EUR',totalCents:0,...over});
+const quote=(over={})=>({...trip(),seat:'233A',quoteId:'q1',currency:'EUR',totalCents:0,finalTotalCents:0,...over});
 const receipt=(over={})=>({...trip(),seat:'233A',bookingId:'TEST-123',confirmed:true,currency:'EUR',totalCents:0,...over});
 function provider({price=0,fail=false,invalidReceipt=false,already=false,
     incompleteBefore=false,unverifiedBefore=false,readbackMissing=false,
@@ -37,8 +37,10 @@ function provider({price=0,fail=false,invalidReceipt=false,already=false,
     seats:[seat('233D'),seat('233A'),seat('191D')]
   }:{status:'unavailable'},
   quote:async()=>quote({totalCents:price}),
-  book:async({maxTotalCents,idempotencyKey})=>{
+  book:async({maxTotalCents,requiredFinalTotalCents,currency,idempotencyKey})=>{
     assert.equal(maxTotalCents,0);
+    assert.equal(requiredFinalTotalCents,0);
+    assert.equal(currency,'EUR');
     assert.match(idempotencyKey,/2026-11-17/);
     bookings++;
     if(fail)throw Error('timeout');
@@ -50,6 +52,24 @@ test('Vienna DST and Monday schedule; weekdays only, six calendar months',()=>{a
 test('already reserved week excluded; first search starts 17 November',async()=>{const before=()=>new Date('2026-11-10T21:00:00Z');const dates=planDates(before());assert.deepEqual(dates.slice(0,5),['2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23']);assert.equal(planDates(new Date('2026-11-20T20:00:00Z'))[0],'2026-11-23');const visited=[];const a=createWestbahn({now:before,emailAudit:mockEmail,adapter:{existing:async({date})=>{visited.push(date);return {status:'unknown'};}}});await a.run();assert.deepEqual(visited,dates.slice(0,5));});
 test('preferred seats beat alternatives; four seats and unknown layouts rejected',()=>{assert.equal(RULES.origin,'Wien Meidling');assert.equal(RULES.destination,'Wiener Neustadt Hbf');assert.equal(RULES.departure,'18:22');assert.equal(chooseSeat([seat('191D'),seat('233D')]).id,'233D');assert.equal(chooseSeat([seat('182A'),seat('191D')]).id,'191D');assert.equal(chooseSeat([seat('999A'),seat('182A')]).id,'182A');assert.equal(chooseSeat([seat('233D'),seat('191D'),seat('233A'),seat('233A','opposite-table',4)]).id,'233A');assert.equal(chooseSeat([seat('233A','opposite-table',4),seat('193B'),seat('999A')]).id,'193B');assert.equal(chooseSeat([seat('233A','unknown'),seat('233D','opposite-table',4)]),null);assert.equal(chooseSeat([seat('222A','offset'),seat('333A')]).id,'333A');});
 test('only exact zero-euro quote and confirmed receipt accepted',()=>{assert.ok(validateQuote(quote(),day,'233A'));for(const q of [quote({totalCents:1}),quote({departure:'18:23'}),quote({class:'2'}),quote({seat:'233D'}),quote({currency:'USD'}),quote({quantity:2}),quote({productType:'train_ticket'})])assert.equal(validateQuote(q,day,'233A'),false);assert.ok(confirmedReceipt(receipt(),day,'233A'));assert.equal(confirmedReceipt(receipt({bookingId:''}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({confirmed:false}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({quantity:2}),day,'233A'),false);assert.equal(confirmedReceipt(receipt({productType:'train_ticket'}),day,'233A'),false);});
+test('checkout requires final price of exactly zero EUR, including an explicit final amount',async()=>{
+ for(const finalTotalCents of [undefined,null,1,99,'0',false]){
+  let count=0;
+  const p=provider();
+  const original=p.quote;
+  p.quote=async args=>{
+   const q=await original(args);
+   if(finalTotalCents===undefined)delete q.finalTotalCents;
+   else q.finalTotalCents=finalTotalCents;
+   return q;
+  };
+  p.book=async()=>{count++;throw Error('must not buy');};
+  const a=createWestbahn({now,adapter:p,emailAudit:mockEmail});
+  await a.run();
+  assert.equal(count,0,'no order with invalid final total');
+  assert.equal(a.status().rows.find(x=>x.date===day).status,'blocked');
+ }
+});
 test('no live provider: scheduling and execution fail closed',async()=>{const a=createWestbahn({now});assert.equal(a.status().providerConnected,false);assert.throws(()=>a.setEnabled(true));await assert.rejects(a.run());assert.equal(await a.tick(),false);});
 test('actual confirmed receipt recorded; no repeat checkout',async()=>{const p=provider();const a=createWestbahn({now,adapter:p,emailAudit:mockEmail});await a.run();assert.equal(p.count,1);assert.equal(a.status().rows.find(x=>x.date===day).status,'confirmed');assert.equal(a.status().confirmedThrough,day);await a.run();assert.equal(p.count,1);});
 test('checkout requires an independently matched account receipt',async()=>{
