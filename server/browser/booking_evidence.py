@@ -42,8 +42,11 @@ def assess_existing_ticket(rows, requested_day, expected_seat=None):
         label=' '.join((row.get('dateLabel') or '').split()).upper()
         hit=pattern.fullmatch(label)
         if not hit or (hit.group(1) and hit.group(1)!=str(day.year)): continue
-        seat=(row.get('seat') or '').replace(' ','').upper()
-        if not re.fullmatch(r'[0-9]{3}[A-D]',seat): continue
+        raw_seat=row.get('seat')
+        seat=raw_seat.replace(' ','').upper() if isinstance(raw_seat,str) else ''
+        # An otherwise matching account ticket with an unreadable/missing
+        # seat is a possible duplicate, not evidence of no reservation.
+        if seat and not re.fullmatch(r'[0-9]{3}[A-D]',seat): continue
         # A real four-digit date from this ticket card can resolve a
         # yearless weekday label. Never infer the year from the current date.
         explicit=row.get('fullDate')
@@ -54,8 +57,8 @@ def assess_existing_ticket(rows, requested_day, expected_seat=None):
             except ValueError:
                 continue
             if exact!=day.isoformat(): continue
-        matches.append({'seat':seat, 'yearExplicit':bool(hit.group(1) or explicit),
-                        'expectedSeat':expected_seat is None or expected_seat==seat,
+        matches.append({'seat':seat or None, 'yearExplicit':bool(hit.group(1) or explicit),
+                        'expectedSeat':seat!='' and (expected_seat is None or expected_seat==seat),
                         'bookingReference':row.get('bookingReference') is True,
                         'ticketReference':row.get('ticketReference') is True,
                         'ticketCode':row.get('ticketCode') is True})
