@@ -59,6 +59,33 @@ class InventoryBatchTests(unittest.TestCase):
         self.assertNotIn('DO_NOT_LOG',str(result))
         self.assertNotIn('PRIVATE-SECOND',str(result))
 
+    def test_matching_date_without_readable_seat_blocks_booking(self):
+        rows=[{'dateLabel':'MI 25 NOV','seat':None,'fullDate':'2026-11-25',
+               'bookingReference':True,'privateToken':'DO_NOT_LOG'}]
+        result=summarize_inventory_batch(rows,['2026-11-25'],
+                   [{'domain':'westbahn.at','page':1,'status':'account_verified'}])
+        day=result['days'][0]
+        self.assertEqual(day['status'],'possible_existing')
+        self.assertTrue(day['potentialDuplicate'])
+        self.assertEqual(day['seats'],[])
+        self.assertFalse(day['dateVerified'])
+        self.assertFalse(day['detailVerified'])
+        self.assertFalse(day['safeToBook'])
+        self.assertFalse(result['inventoryComplete'])
+        self.assertFalse(result['bookingAuthorized'])
+        self.assertNotIn('DO_NOT_LOG',str(result))
+
+    def test_missing_seat_does_not_hide_other_same_day_booking(self):
+        rows=[{'dateLabel':'MI 25 NOV','seat':'233A','fullDate':'2026-11-25'},
+              {'dateLabel':'MI 25 NOV','seat':None,'fullDate':None}]
+        result=summarize_inventory_batch(rows,['2026-11-25'],[])
+        day=result['days'][0]
+        self.assertEqual(day['status'],'possible_existing')
+        self.assertEqual(day['seats'],['233A'])
+        self.assertTrue(day['potentialDuplicate'])
+        self.assertFalse(day['dateVerified'])
+        self.assertFalse(day['safeToBook'])
+
     def test_total_candidates_do_not_prove_inventory_completeness(self):
         reports=[{'domain':'westbahn.at','page':1,'status':'account_verified',
                   'totalHints':{'candidateTotalLabels':1,'candidateTotals':[5]}},
