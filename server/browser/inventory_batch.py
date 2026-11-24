@@ -224,8 +224,11 @@ def summarize_inventory_batch(rows, days, reports, detail_checks=None):
                      if isinstance(r,dict) and isinstance(r.get('seat'),str)})
         # Yearless labels are a potential reservation conflict, not proof
         # of a specific year. A missing result stays pending manual review.
-        exact=seen and all(x.get('yearExplicit') is True for x in matching)
-        verified=(len(seats)==1 and
+        # An unreadable seat still blocks another reservation but cannot
+        # be upgraded to a verified ticket without a matching ticket detail.
+        exact=seen and len(seats)==len(matching) and all(
+            x.get('yearExplicit') is True for x in matching)
+        verified=(len(seats)==1 and len(matching)==1 and
                   verify_detail_evidence(detail_checks.get(day),day,seats[0]))
         # Explain precisely why the unattended booking flow must stop.
         # Account-page absence is never sufficient evidence to purchase.
