@@ -30,3 +30,17 @@ test('Gmail OAuth errors fail closed',async()=>{
  fetchImpl:async()=>({ok:false})});
  await assert.rejects(checker.inspect({date}),/OAuth/);
 });
+
+test('a completed, scoped Gmail search is recorded without authorizing checkout',()=>{
+ const r=evaluateBookingEmail([],date,{searchComplete:true});
+ assert.equal(r.searchComplete,true);
+ assert.equal(r.mailboxComplete,true);
+ assert.equal(r.absenceProven,false);
+ assert.equal(r.bookingAuthorized,false);
+ assert.equal(r.status,'no_matching_email_observed');
+});
+test('a partial Gmail search cannot claim completeness',()=>{
+ const r=evaluateBookingEmail([],date);
+ assert.equal(r.searchComplete,false);
+ assert.equal(r.mailboxComplete,false);
+});
