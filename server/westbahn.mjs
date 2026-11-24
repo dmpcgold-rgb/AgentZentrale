@@ -157,7 +157,7 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
 }
 // Custom integration must be installed server-side and implement an authorized provider API.
 // No browser automation or live provider is fabricated here.
-export async function loadWestbahn(env=process.env){const liveCheckoutEnabled=env.WESTBAHN_LIVE_CHECKOUT_ENABLED==='true';let adapter=null;if(liveCheckoutEnabled&&env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
+export async function loadWestbahn(env=process.env){const liveCheckoutEnabled=env.WESTBAHN_LIVE_CHECKOUT_ENABLED==='true';let adapter=null;if(liveCheckoutEnabled&&env.WESTBAHN_ADAPTER_MODULE){const mod=await import(pathToFileURL(resolve(env.WESTBAHN_ADAPTER_MODULE)).href);adapter=await mod.createAdapter();if(adapter?.capabilities?.liveCheckout===false)throw new Error('WESTbahn-Adapter ist nur lesend; Live-Checkout bleibt gesperrt.');for(const k of ['existing','search','quote','book'])if(typeof adapter?.[k]!=='function')throw new Error('Unvollständiger WESTbahn-Adapter: '+k);}
  let emailAudit=null;
  // Reuse the AgentZentrale's existing server-side Gmail connector when one
  // has explicitly been configured. Do not export or replicate its credentials.
