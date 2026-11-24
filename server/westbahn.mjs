@@ -126,11 +126,20 @@ export function createWestbahn({adapter=null,emailAudit=null,liveCheckoutEnabled
      if(found.date!==date||found.origin!==RULES.origin||found.destination!==RULES.destination||found.departure!==RULES.departure||found.class!==RULES.class||typeof found.connectionId!=='string'||!found.connectionId){record(date,'blocked','Abweichende Verbindung oder Klasse.');continue;}
      const seat=chooseSeat(found.seats);if(!seat){record(date,'unavailable','Kein geeigneter verfügbarer Einzelplatz.');continue;}
      const quote=await adapter.quote({date,seat:seat.id,connectionId:found.connectionId,...RULES});
-     if(!validateQuote(quote,date,seat.id)){record(date,'blocked','Preis oder Buchungsdaten nicht exakt bestätigt; keine Buchung.');continue;}
+     if(!validateQuote(quote,date,seat.id) ||
+        quote?.finalTotalCents!==0 ||
+        quote?.currency!=='EUR' ||
+        quote?.totalCents!==0){
+       record(date,'blocked','Endpreis nicht ausdrücklich als 0,00 EUR nachgewiesen; keine Buchung.');
+       continue;
+     }
+     // The adapter must independently re-read and compare the live checkout
+     // total IMMEDIATELY BEFORE its binding action. The quote cannot replace
+     // this final provider-side guard; paid or unknown totals must abort.
      // Persist before side effect. The provider must honor this stable idempotency key.
      const key=`agentzentrale-westbahn-${date}-${RULES.departure.replace(':','')}`;
      record(date,'booking','Checkout gestartet',{seat:seat.id,key});
-     let receipt;try{receipt=await adapter.book({quoteId:quote.quoteId,idempotencyKey:key,maxTotalCents:0});}catch{record(date,'uncertain','Checkout-Ausgang unklar. Nicht automatisch erneut versuchen.',{seat:seat.id,key});continue;}
+     let receipt;try{receipt=await adapter.book({quoteId:quote.quoteId,idempotencyKey:key,maxTotalCents:0,requiredFinalTotalCents:0,currency:'EUR'});}catch{record(date,'uncertain','Checkout-Ausgang unklar. Nicht automatisch erneut versuchen.',{seat:seat.id,key});continue;}
      if(!confirmedReceipt(receipt,date,seat.id)){
        record(date,'uncertain','Keine eindeutige Buchungsbestätigung. Manuell prüfen.',{seat:seat.id,key});
        continue;
