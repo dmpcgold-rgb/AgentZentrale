@@ -38,7 +38,7 @@ function BookingCalendar({report,horizon,progress,saved,pendingDates,reservation
  });
  const rows=Array.from({length:entries.length/7},(_,i)=>entries.slice(i*7,i*7+7));
  return <Card>
-  <Heading subtitle="Serverspeicher, Bericht und aktueller Durchgang">Reservierungskalender</Heading>
+  <View style={{borderLeftWidth:4,borderLeftColor:'#69DDB0',paddingLeft:10}}><Heading subtitle="Tippe auf einen Tag für Status und Sitzplatz">Reservierungskalender</Heading></View>
   <Body>Zeitraum: {dateKey(today)} bis {dateKey(end)}</Body>
   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginVertical:12}}>
    <Pressable accessibilityRole="button" accessibilityLabel="Vorheriger Monat" disabled={index===0} onPress={()=>{setOffset(index-1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index===0?.35:1}}><Text style={{color:T.text,fontSize:24}}>‹</Text></Pressable>
@@ -54,7 +54,8 @@ function BookingCalendar({report,horizon,progress,saved,pendingDates,reservation
   <View style={{marginTop:12,gap:5}}>
    <Body style={{color:T.green}}>✓ Bestätigte Reservierung</Body>
    <Body style={{color:T.red}}>! Geprüft, nicht bestätigt</Body>
-   <Body style={{color:T.orange}}>? Unbekannt / noch nicht bestätigt</Body>
+   <Body style={{color:T.orange}}>? Noch nicht bestätigt</Body>
+   <Body style={{color:T.orange}}>! Bestellung ungeklärt (gesperrt)</Body>
    <Muted>– Wochenende oder außerhalb des Buchungsfensters; ungeklärte Bestellungen bleiben gesperrt.</Muted>
    {selected?<Body>{selected.key}: {status(new Date(selected.key+'T00:00:00Z'))[0]}{reservations?.find(r=>r.date===selected.key)?.seat?' · Sitz '+reservations.find(r=>r.date===selected.key).seat:''}</Body>:null}
    <Muted>Keine Markierung ohne Nachweis. Ältere Berichte sind keine Garantie gegen spätere Stornierungen.</Muted>
@@ -117,53 +118,56 @@ export default function OracleStatusScreen(){
  let contiguous=null;
  if(Array.isArray(saved))for(const d of targets){if(!effective.has(d)||pendingDates?.includes(d))break;contiguous=d;}
  const statusText=!host?'Server nicht erreichbar':pending?'Steuerauftrag offen':running?(activityLabels[p?.phase]||'Buchung läuft'):host.service.active==='failed'?'Letzter Lauf mit Fehler':host.service.active==='deactivating'?'Wird beendet':'Bereit';
- const tabs=[['overview','Übersicht'],['tickets','Tickets'],['history','Verlauf'],['settings','Steuerung']];
+ const tabs=[['overview','Übersicht','▦','#64B5FF','#19344F','Buchungsstand und Schnellstart'],['tickets','Tickets','▤','#69DDB0','#193D35','Kalender und Sitzplätze'],['history','Verlauf','◷','#F5C16B','#49391F','Aktivitäten, Berichte und Sicherungen'],['settings','Steuerung','⚙','#C3A6FF','#36294E','Automatik, Vorlauf und Zeitplan']];
+ const activeTab=tabs.find(t=>t[0]===tab);
+ const sectionColors={overview:'#64B5FF',tickets:'#69DDB0',history:'#F5C16B',settings:'#C3A6FF'};
  return <View style={{flex:1,backgroundColor:T.bg}}>
  <View style={{paddingHorizontal:16,paddingTop:12,paddingBottom:10,gap:10}}>
  <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}}>
  <View><Text style={{color:T.muted,fontSize:11,fontWeight:'700',letterSpacing:2}}>AGENTZENTRALE</Text><Text style={{color:T.text,fontSize:28,fontWeight:'800'}}>WESTbahn</Text></View>
  <Pressable accessibilityRole="button" accessibilityLabel="Aktualisieren" disabled={busy||!remote.connected} onPress={refresh} style={{borderRadius:14,backgroundColor:T.surface2,minHeight:44,minWidth:44,alignItems:'center',justifyContent:'center'}}><Text style={{color:T.accent,fontSize:23}}>↻</Text></Pressable>
  </View>
- <View style={{flexDirection:'row',backgroundColor:T.surface,borderRadius:14,padding:4,gap:2}}>{tabs.map(([key,label])=><Pressable key={key} accessibilityRole="tab" accessibilityState={{selected:tab===key}} onPress={()=>setTab(key)} style={{flex:1,minHeight:44,borderRadius:10,alignItems:'center',justifyContent:'center',backgroundColor:tab===key?T.surface2:'transparent'}}><Text style={{color:tab===key?T.accent:T.muted,fontWeight:'700',fontSize:12}}>{label}</Text></Pressable>)}</View>
+ <View style={{flexDirection:'row',backgroundColor:T.surface,borderRadius:14,padding:4,gap:2}}>{tabs.map(([key,label,symbol,color,bg])=><Pressable key={key} accessibilityRole="tab" accessibilityState={{selected:tab===key}} onPress={()=>setTab(key)} style={{flex:1,minHeight:44,borderRadius:10,alignItems:'center',justifyContent:'center',backgroundColor:tab===key?bg:'transparent',borderBottomWidth:tab===key?2:0,borderBottomColor:color,paddingVertical:5}}><Text style={{color,fontSize:21,fontWeight:'700'}}>{symbol}</Text><Text style={{color:tab===key?color:T.text,fontWeight:'700',fontSize:12}}>{label}</Text></Pressable>)}</View>
+ <View style={{borderLeftWidth:3,borderLeftColor:activeTab[3],paddingLeft:10,paddingVertical:4}}><Text style={{color:activeTab[3],fontSize:13,fontWeight:'700'}}>{activeTab[5]}</Text></View>
  </View>
  <ScrollView style={{flex:1}} contentContainerStyle={styles.page} refreshControl={<RefreshControl refreshing={busy} onRefresh={refresh}/>}>
- <View style={{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4}}><View style={{width:9,height:9,borderRadius:5,backgroundColor:!host||pending?T.orange:running?T.green:host.service.active==='failed'?T.red:T.green}}/><Text style={{color:T.text,fontSize:13,flex:1}}>{statusText}</Text></View>
+ <View style={{flexDirection:'row',alignItems:'center',gap:8,paddingVertical:4}}><View style={{width:9,height:9,borderRadius:5,backgroundColor:!host||pending?T.orange:running?T.green:host.service.active==='failed'?T.red:T.green}}/><Text style={{color:!host||pending?T.orange:host.service.active==='failed'?T.red:T.green,fontSize:13,fontWeight:'700',flex:1}}>{statusText}</Text></View>
  {error?<Card><Body style={{color:T.orange}}>{error}</Body></Card>:null}
  {notice?<Card><Body>{notice}</Body>{pending?<ActionButton title="Auftrag prüfen" secondary disabled={busy} onPress={checkResult}/>:null}</Card>:null}
  {tab==='overview'?<>
- <View style={{backgroundColor:'#142D32',borderRadius:22,padding:18,gap:12,borderWidth:1,borderColor:'#27504D'}}>
- <Text style={{color:'#A5D9CF',fontSize:12,fontWeight:'700',letterSpacing:1}}>PENDELSTRECKE</Text>
+ <View style={{backgroundColor:'#142D49',borderRadius:22,padding:18,gap:12,borderWidth:1,borderColor:'#315C87'}}>
+ <Text style={{color:'#A5D9CF',fontSize:12,fontWeight:'700',letterSpacing:1}}>DEINE TÄGLICHE VERBINDUNG</Text>
  <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8}}>
  <View style={{flex:1}}><Text style={{color:'#FFFFFF',fontSize:25,fontWeight:'800'}}>18:22</Text><Text style={{color:'#B7D3D2',fontSize:13}}>Wien Meidling</Text></View>
  <Text style={{color:'#8FE2CC',fontSize:23}}>→</Text>
  <View style={{flex:1,alignItems:'flex-end'}}><Text style={{color:'#FFFFFF',fontSize:18,fontWeight:'800'}}>Wr. Neustadt</Text><Text style={{color:'#B7D3D2',fontSize:13}}>Hauptbahnhof</Text></View>
  </View><Text style={{color:'#A5D9CF',fontSize:12}}>Sollverbindung · Mo–Fr · Comfort Class 2+</Text>
  </View>
- <Card><Heading subtitle="Rollierendes Buchungsziel">Reservierungsfortschritt</Heading>
+ <Card><View style={{borderLeftWidth:4,borderLeftColor:sectionColors.overview,paddingLeft:10}}><Heading subtitle="Wie viele Reisetage sind bereits reserviert?">Buchungsfortschritt</Heading></View>
  <View style={{flexDirection:'row',alignItems:'baseline',gap:8}}><Text style={{color:T.green,fontSize:40,fontWeight:'800'}}>{percent===null?'—':percent+'%'}</Text><Muted>{percent===null?'Daten fehlen':covered+' / '+targets.length+' Reisetage'}</Muted></View>
  {percent!==null?<View style={{height:9,borderRadius:6,backgroundColor:T.surface2,overflow:'hidden'}}><View style={{height:9,width:percent+'%',backgroundColor:T.green}}/></View>:null}
- <View style={{flexDirection:'row',gap:8,marginTop:8}}>{[['Gespeichert',Array.isArray(saved)?String(saved.length):'—'],['Offen im Ziel',percent===null?'—':String(targets.length-covered)]].map(([label,value])=><View key={label} style={{flex:1,padding:12,borderRadius:14,backgroundColor:T.surface2}}><Text style={{fontSize:24,fontWeight:'800',color:T.text}}>{value}</Text><Text style={{fontSize:12,color:T.muted}}>{label}</Text></View>)}</View>
+ <View style={{flexDirection:'row',gap:8,marginTop:8}}>{[['Bestätigt',Array.isArray(saved)?String(saved.length):'—','#69DDB0','#193D35'],['Noch offen',percent===null?'—':String(targets.length-covered),'#F5C16B','#49391F']].map(([label,value,color,bg])=><View key={label} style={{flex:1,padding:12,borderRadius:14,backgroundColor:bg}}><Text style={{fontSize:24,fontWeight:'800',color}}>{value}</Text><Text style={{fontSize:12,color}}>{label}</Text></View>)}</View>
  <Body>Lückenlos im aktuellen Ziel: {fmt(contiguous)}</Body><Muted>Letzter gespeicherter Tag: {fmt(latest)} · Ziel bis {end?fmt(dateKey(end)):'—'}</Muted><Muted>Nachweisstand, keine Live-Garantie gegen Stornierungen.</Muted>
  </Card>
- <Card><Heading>Agent-Steuerung</Heading><Body>Nächster offener Reisetag: {fmt(next)}</Body>
+ <Card><View style={{borderLeftWidth:4,borderLeftColor:sectionColors.overview,paddingLeft:10}}><Heading subtitle="Reservierungen starten oder laufenden Auftrag beenden">Jetzt buchen</Heading></View><Body>Nächster offener Reisetag: {fmt(next)}</Body>
  {running?<><Body>Aktuell: {fmt(p?.currentDay)}</Body><Muted>Neu bestätigt: {p?.newlyBooked?.length??'—'}</Muted><ActionButton title="Buchungslauf abbrechen" danger disabled={!!pending||busy} onPress={()=>confirm('stop_booking')}/></>:<ActionButton title="Jetzt maximal vorausbuchen" disabled={!canStart} onPress={()=>confirm('book_now')}/>}
  <Muted>Automatik: {host?.timer?.enabled?'Aktiv':host?'Pausiert':'Unbekannt'} · {host?.timer?.next||'Nächster Lauf unbekannt'}</Muted></Card>
- {Array.isArray(pendingDates)&&pendingDates.length?<Card><Heading>Ungeklärte Bestellungen</Heading>{pendingDates.map(d=><Body key={d} style={{color:T.orange}}>{fmt(d)} · Gesperrt</Body>)}<Muted>Keine automatische Wiederholung.</Muted></Card>:null}
+ {Array.isArray(pendingDates)&&pendingDates.length?<Card><View style={{borderLeftWidth:4,borderLeftColor:T.orange,paddingLeft:10}}><Heading subtitle="Nicht erneut buchen, bis der Status geklärt ist">Achtung: offene Bestellungen</Heading></View>{pendingDates.map(d=><Body key={d} style={{color:T.orange}}>{fmt(d)} · Gesperrt</Body>)}<Muted>Keine automatische Wiederholung.</Muted></Card>:null}
  {pendingDates==null?<Muted>Bestellsperren vom Server nicht gemeldet.</Muted>:null}
  <ActionButton secondary title="Reservierungskalender öffnen" onPress={()=>setTab('tickets')}/>
  </>:null}
  {tab==='tickets'?<>
  <BookingCalendar pendingDates={pendingDates} reservations={host?.reservations} saved={saved} report={report} horizon={host?.monthsAhead} progress={running?p:null}/>
  <Card><Heading subtitle="Nur nachgewiesene Sitzplätze">Meine Reservierungen</Heading>
- {Array.isArray(saved)?[...saved].sort().map(d=>{const r=host?.reservations?.find(x=>x.date===d);return <View key={d} style={{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderColor:T.line}}><View style={{flex:1}}><Body>{fmt(d)}</Body><Muted>{pendingDates?.includes(d)?'Ungeklärt':r?.source==='manual_westbahn_verification'?'Manuell bestätigt':r?.source==='official_email'?'Gmail-Nachweis':'Gespeicherter Nachweis'}</Muted></View><View style={{padding:10,borderRadius:12,backgroundColor:T.surface2}}><Text style={{color:T.accent,fontWeight:'800'}}>{r?.seat||'—'}</Text><Text style={{color:T.muted,fontSize:10}}>Sitzplatz</Text></View></View>}):<Muted>Serverspeicher nicht verfügbar.</Muted>}
+ {Array.isArray(saved)?[...saved].sort().map(d=>{const r=host?.reservations?.find(x=>x.date===d);return <View key={d} style={{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderColor:T.line}}><View style={{flex:1}}><Body>{fmt(d)}</Body><Muted>{pendingDates?.includes(d)?'Ungeklärt':r?.source==='manual_westbahn_verification'?'Manuell bestätigt':r?.source==='official_email'?'Gmail-Nachweis':'Gespeicherter Nachweis'}</Muted></View><View style={{padding:10,borderRadius:12,backgroundColor:'#193D35'}}><Text style={{color:'#69DDB0',fontWeight:'800'}}>{r?.seat||'—'}</Text><Text style={{color:T.muted,fontSize:10}}>Sitzplatz</Text></View></View>}):<Muted>Serverspeicher nicht verfügbar.</Muted>}
  </Card></>:null}
  {tab==='history'?<>
- <Card><Heading>Live-Aktivität</Heading>{p?.events?.length?p.events.slice(-20).reverse().map((e,i)=><View key={i} style={{paddingVertical:10,borderBottomWidth:1,borderColor:T.line}}><Body>{activityLabels[e.phase]||e.phase}</Body><Muted>{e.day?fmt(e.day):'System'}{e.count!=null?' · '+e.count:''}</Muted></View>):<Muted>Keine Aktivitäten gemeldet.</Muted>}</Card>
+ <Card><View style={{borderLeftWidth:4,borderLeftColor:sectionColors.history,paddingLeft:10}}><Heading subtitle="Was der Agent zuletzt gemacht hat">Live-Aktivität</Heading></View>{p?.events?.length?p.events.slice(-20).reverse().map((e,i)=><View key={i} style={{paddingVertical:10,borderBottomWidth:1,borderColor:T.line}}><Body>{activityLabels[e.phase]||e.phase}</Body><Muted>{e.day?fmt(e.day):'System'}{e.count!=null?' · '+e.count:''}</Muted></View>):<Muted>Keine Aktivitäten gemeldet.</Muted>}</Card>
  <Card><Heading>Letzter Abschlussbericht</Heading>{report?<><Body>{report.gesamt_bestaetigt} bestätigt · {report.neu_gebucht?.length??0} neu</Body><Muted>{report.erstellt} · {report.dienst_status}</Muted>{report.offene_gepruefte_tage?.map(d=><Body key={d}>{fmt(d)} · {savedSet.has(d)?'Später bestätigt':'Offen im Bericht'}</Body>)}</>:<Muted>Kein Bericht verfügbar.</Muted>}</Card>
  <Card><Heading>Frühere Buchungsläufe</Heading>{host?.history?.length?host.history.map((r,i)=><View key={i} style={{paddingVertical:10,borderBottomWidth:1,borderColor:T.line}}><Body>{new Date(r.erstellt).toLocaleString('de-AT')}</Body><Muted>{r.dienst_status} · {r.gesamt_bestaetigt??'—'} bestätigt · {r.offene_gepruefte_tage.length} offen</Muted></View>):<Muted>Keine historischen Berichte verfügbar.</Muted>}<Muted>Letzte Sicherung: {host?.backupAt||'Nicht gemeldet'}</Muted></Card>
  </>:null}
  {tab==='settings'?<>
- <Card><Heading>Wochenautomatik</Heading><Body>{host?.timer?.enabled?'Aktiv':host?'Pausiert':'Unbekannt'}</Body><ActionButton title={host?.timer?.enabled?'Automatik pausieren':'Automatik fortsetzen'} secondary disabled={!host||busy||!!pending} onPress={()=>confirm(host.timer.enabled?'pause':'resume')}/>
+ <Card><View style={{borderLeftWidth:4,borderLeftColor:sectionColors.settings,paddingLeft:10}}><Heading subtitle="Wann der Agent automatisch reserviert">Wochenautomatik</Heading></View><Body>{host?.timer?.enabled?'Aktiv':host?'Pausiert':'Unbekannt'}</Body><ActionButton title={host?.timer?.enabled?'Automatik pausieren':'Automatik fortsetzen'} secondary disabled={!host||busy||!!pending} onPress={()=>confirm(host.timer.enabled?'pause':'resume')}/>
  <Muted>Montagszeit (Wien)</Muted><TextInput accessibilityLabel="Montagszeit" value={time} onChangeText={setTime} style={styles.input} maxLength={5}/><ActionButton title="Zeitplan ändern" secondary disabled={!host?.timer.enabled||busy||!!pending||!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)} onPress={()=>confirm('schedule')}/></Card>
  <Card><Heading>Buchungsvorlauf</Heading><Body>Gespeichert: {host?.monthsAhead??'—'} Monate</Body><View style={{flexDirection:'row',gap:5}}>{[1,2,3,4,5,6].map(n=><Pressable key={n} accessibilityRole="button" accessibilityState={{selected:months===String(n)}} onPress={()=>setMonths(String(n))} style={{flex:1,minHeight:44,borderRadius:10,backgroundColor:months===String(n)?T.accent:T.surface2,alignItems:'center',justifyContent:'center'}}><Text style={{fontWeight:'800',color:months===String(n)?'#101820':T.text}}>{n}</Text></Pressable>)}</View><ActionButton title="Vorlauf speichern" secondary disabled={!host||busy||!!pending} onPress={()=>confirm('horizon')}/></Card>
  <Card><Heading>Server & Sicherheit</Heading><Body>Telegram: {host?.telegramConfigured?'Konfiguriert':'Nicht bestätigt'}</Body><Body>Dienst: {stateLabel(host?.service?.active)||'Unbekannt'}</Body><Muted>Bestehende Preisprüfung und Doppelbuchungsschutz unverändert. Abbruch storniert keine Tickets.</Muted></Card>
