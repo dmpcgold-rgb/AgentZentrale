@@ -8,7 +8,7 @@ import {T} from '../theme';
 
 const dateKey=d=>d.toISOString().slice(0,10);
 const monthLabel=d=>d.toLocaleDateString('de-AT',{month:'long',year:'numeric',timeZone:'UTC'});
-function BookingCalendar({report,horizon}){
+function BookingCalendar({report,horizon,progress}){
  const [offset,setOffset]=useState(0);
  const [selected,setSelected]=useState(null);
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
@@ -21,7 +21,7 @@ function BookingCalendar({report,horizon}){
  const first=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+index,1));
  const count=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
  const leading=(first.getUTCDay()+6)%7;
- const booked=new Set([...(report?.bereits_gebucht||[]),...(report?.neu_gebucht||[])]);
+ const booked=new Set([...(report?.bereits_gebucht||[]),...(report?.neu_gebucht||[]),...(progress?.confirmed||[]),...(progress?.newlyBooked||[])]);
  const open=new Set(report?.offene_gepruefte_tage||[]);
  const status=d=>{
   const key=dateKey(d);
@@ -37,7 +37,7 @@ function BookingCalendar({report,horizon}){
  });
  const rows=Array.from({length:entries.length/7},(_,i)=>entries.slice(i*7,i*7+7));
  return <Card>
-  <Heading subtitle="Nachweise aus dem letzten Abschlussbericht">Reservierungskalender</Heading>
+  <Heading subtitle="Abschlussbericht und aktueller Durchgang">Reservierungskalender</Heading>
   <Body>Zeitraum: {dateKey(today)} bis {dateKey(end)}</Body>
   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginVertical:12}}>
    <Pressable accessibilityRole="button" accessibilityLabel="Vorheriger Monat" disabled={index===0} onPress={()=>{setOffset(index-1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index===0?.35:1}}><Text style={{color:T.text,fontSize:24}}>‹</Text></Pressable>
@@ -56,7 +56,7 @@ function BookingCalendar({report,horizon}){
    <Body style={{color:T.orange}}>? Unbekannt / noch nicht bestätigt</Body>
    <Muted>– Wochenende oder außerhalb des Buchungsfensters</Muted>
    {selected?<Body>{selected.key}: {selected.label}</Body>:null}
-   <Muted>Keine Markierung ohne Nachweis. Der Bericht kann älter sein; laufende Buchungen erscheinen erst im nächsten Abschlussbericht.</Muted>
+   <Muted>Keine Markierung ohne Nachweis. Ältere Berichte sind keine Garantie gegen spätere Stornierungen.</Muted>
    <Muted>Berichtsstand: {report?.erstellt||'Kein Bericht vorhanden'}</Muted>
   </View>
  </Card>;
@@ -127,7 +127,7 @@ export default function OracleStatusScreen(){
  </>:<Muted>{host&&['active','activating'].includes(host.service.active)?'Buchungslauf aktiv. Noch keine Live-Fortschrittsdaten verfügbar.':'Kein aktiver Buchungslauf.'}</Muted>}
  <Muted>Aktualisierung alle 20 Sekunden. Nur nachgewiesene Reservierungen werden gezählt.</Muted>
  </Card>
- <BookingCalendar report={report} horizon={host?.monthsAhead}/>
+ <BookingCalendar report={report} horizon={host?.monthsAhead} progress={['active','activating'].includes(host?.service?.active)?host?.progress:null}/>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
  <Body>Lückenlos bis: {report.lueckenlos_bis||'Nicht bestätigt'}</Body>
