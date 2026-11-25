@@ -95,9 +95,17 @@ jobs:
         run: npx expo export --platform android --output-dir /tmp/agentzentrale-export
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
+      - name: Fix React Native Java toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE=node_modules/@react-native/gradle-plugin/settings.gradle.kts
+          test -f "$FILE"
+          sed -i '/org.gradle.toolchains.foojay-resolver-convention/d' "$FILE"
+          java -version
       - name: Build standalone test APK
         working-directory: android
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
       - name: Sign production APK
         shell: bash
         env:
