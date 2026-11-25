@@ -48,7 +48,7 @@ export default function SettingsScreen() {
     ]);
   }
   return <ScrollView style={{ flex: 1, backgroundColor: T.bg }} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.page}>
-    <Heading subtitle="Version 1.2 · lokale Agenten und optionales KI-Gateway">Einstellungen</Heading>
+    <Heading subtitle="Version 1.4.10 · lokale Agenten und optionales KI-Gateway">Einstellungen</Heading>
     <Card>
       <Text style={styles.itemTitle}>Serververbindung</Text>
       <Muted style={{ marginTop: 8, marginBottom: 12 }}>Verbindung über HTTPS zu deinem eigenen AgentZentrale-Server. Das Zugangstoken wird verschlüsselt im Android Keystore abgelegt. Der KI-Anbieterschlüssel bleibt ausschließlich auf dem Server.</Muted>
