@@ -8,7 +8,7 @@ export function normalizeHostStatus(v, now=Date.now()){
  const p=v.progress;
  const day=x=>typeof x==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(x)?x:null;
  const dates=x=>Array.isArray(x)&&x.length<=370&&x.every(d=>day(d))?[...new Set(x)]:[];
- const phases=['checking','confirmed','new','retry','stopped','skipped','bulk','bulk_done','bulk_unclear','cache','inventory','checkout','reconcile'];
+ const phases=['checking','confirmed','new','retry','stopped','skipped','bulk','bulk_done','bulk_unclear','cache','inventory','checkout','reconcile','timetable','pending_order','cancelled','conflict'];
  const events=Array.isArray(p?.events)?p.events.slice(-30).filter(e=>e&&phases.includes(e.phase)).map(e=>({phase:e.phase,day:day(e.day),count:Number.isInteger(e.count)&&e.count>=0&&e.count<=370?e.count:null})): [];
  const saved=dates(v.savedReservations);
  const pending=dates(v.pendingReservations);
