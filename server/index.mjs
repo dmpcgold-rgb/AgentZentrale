@@ -285,6 +285,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const instruction=requireText(body.instruction,'Auftrag',MAX_PROMPT);
         if(!Array.isArray(body.paths)||body.paths.length<1||body.paths.length>4) throw new ApiError(400,'1–4 Dateien auswählen.');
         const paths=body.paths.map(p=>enforceWritableFile(requirePath(p)));
+        if(paths.some(p=>! /^(src|app|lib|components|screens|tests|test)\//i.test(p)&&! /^(App|index)\.(js|jsx|ts|tsx)$/.test(p)))throw new ApiError(403,'Nur ausgewählte Quellcode- und Testpfade sind zulässig.');
         if(new Set(paths).size!==paths.length||paths.some(p=>/(^|\/)(\.github|\.git|\.env[^/]*|.*(?:secret|credential|token|private.?key).*|.*\.(?:pem|p12|key|jks|keystore))($|\/)/i.test(p))) throw new ApiError(403,'Doppelte oder geschützte Dateipfade.');
         const info=await github('GET',apiPath(['repos',owner,repo]));
         const baseBranch=info.default_branch;
@@ -296,7 +297,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           if(raw.type!=='file'||raw.encoding!=='base64'||typeof raw.content!=='string'||raw.size>10000) throw new ApiError(422,'Nur kleine Textdateien sind zulässig.');
           const content=Buffer.from(raw.content,'base64').toString('utf8');
           if(content.includes('\0')||Buffer.byteLength(content)>10000) throw new ApiError(422,'Ungültige Textdatei.');
-          originals.push({path,content});
+          originals.push({path,content,sha:raw.sha});
         }
         if(originals.reduce((n,f)=>n+f.content.length,0)>12000) throw new ApiError(413,'Dateien zusammen maximal 12.000 Zeichen.');
         const schema={type:'object',additionalProperties:false,required:['title','plan','review','files'],properties:{title:{type:'string'},plan:{type:'string'},review:{type:'string'},files:{type:'array',items:{type:'object',additionalProperties:false,required:['path','content'],properties:{path:{type:'string'},content:{type:'string'}}}}}};
@@ -309,7 +310,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           const original=originals.find(o=>o.path===f.path);
           if(!original||seen.has(f.path)||typeof f.content!=='string'||!f.content.trim()||f.content.length>18000||f.content.includes('\0'))throw new ApiError(422,'Ungültiger Dateivorschlag.');
           seen.add(f.path);
-          if(f.content!==original.content)changes.push({path:f.path,original:original.content,content:f.content});
+          if(f.content!==original.content)changes.push({path:f.path,original:original.content,content:f.content,originalSha:original.sha});
         }
         if(!changes.length)throw new ApiError(422,'Keine Änderungen vorgeschlagen.');
         pruneProposals();
@@ -329,7 +330,14 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           const current=await github('GET',apiPath([...prefix,'git','ref','heads',...p.baseBranch.split('/')]));
           if(current.object.sha!==p.baseSha)throw new ApiError(409,'Basis verändert; Vorschlag neu erstellen.');
           const base=await github('GET',apiPath([...prefix,'git','commits',p.baseSha]));
-          const tree=await github('POST',apiPath([...prefix,'git','trees']),{base_tree:base.tree.sha,tree:p.changes.map(f=>({path:f.path,mode:'100644',type:'blob',content:f.content}))});
+          const sourceTree=await github('GET',apiPath([...prefix,'git','trees',base.tree.sha])+'?recursive=1');
+          if(sourceTree.truncated)throw new ApiError(409,'Repository-Baum zu groß für sichere Prüfung.');
+          const entries=p.changes.map(f=>{
+            const entry=sourceTree.tree.find(e=>e.path===f.path);
+            if(!entry||entry.type!=='blob'||!['100644','100755'].includes(entry.mode)||entry.sha!==f.originalSha)throw new ApiError(409,'Dateityp oder Basisdatei verändert.');
+            return {path:f.path,mode:entry.mode,type:'blob',content:f.content};
+          });
+          const tree=await github('POST',apiPath([...prefix,'git','trees']),{base_tree:base.tree.sha,tree:entries});
           const commit=await github('POST',apiPath([...prefix,'git','commits']),{message:'AgentZentrale: '+p.title,tree:tree.sha,parents:[p.baseSha]});
           const branch=generateBranch();
           await github('POST',apiPath([...prefix,'git','refs']),{ref:'refs/heads/'+branch,sha:commit.sha});
