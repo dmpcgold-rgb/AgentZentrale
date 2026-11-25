@@ -33,7 +33,7 @@ export default function HubScreen({ navigation }) {
         <View>
           <Text style={{ color: T.accent, fontWeight: '800', letterSpacing: 1.8, fontSize: 11 }}>DEINE AGENTEN-ZENTRALE</Text>
           <Text style={styles.pageTitle}>AgentZentrale</Text>
-          <Muted>Lokale Aufgaben + optionaler KI-Server · V1.3</Muted>
+          <Muted>Lokale Aufgaben + Oracle-Server</Muted>
         </View>
         <Pressable onPress={() => navigation.getParent()?.navigate('Einstellungen')} accessibilityRole="button" accessibilityLabel="Einstellungen öffnen" style={{ padding: 12, backgroundColor: T.surface, borderRadius: 15, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}>
           <Ionicons name="settings-outline" color={T.text} size={24} />
@@ -67,7 +67,7 @@ export default function HubScreen({ navigation }) {
         <View style={{ gap: 9 }}>
           <ActionButton title="KI-Chat öffnen" icon="chatbubbles-outline" onPress={() => navigation.navigate('KI')} />
           <ActionButton title="GitHub-Agent öffnen" secondary icon="code-slash-outline" onPress={() => navigation.navigate('GitHub')} />
-          <ActionButton title="WESTbahn-Agent öffnen" secondary icon="train-outline" onPress={() => navigation.getParent()?.navigate('WESTbahn')} />
+          <ActionButton title="WESTbahn Live-Bericht öffnen" secondary icon="train-outline" onPress={() => navigation.getParent()?.navigate('WESTbahn')} />
           <ActionButton title="Aktionsverlauf" secondary icon="time-outline" onPress={() => navigation.getParent()?.navigate('Verlauf')} />
         </View>
       </Section>
