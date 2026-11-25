@@ -9,13 +9,18 @@ export function validateServerUrl(value) {
   }
   return url;
 }
+export function normalizeToken(value) {
+  const token = typeof value === 'string' ? value.replace(/\s/g, '') : '';
+  if (token.length < 24 || /[^\x21-\x7e]/.test(token)) throw new Error('Ungültiger Zugriffsschlüssel. Bitte den vollständigen API-Token eingeben.');
+  return token;
+}
 export async function gatewayRequest(config, path, { method = 'GET', body, timeoutMs = 50_000 } = {}) {
   if (!config?.url || !config?.token) throw new Error('Bitte zuerst den KI-Server in den Einstellungen verbinden.');
   const url = validateServerUrl(config.url) + path;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method, signal: controller.signal, headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const response = await fetch(url, { method, signal: controller.signal, headers: { Authorization: `Bearer ${normalizeToken(config.token)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     let data;
     try { data = await response.json(); } catch { throw new Error('Server hat kein gültiges JSON gesendet.'); }
     if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : `Serverfehler (${response.status})`);
