@@ -5,7 +5,7 @@ export function normalizeHostStatus(v, now=Date.now()){
  const active=['active','inactive','activating','deactivating','failed','reloading','maintenance'];
  if(!active.includes(v.timer?.ActiveState)||!active.includes(v.service?.ActiveState))throw new Error('Invalid state');
  const safe=(x)=>typeof x==='string'&&x.length<=120&&!/[\r\n]/.test(x)?x:null;
- return {timestamp:v.timestamp,telegramConfigured:v.telegramConfigured===true,timer:{active:v.timer.ActiveState,enabled:v.timer.UnitFileState==='enabled',next:safe(v.timer.NextElapseUSecRealtime)},service:{active:v.service.ActiveState,result:safe(v.service.Result)}};
+ return {monthsAhead:Number.isInteger(v.monthsAhead)&&v.monthsAhead>=1&&v.monthsAhead<=6?v.monthsAhead:null,timestamp:v.timestamp,telegramConfigured:v.telegramConfigured===true,timer:{active:v.timer.ActiveState,enabled:v.timer.UnitFileState==='enabled',next:safe(v.timer.NextElapseUSecRealtime)},service:{active:v.service.ActiveState,result:safe(v.service.Result)}};
 }
 export async function readHostStatus(path){
  if(!path)return {available:false,status:null};
