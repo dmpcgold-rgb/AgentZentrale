@@ -346,6 +346,54 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         const checks=(data.check_runs||[]).map(c=>({name:c.name,status:c.status,conclusion:c.conclusion,url:c.html_url}));
         return write(res,200,{checks,total:data.total_count,allReportedPassed:checks.length>0&&data.total_count===checks.length&&checks.every(c=>c.status==='completed'&&c.conclusion==='success')});
       }
+
+      // Build control is opt-in, repository and workflow allowlisted.
+      // No arbitrary shell, no workflow edits, no automatic release publishing.
+      if(is('GET','/developer/workflows')||is('GET','/developer/runs')){
+        const {owner,repo}=repoArgs(route.searchParams);
+        const prefix=['repos',owner,repo,'actions'];
+        const allowed=(env.DEVELOPER_BUILD_ALLOWLIST||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+        if(is('GET','/developer/workflows')){
+          const result=await github('GET',apiPath([...prefix,'workflows'])+'?per_page=100');
+          const workflows=(result.workflows||[]).map(w=>({id:w.id,name:w.name,path:w.path,state:w.state,dispatchEnabled:env.ENABLE_DEVELOPER_BUILD==='true'&&githubWritable()&&w.state==='active'&&allowed.includes((owner+'/'+repo+':'+w.path).toLowerCase())}));
+          return write(res,200,{workflows,total:result.total_count});
+        }
+        const branch=route.searchParams.get('branch')||'';
+        if(branch.length>180||/[\x00-\x20\x7f]/.test(branch))throw new ApiError(400,'Ungültiger Branch.');
+        const result=await github('GET',apiPath([...prefix,'runs'])+'?per_page=20'+(branch?'&branch='+encodeURIComponent(branch):''));
+        return write(res,200,{runs:(result.workflow_runs||[]).map(w=>({id:w.id,name:w.name,status:w.status,conclusion:w.conclusion,sha:w.head_sha,branch:w.head_branch,url:w.html_url,createdAt:w.created_at}))});
+      }
+      if(is('POST','/developer/dispatch')){
+        const body=await readJson(req);
+        if(env.ENABLE_DEVELOPER_BUILD!=='true'||!githubWritable()||body.confirm!=='WORKFLOW-STARTEN')throw new ApiError(403,'Build-Freigabe oder Serverkonfiguration fehlt.');
+        const owner=requireName(body.owner,'Eigentümer'),repo=requireName(body.repo,'Repository');
+        if(!isAllowedOwner(owner,env.GITHUB_ALLOWED_OWNERS))throw new ApiError(403,'Konto nicht freigeschaltet.');
+        if(!Number.isSafeInteger(body.workflowId)||body.workflowId<1||!/^agentzentrale\/[a-zA-Z0-9._-]{1,150}$/.test(body.branch||'')||! /^[a-f0-9]{40}$/i.test(body.sha||''))throw new ApiError(400,'Nur ein geprüfter AgentZentrale-Entwicklungsbranch mit Commit-SHA ist zulässig.');
+        const prefix=['repos',owner,repo];
+        const w=await github('GET',apiPath([...prefix,'actions','workflows',String(body.workflowId)]));
+        const allowed=(env.DEVELOPER_BUILD_ALLOWLIST||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+        if(w.state!=='active'||!allowed.includes((owner+'/'+repo+':'+w.path).toLowerCase()))throw new ApiError(403,'Workflow nicht freigeschaltet.');
+        const ref=await github('GET',apiPath([...prefix,'git','ref','heads',...body.branch.split('/')]));
+        if(ref.object.sha!==body.sha)throw new ApiError(409,'Branch hat sich verändert. Neu prüfen.');
+        const info=await github('GET',apiPath([...prefix]));
+        if(info.default_branch===body.branch)throw new ApiError(403,'Hauptbranch gesperrt.');
+        // The trusted workflow must be unchanged from the default branch.
+        const routeFor=apiPath([...prefix,'contents',...w.path.split('/')]);
+        const [base,head]=await Promise.all([github('GET',routeFor+'?ref='+encodeURIComponent(info.default_branch)),github('GET',routeFor+'?ref='+encodeURIComponent(body.sha))]);
+        if(!base.sha||base.sha!==head.sha)throw new ApiError(403,'Workflow wurde verändert.');
+        const key='dispatch:'+owner+'/'+repo+':'+body.workflowId+':'+body.sha;
+        if(attempts.has(key))throw new ApiError(409,'Start bereits versucht; GitHub prüfen, nicht erneut absenden.');
+        attempts.set(key,[now()]);
+        await github('POST',apiPath([...prefix,'actions','workflows',String(body.workflowId),'dispatches']),{ref:body.branch});
+        return write(res,202,{accepted:true,message:'Workflow angefordert. Ergebnis und Signierung separat prüfen.'});
+      }
+      if(is('GET','/developer/jobs')){
+        const {owner,repo}=repoArgs(route.searchParams);
+        const id=route.searchParams.get('runId')||'';
+        if(!/^[0-9]{1,20}$/.test(id))throw new ApiError(400,'Run-ID erforderlich.');
+        const result=await github('GET',apiPath(['repos',owner,repo,'actions','runs',id,'jobs'])+'?per_page=100');
+        return write(res,200,{jobs:(result.jobs||[]).map(j=>({name:j.name,status:j.status,conclusion:j.conclusion,steps:(j.steps||[]).map(s=>({name:s.name,status:s.status,conclusion:s.conclusion}))})),total:result.total_count});
+      }
       if (is('POST', '/github/create-pr')) {
         const body = await readJson(req);
         if (!githubWritable()) throw new ApiError(403, 'Schreibzugriff auf GitHub ist auf dem Server nicht freigeschaltet.');
