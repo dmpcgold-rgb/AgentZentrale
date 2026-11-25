@@ -38,6 +38,23 @@ export default function GitHubScreen({ navigation }) {
   const [multiApproved,setMultiApproved]=useState(false);
   const [multiPR,setMultiPR]=useState(null);
   const [checks,setChecks]=useState(null);
+  const [workflows,setWorkflows]=useState([]);
+  const [runs,setRuns]=useState([]);
+  const [buildJobs,setBuildJobs]=useState(null);
+  const [buildNotice,setBuildNotice]=useState('');
+  const loadWorkflows=()=>job('workflows',async()=>{
+    const x=await request('/developer/workflows'+qs({owner:multiPR.owner,repo:multiPR.repo}));setWorkflows(x.workflows||[]);
+  });
+  const loadRuns=()=>job('runs',async()=>{
+    const x=await request('/developer/runs'+qs({owner:multiPR.owner,repo:multiPR.repo,branch:multiPR.branch}));setRuns((x.runs||[]).filter(r=>r.sha===multiPR.sha));setBuildJobs(null);
+  });
+  const launchWorkflow=w=>Alert.alert('Workflow starten?',w.name+' auf '+multiPR.branch+'. Nur freigegebene Workflows starten. Signierung und Veröffentlichung hängen vom Workflow ab.',[{text:'Abbrechen',style:'cancel'},{text:'Starten',onPress:()=>job('dispatch',async()=>{
+    setBuildNotice('');
+    const x=await request('/developer/dispatch',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,branch:multiPR.branch,sha:multiPR.sha,workflowId:w.id,confirm:'WORKFLOW-STARTEN'}});
+    setBuildNotice(x.message);
+  })}]);
+  const loadJobs=run=>job('jobs',async()=>{const x=await request('/developer/jobs'+qs({owner:multiPR.owner,repo:multiPR.repo,runId:run.id}));setBuildJobs({...x,runId:run.id});});
+
   const prepareMulti=()=>job('multi',async()=>{
     setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);
     const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
@@ -46,7 +63,7 @@ export default function GitHubScreen({ navigation }) {
   });
   const commitMulti=()=>Alert.alert('Entwurfs-PR erstellen?', 'Alle angezeigten Änderungen werden gemeinsam auf einen neuen Branch geschrieben. Keine automatische Zusammenführung.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>job('multi-pr',async()=>{
     const result=await request('/developer/create-pr',{method:'POST',body:{id:multi.id,confirm:'FREIGEBEN'}});
-    setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
+    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
   })}]);
   const loadChecks=()=>job('checks',async()=>setChecks(await request('/developer/checks'+qs({owner:multiPR.owner,repo:multiPR.repo,sha:multiPR.sha}))));
 
@@ -148,6 +165,14 @@ export default function GitHubScreen({ navigation }) {
         <Body>Branch: {multiPR.branch}</Body>
         <ActionButton title="PR öffnen" secondary onPress={()=>{if(multiPR.url?.startsWith('https://github.com/'))Linking.openURL(multiPR.url);}}/>
         <ActionButton title="GitHub-Testergebnisse abrufen" disabled={!!busy} onPress={loadChecks}/>
+        <Heading subtitle="Nur freigegebene Workflows auf diesem Entwicklungsbranch">Build-Agent</Heading>
+        <ActionButton title="Workflows laden" secondary disabled={!!busy} onPress={loadWorkflows}/>
+        {workflows.map(w=><View key={w.id} style={{gap:4,marginVertical:5}}><Body>{w.name}</Body><Muted>{w.path}</Muted><ActionButton title={w.dispatchEnabled?'Workflow starten':'Nicht freigeschaltet'} secondary disabled={!!busy||!w.dispatchEnabled} onPress={()=>launchWorkflow(w)}/></View>)}
+        {buildNotice?<Body>{buildNotice}</Body>:null}
+        <ActionButton title="Buildstatus aktualisieren" disabled={!!busy} onPress={loadRuns}/>
+        {runs.map(run=><View key={run.id} style={{gap:6,marginVertical:8}}><Body>{run.name} · {run.conclusion||run.status}</Body><ActionButton title="Buildschritte prüfen" secondary disabled={!!busy} onPress={()=>loadJobs(run)}/><ActionButton title="GitHub-Build öffnen" secondary onPress={()=>{if(run.url?.startsWith('https://github.com/'))Linking.openURL(run.url);}}/></View>)}
+        {buildJobs?<View style={{gap:6}}><Heading>Buildschritte #{buildJobs.runId}</Heading>{buildJobs.jobs.map((j,i)=><View key={i} style={{gap:4}}><Body>{j.name}: {j.conclusion||j.status}</Body>{j.steps.map((step,k)=><Muted key={k}>{step.name}: {step.conclusion||step.status}</Muted>)}</View>)}</View>:null}
+
         {checks ? <View style={{gap:8}}><Body>{checks.allReportedPassed?'Alle gemeldeten Checks erfolgreich':'Keine vollständige erfolgreiche Prüfliste'}</Body>{checks.checks.map((c,i)=><Body key={i} style={{color:c.conclusion==='success'?T.accent:T.orange}}>{c.name}: {c.conclusion||c.status}</Body>)}<Muted>Gemeldete Checks sind kein Nachweis vollständiger Testabdeckung oder einer signierten APK.</Muted></View>:null}
       </Card>:null}
       {file ? <Card>
