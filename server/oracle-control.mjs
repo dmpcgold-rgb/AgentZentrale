@@ -2,8 +2,12 @@ import {writeFile,rename,unlink,readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {join} from 'node:path';
 export function validateControl(body){
- if(!body||body.confirm!=='WESTBAHN-STEUERUNG'||!['pause','resume','schedule'].includes(body.action))throw new Error('Ungültige Steuerungsfreigabe.');
+ if(!body||body.confirm!=='WESTBAHN-STEUERUNG'||!['pause','resume','schedule','horizon','book_now'].includes(body.action))throw new Error('Ungültige Steuerungsfreigabe.');
  if(body.action==='schedule'&&(typeof body.time!=='string'||!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(body.time)))throw new Error('Uhrzeit muss HH:MM sein.');
+ if(body.action==='horizon'){
+  if(!Number.isInteger(body.months)||body.months<1||body.months>6)throw new Error('Buchungsvorlauf muss 1 bis 6 Monate betragen.');
+  return {action:'horizon',months:body.months};
+ }
  return {action:body.action,...(body.action==='schedule'?{time:body.time}:{})};
 }
 export async function enqueueControl(dir,body){
