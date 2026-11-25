@@ -1,3 +1,4 @@
+import {validateControl,enqueueControl,controlResult} from './oracle-control.mjs';
 import {readHostStatus} from './oracle-status.mjs';
 import {readBookingReport} from './oracle-report.mjs';
 /** Self-hosted single-user gateway. No third-party API secret ever goes into the APK. */
@@ -110,6 +111,18 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       const route = new URL(req.url, 'http://localhost');
       const is = (method, path) => req.method === method && route.pathname === path;
       if (is('GET', '/health')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubReadEnabled: true, githubWriteEnabled: githubWritable(), version: '1.4' });
+      if (is('POST', '/oracle/control')) {
+        if(env.ORACLE_CONTROL_ENABLED!=='1'||!env.ORACLE_CONTROL_INBOX||!env.ORACLE_CONTROL_OUT)throw new ApiError(503,'Host-Steuerung nicht aktiviert.');
+        const body=await readJson(req);
+        try{validateControl(body);}catch(e){throw new ApiError(400,e.message);}
+        return write(res,202,await enqueueControl(env.ORACLE_CONTROL_INBOX,body));
+      }
+      if (is('GET', '/oracle/control-result')) {
+        if(!env.ORACLE_CONTROL_OUT)throw new ApiError(503,'Host-Steuerung nicht aktiviert.');
+        const id=route.searchParams.get('id')||'';
+        if(!/^[0-9a-f-]{36}$/.test(id))throw new ApiError(400,'Ungültige Auftrags-ID.');
+        return write(res,200,await controlResult(env.ORACLE_CONTROL_OUT,id));
+      }
       if (is('GET', '/oracle/status')) return write(res, 200, await readHostStatus(env.ORACLE_HOST_STATUS));
       if (is('GET', '/oracle/booking-report')) return write(res, 200, await readBookingReport(env.ORACLE_BOOKING_REPORT));
       if (is('GET', '/westbahn/browser/status')) return write(res, 200, browser.status());
