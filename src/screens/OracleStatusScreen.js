@@ -84,11 +84,11 @@ export default function OracleStatusScreen(){
  async function checkResult(){
   if(!pending||checking.current)return;
   checking.current=true;
-  try{const r=await remote.request('/oracle/control-result?id='+encodeURIComponent(pending));setNotice(r.status==='completed'?(pendingAction.current==='book_now'?'Startauftrag angenommen; Buchungsergebnis folgt im Bericht.':'Änderung bestätigt'):r.status==='failed'?'Änderung fehlgeschlagen':'Auftrag noch offen');if(r.status!=='pending'){setPending(null);await refresh();}}
+  try{const r=await remote.request('/oracle/control-result?id='+encodeURIComponent(pending));setNotice(r.status==='completed'?(pendingAction.current==='book_now'?'Startauftrag angenommen; Buchungsergebnis folgt im Bericht.':pendingAction.current==='stop_booking'?'Abbruch angefordert. Aktuelle Bestellung wird gegebenenfalls noch abgeglichen.':'Änderung bestätigt'):r.status==='failed'?'Änderung fehlgeschlagen':'Auftrag noch offen');if(r.status!=='pending'){setPending(null);await refresh();}}
   catch(e){setError(e.message);}finally{checking.current=false;}
  }
  useEffect(()=>{if(!pending)return;const timer=setInterval(checkResult,5000);return ()=>clearInterval(timer);},[pending,remote.request]);
- function confirm(action){Alert.alert('Automatik ändern',action==='book_now'?'Jetzt den bestehenden Buchungsdienst starten? Es gelten der gespeicherte Vorlauf und die bisherige Preisprüfung mit Restrisiko.':action==='horizon'?'Buchungsvorlauf auf '+months+' Monate setzen?':action==='pause'?'Zukünftige Läufe pausieren. Laufende Buchungen werden nicht abgebrochen.':action==='resume'?'Automatik fortsetzen. Ein verpasster Lauf kann nachgeholt werden.':'Montagszeit ändern auf '+time+' (Europe/Vienna).',[{text:'Abbrechen',style:'cancel'},{text:'Bestätigen',onPress:()=>control(action)}]);}
+ function confirm(action){Alert.alert('Automatik ändern',action==='stop_booking'?'Buchungslauf kontrolliert beenden? Eine bereits begonnene Bestellung wird noch abgeglichen. Bestehende Tickets und Wochenautomatik bleiben unverändert.':action==='book_now'?'Jetzt den bestehenden Buchungsdienst starten? Es gelten der gespeicherte Vorlauf und die bisherige Preisprüfung mit Restrisiko.':action==='horizon'?'Buchungsvorlauf auf '+months+' Monate setzen?':action==='pause'?'Zukünftige Läufe pausieren. Laufende Buchungen werden nicht abgebrochen.':action==='resume'?'Automatik fortsetzen. Ein verpasster Lauf kann nachgeholt werden.':'Montagszeit ändern auf '+time+' (Europe/Vienna).',[{text:'Abbrechen',style:'cancel'},{text:'Bestätigen',onPress:()=>control(action)}]);}
  const report=data?.report;
  const saved=host?.savedReservations;
  const savedSet=new Set(saved||[]);
@@ -133,6 +133,8 @@ export default function OracleStatusScreen(){
  <TextInput accessibilityLabel="Buchungsvorlauf in Monaten" value={months} onChangeText={setMonths} keyboardType="number-pad" style={styles.input} maxLength={1}/>
  <ActionButton title="Buchungsvorlauf speichern" secondary disabled={!host||busy||!!pending||!(/^[1-6]$/).test(months)} onPress={()=>confirm('horizon')}/>
  <ActionButton title="Jetzt maximal vorausbuchen" disabled={!canStart} onPress={()=>confirm('book_now')}/>
+ <ActionButton title="Buchungslauf abbrechen" danger disabled={!host||!["active","activating"].includes(host.service.active)||!!pending||busy} onPress={()=>confirm("stop_booking")}/>
+ <Muted>Beendet den aktuellen Lauf kontrolliert; bereits begonnene Bestellungen werden noch abgeglichen. Keine Ticketstornierung.</Muted>
  <Muted>Der Startauftrag ist keine Buchungsbestätigung. Der Wochenplan bleibt unverändert.</Muted>
  <Muted>Montagszeit (HH:MM, Wien)</Muted>
  <TextInput accessibilityLabel="Montagszeit" value={time} onChangeText={setTime} style={styles.input} maxLength={5}/>
