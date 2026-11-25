@@ -1,9 +1,66 @@
 import React,{useState,useCallback,useRef,useEffect} from 'react';
-import {ScrollView,RefreshControl,Alert,TextInput} from 'react-native';
+import {ScrollView,RefreshControl,Alert,TextInput,View,Text,Pressable} from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {useRemote} from '../store/RemoteContext';
 import {ActionButton,Body,Card,Heading,Muted,styles} from '../components/Kit';
 import {T} from '../theme';
+
+
+const dateKey=d=>d.toISOString().slice(0,10);
+const monthLabel=d=>d.toLocaleDateString('de-AT',{month:'long',year:'numeric',timeZone:'UTC'});
+function BookingCalendar({report,horizon}){
+ const [offset,setOffset]=useState(0);
+ const [selected,setSelected]=useState(null);
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
+ const part=k=>Number(parts.find(p=>p.type===k)?.value);
+ const today=new Date(Date.UTC(part('year'),part('month')-1,part('day')));
+ const months=Number.isInteger(horizon)&&horizon>=1&&horizon<=6?horizon:6;
+ const lastMonth=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+months,1));
+ const end=new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth(),Math.min(today.getUTCDate(),new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth()+1,0)).getUTCDate())));
+ const index=Math.min(offset,months);
+ const first=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+index,1));
+ const count=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
+ const leading=(first.getUTCDay()+6)%7;
+ const booked=new Set([...(report?.bereits_gebucht||[]),...(report?.neu_gebucht||[])]);
+ const open=new Set(report?.offene_gepruefte_tage||[]);
+ const status=d=>{
+  const key=dateKey(d);
+  if(booked.has(key))return ['Bestätigt',T.green,'#183D35'];
+  if(d.getUTCDay()===0||d.getUTCDay()===6)return ['Wochenende',T.muted,T.surface];
+  if(d<today||d>end)return ['Außerhalb des Buchungsfensters',T.muted,T.surface];
+  if(open.has(key))return ['Geprüft, nicht bestätigt',T.red,'#482831'];
+  return ['Noch nicht bestätigt / unbekannt',T.orange,T.surface2];
+ };
+ const entries=Array.from({length:Math.ceil((leading+count)/7)*7},(_,i)=>{
+  const day=i-leading+1;
+  return day>=1&&day<=count?new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth(),day)):null;
+ });
+ const rows=Array.from({length:entries.length/7},(_,i)=>entries.slice(i*7,i*7+7));
+ return <Card>
+  <Heading subtitle="Nachweise aus dem letzten Abschlussbericht">Reservierungskalender</Heading>
+  <Body>Zeitraum: {dateKey(today)} bis {dateKey(end)}</Body>
+  <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginVertical:12}}>
+   <Pressable accessibilityRole="button" accessibilityLabel="Vorheriger Monat" disabled={index===0} onPress={()=>{setOffset(index-1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index===0?.35:1}}><Text style={{color:T.text,fontSize:24}}>‹</Text></Pressable>
+   <Body style={{fontWeight:'800'}}>{monthLabel(first)}</Body>
+   <Pressable accessibilityRole="button" accessibilityLabel="Nächster Monat" disabled={index>=months} onPress={()=>{setOffset(index+1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index>=months?.35:1}}><Text style={{color:T.text,fontSize:24}}>›</Text></Pressable>
+  </View>
+  <View style={{flexDirection:'row'}}>{['Mo','Di','Mi','Do','Fr','Sa','So'].map(day=><Text key={day} style={{flex:1,textAlign:'center',color:T.muted,fontSize:12}}>{day}</Text>)}</View>
+  {rows.map((row,i)=><View key={i} style={{flexDirection:'row',marginTop:3}}>{row.map((d,j)=>{
+   if(!d)return <View key={j} style={{flex:1}}/>;
+   const key=dateKey(d),[label,color,bg]=status(d);
+   return <Pressable key={j} accessibilityRole="button" accessibilityLabel={key+' '+label} onPress={()=>setSelected({key,label})} style={{flex:1,minHeight:44,marginHorizontal:1,borderRadius:7,backgroundColor:bg,borderWidth:1,borderColor:selected?.key===key?T.accent:T.line,alignItems:'center',justifyContent:'center'}}><Text style={{color,fontWeight:'700'}}>{d.getUTCDate()}</Text><Text style={{color,fontSize:10}}>{label==='Bestätigt'?'✓':label==='Geprüft, nicht bestätigt'?'!':label==='Noch nicht bestätigt / unbekannt'?'?':'–'}</Text></Pressable>;
+  })}</View>)}
+  <View style={{marginTop:12,gap:5}}>
+   <Body style={{color:T.green}}>✓ Bestätigte Reservierung</Body>
+   <Body style={{color:T.red}}>! Geprüft, nicht bestätigt</Body>
+   <Body style={{color:T.orange}}>? Unbekannt / noch nicht bestätigt</Body>
+   <Muted>– Wochenende oder außerhalb des Buchungsfensters</Muted>
+   {selected?<Body>{selected.key}: {selected.label}</Body>:null}
+   <Muted>Keine Markierung ohne Nachweis. Der Bericht kann älter sein; laufende Buchungen erscheinen erst im nächsten Abschlussbericht.</Muted>
+   <Muted>Berichtsstand: {report?.erstellt||'Kein Bericht vorhanden'}</Muted>
+  </View>
+ </Card>;
+}
 
 export default function OracleStatusScreen(){
  const remote=useRemote();
@@ -60,6 +117,7 @@ export default function OracleStatusScreen(){
  {notice?<Body>{notice}</Body>:null}
  {pending?<ActionButton title="Auftrag prüfen" secondary disabled={busy} onPress={checkResult}/>:null}
  </Card>
+ <BookingCalendar report={report} horizon={host?.monthsAhead}/>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
  <Body>Lückenlos bis: {report.lueckenlos_bis||'Nicht bestätigt'}</Body>
