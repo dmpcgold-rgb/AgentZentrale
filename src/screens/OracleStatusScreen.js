@@ -117,6 +117,16 @@ export default function OracleStatusScreen(){
  {notice?<Body>{notice}</Body>:null}
  {pending?<ActionButton title="Auftrag prüfen" secondary disabled={busy} onPress={checkResult}/>:null}
  </Card>
+ <Card><Heading subtitle="Aktueller Durchgang · Oracle">Live-Buchungsfortschritt</Heading>
+ {host?.progress&&['active','activating'].includes(host.service.active)?<>
+ <Body>Aktueller Reisetag: {host.progress.currentDay||'Noch nicht bekannt'}</Body>
+ <Body>Verarbeitung: {({checking:'Reservierung prüfen',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail erneut prüfen',stopped:'Prüfung gestoppt',skipped:'Tag übersprungen'})[host.progress.phase]||'Unbekannt'}</Body>
+ <Body style={{color:T.green}}>Bestätigte Tage: {host.progress.confirmed.length}</Body>
+ <Body>Davon neu gebucht: {host.progress.newlyBooked.length}</Body>
+ <Muted>Stand: {host.progress.updatedAt||'Unbekannt'}</Muted>
+ </>:<Muted>{host&&['active','activating'].includes(host.service.active)?'Buchungslauf aktiv. Noch keine Live-Fortschrittsdaten verfügbar.':'Kein aktiver Buchungslauf.'}</Muted>}
+ <Muted>Aktualisierung alle 20 Sekunden. Nur nachgewiesene Reservierungen werden gezählt.</Muted>
+ </Card>
  <BookingCalendar report={report} horizon={host?.monthsAhead}/>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
