@@ -95,6 +95,22 @@ export default function OracleStatusScreen(){
  return <ScrollView style={{flex:1,backgroundColor:T.bg}} contentContainerStyle={styles.page}
  refreshControl={<RefreshControl refreshing={busy} onRefresh={refresh}/>}>
  <Heading subtitle="Oracle · WESTbahn">Live-Zentrale</Heading>
+ <Card><Heading>Agent-Aktivität</Heading>
+ {(()=>{
+  const running=['active','activating'].includes(host?.service?.active);
+  const p=host?.progress;
+  const labels={checking:'Prüft Reservierung',confirmed:'Vorhandene Reservierung bestätigt',new:'Neue Reservierung bestätigt',retry:'Wiederholt Gmail-Abfrage',stopped:'Buchung gestoppt – Klärung erforderlich',skipped:'Tag übersprungen – Prüfung unklar'};
+  const label=!host?'Serverstatus nicht verfügbar':running?(labels[p?.phase]||'Buchungsdienst läuft – aktueller Schritt noch nicht gemeldet'):pending?'Start- oder Steuerauftrag wartet auf Serverbestätigung':host.service.active==='failed'?'Letzter Buchungslauf mit Fehler beendet':host.service.active==='deactivating'?'Buchungsdienst wird beendet':'Bereit – wartet auf nächsten Auftrag';
+  return <>
+   <View style={{flexDirection:'row',alignItems:'center',gap:9,marginVertical:8}}><View style={{width:10,height:10,borderRadius:5,backgroundColor:!host||pending?T.orange:running?T.green:host.service.active==='failed'?T.red:T.muted}}/><Body style={{flex:1,fontWeight:'700'}}>{label}</Body></View>
+   {running&&p?.currentDay?<Body>Reisetag: {p.currentDay}</Body>:null}
+   {running&&p?<><Body>Bestätigt: {p.confirmed.length} · Neu: {p.newlyBooked.length}</Body><Muted>Fortschrittsdaten abgerufen: {p.updatedAt?new Date(p.updatedAt).toLocaleString('de-AT'): 'Unbekannt'}</Muted></>:null}
+   {pending?<Muted>Auftrag noch nicht bestätigt. Nicht erneut starten.</Muted>:null}
+   {!running&&!pending&&host?.timer?.next?<Muted>Nächster automatischer Lauf: {host.timer.next}</Muted>:null}
+   <Muted>Serverstatus: {host?.timestamp?new Date(host.timestamp).toLocaleString('de-AT'):'Nicht verfügbar'} · Aktualisierung alle 20 Sekunden</Muted>
+  </>;
+ })()}
+ </Card>
  <Card><Body>{remote.connected?'Serververbindung konfiguriert':'Server nicht verbunden'}</Body>
  <Muted>Bericht vom Server, kein zweiter Buchungsdienst.</Muted>
  <ActionButton title="Aktualisieren" secondary disabled={busy||!remote.connected} onPress={refresh}/>
