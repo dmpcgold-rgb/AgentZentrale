@@ -42,6 +42,20 @@ export default function GitHubScreen({ navigation }) {
   const [runs,setRuns]=useState([]);
   const [buildJobs,setBuildJobs]=useState(null);
   const [buildNotice,setBuildNotice]=useState('');
+  const [diagnosis,setDiagnosis]=useState(null);
+  const [artifacts,setArtifacts]=useState(null);
+  const diagnoseRun=run=>job('diagnose',async()=>{
+    setDiagnosis(null);
+    const x=await request('/developer/diagnose',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,runId:run.id}});
+    setDiagnosis({...x,runId:run.id});
+  });
+  const loadArtifacts=run=>job('artifacts',async()=>{
+    setArtifacts(null);
+    const x=await request('/developer/artifacts'+qs({owner:multiPR.owner,repo:multiPR.repo,runId:run.id}));
+    if(x.sha!==multiPR.sha)throw Error('Build gehört nicht zum geprüften Commit.');
+    setArtifacts({...x,runId:run.id});
+  });
+
   const loadWorkflows=()=>job('workflows',async()=>{
     const x=await request('/developer/workflows'+qs({owner:multiPR.owner,repo:multiPR.repo}));setWorkflows(x.workflows||[]);
   });
@@ -63,7 +77,7 @@ export default function GitHubScreen({ navigation }) {
   });
   const commitMulti=()=>Alert.alert('Entwurfs-PR erstellen?', 'Alle angezeigten Änderungen werden gemeinsam auf einen neuen Branch geschrieben. Keine automatische Zusammenführung.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>job('multi-pr',async()=>{
     const result=await request('/developer/create-pr',{method:'POST',body:{id:multi.id,confirm:'FREIGEBEN'}});
-    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
+    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setDiagnosis(null);setArtifacts(null);setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
   })}]);
   const loadChecks=()=>job('checks',async()=>setChecks(await request('/developer/checks'+qs({owner:multiPR.owner,repo:multiPR.repo,sha:multiPR.sha}))));
 
@@ -170,7 +184,9 @@ export default function GitHubScreen({ navigation }) {
         {workflows.map(w=><View key={w.id} style={{gap:4,marginVertical:5}}><Body>{w.name}</Body><Muted>{w.path}</Muted><ActionButton title={w.dispatchEnabled?'Workflow starten':'Nicht freigeschaltet'} secondary disabled={!!busy||!w.dispatchEnabled} onPress={()=>launchWorkflow(w)}/></View>)}
         {buildNotice?<Body>{buildNotice}</Body>:null}
         <ActionButton title="Buildstatus aktualisieren" disabled={!!busy} onPress={loadRuns}/>
-        {runs.map(run=><View key={run.id} style={{gap:6,marginVertical:8}}><Body>{run.name} · {run.conclusion||run.status}</Body><ActionButton title="Buildschritte prüfen" secondary disabled={!!busy} onPress={()=>loadJobs(run)}/><ActionButton title="GitHub-Build öffnen" secondary onPress={()=>{if(run.url?.startsWith('https://github.com/'))Linking.openURL(run.url);}}/></View>)}
+        {runs.map(run=><View key={run.id} style={{gap:6,marginVertical:8}}><Body>{run.name} · {run.conclusion||run.status}</Body><ActionButton title="Buildschritte prüfen" secondary disabled={!!busy} onPress={()=>loadJobs(run)}/>{run.status==='completed'&&['failure','timed_out','action_required','startup_failure'].includes(run.conclusion)?<ActionButton title="KI-Fehleranalyse" secondary disabled={!!busy} onPress={()=>diagnoseRun(run)}/>:null}{run.status==='completed'&&run.conclusion==='success'?<ActionButton title="Build-Dateien anzeigen" secondary disabled={!!busy} onPress={()=>loadArtifacts(run)}/>:null}<ActionButton title="GitHub-Build öffnen" secondary onPress={()=>{if(run.url?.startsWith('https://github.com/'))Linking.openURL(run.url);}}/></View>)}
+        {diagnosis?<View style={{gap:8,marginVertical:8}}><Heading>Fehleranalyse #{diagnosis.runId}</Heading><Body>{diagnosis.diagnosis}</Body><Muted>Nur Buildschritt-Metadaten, keine vollständigen Logs. Keine Reparatur ausgeführt. Für einen neuen Auftrag zuerst den korrekten Entwicklungsstand auswählen.</Muted></View>:null}
+        {artifacts?<View style={{gap:8,marginVertical:8}}><Heading>Build-Dateien #{artifacts.runId}</Heading><Muted>Die App hat die APK-Signatur nicht selbst geprüft. Nur verifizierte Release-APKs installieren.</Muted>{artifacts.artifacts.length===0?<Body>Keine verfügbaren Artefakte.</Body>:null}{artifacts.artifacts.map(a=><ActionButton key={a.id} title={a.name} secondary onPress={()=>{if(a.url?.startsWith('https://github.com/'))Linking.openURL(a.url);}}/>)}</View>:null}
         {buildJobs?<View style={{gap:6}}><Heading>Buildschritte #{buildJobs.runId}</Heading>{buildJobs.jobs.map((j,i)=><View key={i} style={{gap:4}}><Body>{j.name}: {j.conclusion||j.status}</Body>{j.steps.map((step,k)=><Muted key={k}>{step.name}: {step.conclusion||step.status}</Muted>)}</View>)}</View>:null}
 
         {checks ? <View style={{gap:8}}><Body>{checks.allReportedPassed?'Alle gemeldeten Checks erfolgreich':'Keine vollständige erfolgreiche Prüfliste'}</Body>{checks.checks.map((c,i)=><Body key={i} style={{color:c.conclusion==='success'?T.accent:T.orange}}>{c.name}: {c.conclusion||c.status}</Body>)}<Muted>Gemeldete Checks sind kein Nachweis vollständiger Testabdeckung oder einer signierten APK.</Muted></View>:null}
