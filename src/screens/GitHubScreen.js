@@ -32,6 +32,24 @@ export default function GitHubScreen({ navigation }) {
   const [error, setError] = useState('');
   const [filter,setFilter] = useState('');
   const [review,setReview] = useState(false);
+  const [multiPaths,setMultiPaths]=useState('');
+  const [multiInstruction,setMultiInstruction]=useState('');
+  const [multi,setMulti]=useState(null);
+  const [multiApproved,setMultiApproved]=useState(false);
+  const [multiPR,setMultiPR]=useState(null);
+  const [checks,setChecks]=useState(null);
+  const prepareMulti=()=>job('multi',async()=>{
+    setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);
+    const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
+    const result=await request('/developer/plan',{method:'POST',body:{owner,repo,paths,instruction:multiInstruction}});
+    setMulti({...result,owner,repo});
+  });
+  const commitMulti=()=>Alert.alert('Entwurfs-PR erstellen?', 'Alle angezeigten Änderungen werden gemeinsam auf einen neuen Branch geschrieben. Keine automatische Zusammenführung.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>job('multi-pr',async()=>{
+    const result=await request('/developer/create-pr',{method:'POST',body:{id:multi.id,confirm:'FREIGEBEN'}});
+    setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
+  })}]);
+  const loadChecks=()=>job('checks',async()=>setChecks(await request('/developer/checks'+qs({owner:multiPR.owner,repo:multiPR.repo,sha:multiPR.sha}))));
+
   const validRepo = /^[A-Za-z0-9_.-]+$/.test(owner) && /^[A-Za-z0-9_.-]+$/.test(repo);
   const actionsUrl = validRepo ? `https://github.com/${owner}/${repo}/actions` : null;
 
@@ -41,14 +59,14 @@ export default function GitHubScreen({ navigation }) {
     try { await run(); } catch (e) { setError(String(e?.message || e)); }
     finally { setBusy(''); }
   }
-  function changeTarget(value, setter) { setter(value); setFile(null); setProposal(null); setPr(null); setEntries([]); }
+  function changeTarget(value, setter) { if(busy)return; setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);setter(value); setFile(null); setProposal(null); setPr(null); setEntries([]); }
   const browseRepos = () => job('repos', async () => {
     const x = await request('/github/repos' + qs({ owner }));
-    setRepos(x.repos || []); setRepo(''); setEntries([]); setFile(null); setProposal(null);
+    setRepos(x.repos || []); setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);setRepo(''); setEntries([]); setFile(null); setProposal(null);
   });
   const browseDir = (targetRepo = repo, targetDir = '') => job('folder', async () => {
     const x = await request('/github/entries' + qs({ owner, repo: targetRepo, path: targetDir }));
-    setRepo(targetRepo); setDir(targetDir); setEntries(x.items || []); setFile(null); setProposal(null); setPr(null);
+    if(targetRepo!==repo){setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);} setRepo(targetRepo); setDir(targetDir); setEntries(x.items || []); setFile(null); setProposal(null); setPr(null);
   });
   const openFile = (targetPath = path) => job('file', async () => {
     const x = await request('/github/file' + qs({ owner, repo, path: targetPath }));
@@ -102,6 +120,36 @@ export default function GitHubScreen({ navigation }) {
         <Field label="Dateipfad (oder oben auswählen)" value={path} onChangeText={v => changeTarget(v, setPath)} placeholder="z. B. App.js" maxLength={300}/>
         <ActionButton title="Datei lesen" secondary icon="eye-outline" onPress={() => openFile(path)} disabled={!connected || !!busy || !path.trim()}/>
       </Card> : null}
+      {repo ? <Card style={{borderColor:'#64B5FF'}}>
+        <Heading subtitle={owner+'/'+repo}>Master-Agent · Mehrdatei-Auftrag</Heading>
+        <Muted>Wähle bis zu vier vorhandene Textdateien. Die Inhalte werden zur KI-Analyse übertragen.</Muted>
+        <Field label="Dateipfade (einer pro Zeile)" value={multiPaths} onChangeText={setMultiPaths} multiline maxLength={1200} placeholder="src/App.js"/>
+        <ActionButton title="Aktuelle Datei hinzufügen" secondary disabled={!file||!!busy} onPress={()=>setMultiPaths(v=>[...new Set([...v.split(/\r?\n/).filter(Boolean),file.path])].join('\n'))}/>
+        <Field label="Entwicklungsauftrag" value={multiInstruction} onChangeText={setMultiInstruction} multiline maxLength={1800} placeholder="Beschreibe die gewünschte Verbesserung"/>
+        <ActionButton title="Plan und Änderungen vorbereiten" icon="sparkles-outline" disabled={!connected||!!busy||!multiPaths.trim()||!multiInstruction.trim()} onPress={prepareMulti}/>
+      </Card>:null}
+      {multi ? <Card style={{borderColor:'#C3A6FF'}}>
+        <Heading subtitle={multi.owner+'/'+multi.repo}>{multi.title}</Heading>
+        <Body>{multi.plan}</Body>
+        <Heading>Vorläufige KI-Qualitätsanalyse</Heading>
+        <Body>{multi.review}</Body>
+        <Muted>Keine tatsächlichen Tests ausgeführt. Vollständige Dateiinhalte prüfen.</Muted>
+        {multi.changes.map(f=><View key={f.path} style={{gap:8,marginVertical:8}}>
+          <Body>{f.path}</Body>
+          <Muted>Original</Muted><ScrollView nestedScrollEnabled style={{maxHeight:150,backgroundColor:T.surface2,padding:8}}><Text selectable style={{color:T.text,fontFamily:'monospace'}}>{f.original}</Text></ScrollView>
+          <Muted>Vorschlag</Muted><ScrollView nestedScrollEnabled style={{maxHeight:220,backgroundColor:T.surface2,padding:8}}><Text selectable style={{color:T.text,fontFamily:'monospace'}}>{f.content}</Text></ScrollView>
+        </View>)}
+        <Pressable accessibilityRole="checkbox" accessibilityState={{checked:multiApproved}} onPress={()=>setMultiApproved(v=>!v)} style={{flexDirection:'row',gap:8,minHeight:48,alignItems:'center'}}><Ionicons name={multiApproved?'checkbox':'square-outline'} size={25} color="#C3A6FF"/><Body style={{flex:1}}>Alle Änderungen geprüft</Body></Pressable>
+        <ActionButton title="Gemeinsamen Entwurfs-PR erstellen" disabled={!multiApproved||!multi.githubWriteEnabled||!!busy} onPress={commitMulti}/>
+        <ActionButton title="Verwerfen" secondary disabled={!!busy} onPress={()=>setMulti(null)}/>
+      </Card>:null}
+      {multiPR ? <Card style={{borderColor:'#F5C16B'}}>
+        <Heading>Entwurfs-PR #{multiPR.number}</Heading>
+        <Body>Branch: {multiPR.branch}</Body>
+        <ActionButton title="PR öffnen" secondary onPress={()=>{if(multiPR.url?.startsWith('https://github.com/'))Linking.openURL(multiPR.url);}}/>
+        <ActionButton title="GitHub-Testergebnisse abrufen" disabled={!!busy} onPress={loadChecks}/>
+        {checks ? <View style={{gap:8}}><Body>{checks.allReportedPassed?'Alle gemeldeten Checks erfolgreich':'Keine vollständige erfolgreiche Prüfliste'}</Body>{checks.checks.map((c,i)=><Body key={i} style={{color:c.conclusion==='success'?T.accent:T.orange}}>{c.name}: {c.conclusion||c.status}</Body>)}<Muted>Gemeldete Checks sind kein Nachweis vollständiger Testabdeckung oder einer signierten APK.</Muted></View>:null}
+      </Card>:null}
       {file ? <Card>
         <Heading subtitle={file.path}>3. Datei prüfen</Heading>
         <ScrollView nestedScrollEnabled style={{ maxHeight: 260, borderRadius: 12, backgroundColor: T.surface2, padding: 11 }}><Text selectable style={{ color: T.text, fontFamily: 'monospace', fontSize: 12, lineHeight: 18 }}>{file.content}</Text></ScrollView>
