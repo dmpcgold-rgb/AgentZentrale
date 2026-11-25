@@ -8,7 +8,7 @@ import {T} from '../theme';
 
 const dateKey=d=>d.toISOString().slice(0,10);
 const monthLabel=d=>d.toLocaleDateString('de-AT',{month:'long',year:'numeric',timeZone:'UTC'});
-function BookingCalendar({report,horizon,progress,saved}){
+function BookingCalendar({report,horizon,progress,saved,pendingDates,reservations}){
  const [offset,setOffset]=useState(0);
  const [selected,setSelected]=useState(null);
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
@@ -25,6 +25,7 @@ function BookingCalendar({report,horizon,progress,saved}){
  const open=new Set(report?.offene_gepruefte_tage||[]);
  const status=d=>{
   const key=dateKey(d);
+  if(pendingDates?.includes(key))return ['Bestellung ungeklärt',T.orange,'#493622'];
   if(booked.has(key))return ['Bestätigt',T.green,'#183D35'];
   if(d.getUTCDay()===0||d.getUTCDay()===6)return ['Wochenende',T.muted,T.surface];
   if(d<today||d>end)return ['Außerhalb des Buchungsfensters',T.muted,T.surface];
@@ -54,8 +55,8 @@ function BookingCalendar({report,horizon,progress,saved}){
    <Body style={{color:T.green}}>✓ Bestätigte Reservierung</Body>
    <Body style={{color:T.red}}>! Geprüft, nicht bestätigt</Body>
    <Body style={{color:T.orange}}>? Unbekannt / noch nicht bestätigt</Body>
-   <Muted>– Wochenende oder außerhalb des Buchungsfensters</Muted>
-   {selected?<Body>{selected.key}: {selected.label}</Body>:null}
+   <Muted>– Wochenende oder außerhalb des Buchungsfensters; ungeklärte Bestellungen bleiben gesperrt.</Muted>
+   {selected?<Body>{selected.key}: {status(new Date(selected.key+'T00:00:00Z'))[0]}{reservations?.find(r=>r.date===selected.key)?.seat?' · Sitz '+reservations.find(r=>r.date===selected.key).seat:''}</Body>:null}
    <Muted>Keine Markierung ohne Nachweis. Ältere Berichte sind keine Garantie gegen spätere Stornierungen.</Muted>
    <Muted>Berichtsstand: {report?.erstellt||'Kein Bericht vorhanden'}</Muted>
   </View>
@@ -92,7 +93,21 @@ export default function OracleStatusScreen(){
  const report=data?.report;
  const saved=host?.savedReservations;
  const savedSet=new Set(saved||[]);
- const activityLabels={bulk:'Gmail-Sammelprüfung läuft',bulk_done:'Gmail-Sammelprüfung abgeschlossen',bulk_unclear:'Gmail-Sammelprüfung unvollständig',cache:'Reservierungsspeicher geladen',inventory:'Prüft WESTbahn-Ticketbestand',checkout:'Bestellvorgang gestartet',reconcile:'Prüft Bestellbestätigung',checking:'Prüft Reisetag',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail-Abfrage wiederholen',stopped:'Buchung gestoppt',skipped:'Prüfung unklar – übersprungen'};
+ const [showSeats,setShowSeats]=useState(false);
+ const [showHistory,setShowHistory]=useState(false);
+ const nowParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
+ const getPart=k=>Number(nowParts.find(p=>p.type===k)?.value);
+ const start=new Date(Date.UTC(getPart('year'),getPart('month')-1,getPart('day')));
+ const horizon=host?.monthsAhead;
+ const endMonth=Number.isInteger(horizon)?new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+horizon,1)):null;
+ const end=endMonth?new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth(),Math.min(start.getUTCDate(),new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth()+1,0)).getUTCDate()))):null;
+ const targets=[];
+ if(end)for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){if(d.getUTCDay()>0&&d.getUTCDay()<6)targets.push(dateKey(d));}
+ const pendingDates=host?.pendingReservations;
+ const effective=new Set([...(saved||[]),...(host?.progress?.confirmed||[]),...(host?.progress?.newlyBooked||[])]);
+ const covered=targets.filter(d=>effective.has(d)&&!pendingDates?.includes(d)).length;
+ const percent=targets.length&&Array.isArray(saved)?Math.round(covered/targets.length*100):null;
+ const activityLabels={bulk:'Gmail-Sammelprüfung läuft',bulk_done:'Gmail-Sammelprüfung abgeschlossen',bulk_unclear:'Gmail-Sammelprüfung unvollständig',cache:'Reservierungsspeicher geladen',inventory:'Prüft WESTbahn-Ticketbestand',checkout:'Bestellvorgang gestartet',reconcile:'Prüft Bestellbestätigung',checking:'Prüft Reisetag',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail-Abfrage wiederholen',stopped:'Buchung gestoppt – Bestätigung oder Prüfung unklar',skipped:'Prüfung unklar – übersprungen'};
  const stateLabel=s=>({active:'Aktiv',inactive:'Inaktiv',activating:'Läuft / startet',deactivating:'Wird beendet',failed:'Fehler'}[s]||s);
  const canStart=host&&Number.isInteger(host.monthsAhead)&&['inactive','failed'].includes(host.service.active)&&!busy&&!pending;
  return <ScrollView style={{flex:1,backgroundColor:T.bg}} contentContainerStyle={styles.page}
@@ -118,6 +133,18 @@ export default function OracleStatusScreen(){
   </>;
  })()}
  </Card>
+ <Card><Heading>Buchungsziel</Heading>
+ {percent!==null?<><Body style={{fontWeight:'800',fontSize:24,color:T.green}}>{percent}%</Body><View style={{height:10,borderRadius:5,backgroundColor:T.surface2,overflow:'hidden'}}><View style={{height:10,width:percent+'%',backgroundColor:T.accent}}/></View><Body>{covered} von {targets.length} Werktagen (Mo–Fr) bestätigt</Body><Muted>Ziel bis {dateKey(end)} · Feiertage wie bisher eingeschlossen.</Muted></>:<Muted>Serverdaten für Fortschritt fehlen.</Muted>}
+ <Body style={{color:T.orange}}>Ungeklärte Bestellungen: {Array.isArray(pendingDates)?pendingDates.length:'Nicht verfügbar'}</Body>
+ {pendingDates?.map(d=><Muted key={d}>{d} · Keine automatische Wiederholung</Muted>)}
+ <Muted>Gespeicherte Nachweise können spätere Stornierungen nicht ausschließen.</Muted></Card>
+ <Card><Heading>Reservierungen und Sitzplätze</Heading>
+ <ActionButton secondary title={showSeats?'Übersicht einklappen':'Sitzplatzübersicht öffnen'} onPress={()=>setShowSeats(!showSeats)}/>
+ {showSeats?(Array.isArray(saved)?saved.map(d=>{const r=host?.reservations?.find(x=>x.date===d);return <View key={d} style={{borderBottomWidth:1,borderColor:T.line,paddingVertical:6}}><Body>{d} · {r?.seat?'Sitz '+r.seat:'Sitz unbekannt'}</Body><Muted>{r?.source==='manual_westbahn_verification'?'Manuell bestätigt':r?.source==='official_email'?'Gmail-Nachweis':'Gespeicherter Nachweis'} · Wagen nicht verifiziert</Muted></View>}):<Muted>Serverspeicher nicht verfügbar.</Muted>):null}</Card>
+ <Card><Heading>Buchungsverlauf und Sicherung</Heading>
+ <Muted>Letzte Sicherung: {host?.backupAt||'Nicht gemeldet'}</Muted>
+ <ActionButton secondary title={showHistory?'Verlauf einklappen':'Buchungsverlauf öffnen'} onPress={()=>setShowHistory(!showHistory)}/>
+ {showHistory?(host?.history?.length?host.history.map((r,i)=><View key={i} style={{paddingVertical:8,borderBottomWidth:1,borderColor:T.line}}><Body>{new Date(r.erstellt).toLocaleString('de-AT')}</Body><Body>{r.dienst_status==='success'?'Beendet':r.dienst_status==='signal'?'Unterbrochen':'Mit Fehler / offen beendet'} · {r.gesamt_bestaetigt??'?'} bestätigt</Body><Muted>Neu: {r.neu_gebucht.length} · Offen: {r.offene_gepruefte_tage.length}</Muted></View>):<Muted>Keine historischen Berichte verfügbar.</Muted>):null}</Card>
  <Card><Body>{remote.connected?'Serververbindung konfiguriert':'Server nicht verbunden'}</Body>
  <Muted>Bericht vom Server, kein zweiter Buchungsdienst.</Muted>
  <ActionButton title="Aktualisieren" secondary disabled={busy||!remote.connected} onPress={refresh}/>
@@ -152,7 +179,7 @@ export default function OracleStatusScreen(){
  </>:<Muted>{host&&['active','activating'].includes(host.service.active)?'Buchungslauf aktiv. Noch keine Live-Fortschrittsdaten verfügbar.':'Kein aktiver Buchungslauf.'}</Muted>}
  <Muted>Aktualisierung alle 20 Sekunden. Nur nachgewiesene Reservierungen werden gezählt.</Muted>
  </Card>
- <BookingCalendar saved={saved} report={report} horizon={host?.monthsAhead} progress={['active','activating'].includes(host?.service?.active)?host?.progress:null}/>
+ <BookingCalendar pendingDates={pendingDates} reservations={host?.reservations} saved={saved} report={report} horizon={host?.monthsAhead} progress={['active','activating'].includes(host?.service?.active)?host?.progress:null}/>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
  <Body>Lückenlos bis: {report.lueckenlos_bis||'Nicht bestätigt'}</Body>
