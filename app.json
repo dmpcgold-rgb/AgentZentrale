@@ -3,12 +3,12 @@
     "name": "AgentZentrale",
     "slug": "agentzentrale",
     "scheme": "agentzentrale",
-    "version": "1.4.8",
+    "version": "1.4.9",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "at.agentzentrale.mobile",
-      "versionCode": 12,
+      "versionCode": 13,
       "permissions": []
     },
     "plugins": [
