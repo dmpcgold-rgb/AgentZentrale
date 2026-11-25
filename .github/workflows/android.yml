@@ -127,11 +127,11 @@ jobs:
           test -n "$APK"
           SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
           mkdir -p artifacts
-          "$SIGNER" sign --ks "$KS" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" --ks-pass env:KS_PASS --key-pass env:KEY_PASS --out artifacts/AgentZentrale-1.4.13-release.apk "$APK"
-          "$SIGNER" verify --verbose --print-certs artifacts/AgentZentrale-1.4.13-release.apk
+          "$SIGNER" sign --ks "$KS" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" --ks-pass env:KS_PASS --key-pass env:KEY_PASS --out artifacts/AgentZentrale-1.4.14-release.apk "$APK"
+          "$SIGNER" verify --verbose --print-certs artifacts/AgentZentrale-1.4.14-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: AgentZentrale-Release-1.4.13
-          path: artifacts/AgentZentrale-1.4.13-release.apk
+          name: AgentZentrale-Release-1.4.14
+          path: artifacts/AgentZentrale-1.4.14-release.apk
           if-no-files-found: error
           retention-days: 90
