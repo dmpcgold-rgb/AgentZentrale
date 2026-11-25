@@ -1,3 +1,4 @@
+import {readHostStatus} from './oracle-status.mjs';
 import {readBookingReport} from './oracle-report.mjs';
 /** Self-hosted single-user gateway. No third-party API secret ever goes into the APK. */
 import { createServer } from 'node:http';
@@ -109,6 +110,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       const route = new URL(req.url, 'http://localhost');
       const is = (method, path) => req.method === method && route.pathname === path;
       if (is('GET', '/health')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubReadEnabled: true, githubWriteEnabled: githubWritable(), version: '1.4' });
+      if (is('GET', '/oracle/status')) return write(res, 200, await readHostStatus(env.ORACLE_HOST_STATUS));
       if (is('GET', '/oracle/booking-report')) return write(res, 200, await readBookingReport(env.ORACLE_BOOKING_REPORT));
       if (is('GET', '/westbahn/browser/status')) return write(res, 200, browser.status());
       if (is('POST', '/westbahn/browser/probe') || is('POST', '/westbahn/browser/prepare')) {
