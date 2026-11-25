@@ -288,9 +288,19 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         if(paths.some(p=>! /^(src|app|lib|components|screens|tests|test)\//i.test(p)&&! /^(App|index)\.(js|jsx|ts|tsx)$/.test(p)))throw new ApiError(403,'Nur ausgewählte Quellcode- und Testpfade sind zulässig.');
         if(new Set(paths).size!==paths.length||paths.some(p=>/(^|\/)(\.github|\.git|\.env[^/]*|.*(?:secret|credential|token|private.?key).*|.*\.(?:pem|p12|key|jks|keystore))($|\/)/i.test(p))) throw new ApiError(403,'Doppelte oder geschützte Dateipfade.');
         const info=await github('GET',apiPath(['repos',owner,repo]));
-        const baseBranch=info.default_branch;
+        let baseBranch=info.default_branch;
+        let repair=null;
+        if(body.repair!==undefined){
+          const x=body.repair;
+          if(!x||typeof x!=='object'||!/^agentzentrale\/[a-zA-Z0-9._-]{1,150}$/.test(x.branch||'')||x.branch===info.default_branch||!/^[a-f0-9]{40}$/i.test(x.sha||'')||!/^[0-9]{1,20}$/.test(String(x.runId||'')))throw new ApiError(400,'Ungültige Reparaturbasis.');
+          const run=await github('GET',apiPath(['repos',owner,repo,'actions','runs',String(x.runId)]));
+          if(run.head_sha!==x.sha||run.head_branch!==x.branch||run.status!=='completed'||!['failure','timed_out','action_required','startup_failure'].includes(run.conclusion))throw new ApiError(409,'Fehlgeschlagener Build gehört nicht zur angegebenen Basis.');
+          baseBranch=x.branch;
+          repair={runId:String(x.runId),branch:x.branch,sha:x.sha};
+        }
         const base=await github('GET',apiPath(['repos',owner,repo,'git','ref','heads',...baseBranch.split('/')]));
         const baseSha=base.object.sha;
+        if(repair&&repair.sha!==baseSha)throw new ApiError(409,'Reparaturbasis wurde verändert. Bitte neu prüfen.');
         const originals=[];
         for(const path of paths){
           const raw=await github('GET',apiPath(['repos',owner,repo,'contents',...path.split('/')])+'?ref='+encodeURIComponent(baseSha));
@@ -315,8 +325,8 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
         if(!changes.length)throw new ApiError(422,'Keine Änderungen vorgeschlagen.');
         pruneProposals();
         const id=randomUUID();
-        proposals.set(id,{kind:'multi',owner,repo,baseBranch,baseSha,title,plan,review,changes,state:'prepared',expires:now()+10*minute});
-        return write(res,200,{id,title,plan,review,changes,testsExecuted:false,githubWriteEnabled:githubWritable()});
+        proposals.set(id,{kind:'multi',owner,repo,baseBranch,baseSha,title,plan,review,changes,repair,state:'prepared',expires:now()+10*minute});
+        return write(res,200,{id,title,plan,review,changes,baseBranch,baseSha,repair,testsExecuted:false,githubWriteEnabled:githubWritable()});
       }
       if (is('POST','/developer/create-pr')) {
         const body=await readJson(req);
@@ -343,7 +353,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           await github('POST',apiPath([...prefix,'git','refs']),{ref:'refs/heads/'+branch,sha:commit.sha});
           const pr=await github('POST',apiPath([...prefix,'pulls']),{title:p.title,head:branch,base:p.baseBranch,body:p.plan+'\n\nVorläufige KI-Prüfung: '+p.review+'\n\nTests nicht ausgeführt.',draft:true});
           p.state='completed';
-          return write(res,200,{number:pr.number,url:pr.html_url,branch,sha:commit.sha,testsExecuted:false});
+          return write(res,200,{number:pr.number,url:pr.html_url,branch,sha:commit.sha,baseBranch:p.baseBranch,testsExecuted:false});
         }catch(e){p.state='failed';throw e;}
       }
       if(is('GET','/developer/checks')){
