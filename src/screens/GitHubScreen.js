@@ -44,6 +44,15 @@ export default function GitHubScreen({ navigation }) {
   const [buildNotice,setBuildNotice]=useState('');
   const [diagnosis,setDiagnosis]=useState(null);
   const [artifacts,setArtifacts]=useState(null);
+  const [repairCount,setRepairCount]=useState(0);
+  const prepareRepair=()=>job('repair',async()=>{
+    if(!diagnosis||!multiPR||diagnosis.sha!==multiPR.sha||repairCount>=3)return;
+    const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
+    const instruction=('Buildfehler korrigieren. '+multiInstruction+'\nVorläufige Diagnose: '+diagnosis.diagnosis).slice(0,1800);
+    const result=await request('/developer/plan',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,paths,instruction,repair:{runId:diagnosis.runId,branch:multiPR.branch,sha:multiPR.sha}}});
+    setMulti({...result,owner:multiPR.owner,repo:multiPR.repo});setMultiApproved(false);setRepairCount(n=>n+1);
+  });
+
   const diagnoseRun=run=>job('diagnose',async()=>{
     setDiagnosis(null);
     const x=await request('/developer/diagnose',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,runId:run.id}});
@@ -70,14 +79,14 @@ export default function GitHubScreen({ navigation }) {
   const loadJobs=run=>job('jobs',async()=>{const x=await request('/developer/jobs'+qs({owner:multiPR.owner,repo:multiPR.repo,runId:run.id}));setBuildJobs({...x,runId:run.id});});
 
   const prepareMulti=()=>job('multi',async()=>{
-    setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);
+    setRepairCount(0);setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);
     const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
     const result=await request('/developer/plan',{method:'POST',body:{owner,repo,paths,instruction:multiInstruction}});
     setMulti({...result,owner,repo});
   });
   const commitMulti=()=>Alert.alert('Entwurfs-PR erstellen?', 'Alle angezeigten Änderungen werden gemeinsam auf einen neuen Branch geschrieben. Keine automatische Zusammenführung.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>job('multi-pr',async()=>{
     const result=await request('/developer/create-pr',{method:'POST',body:{id:multi.id,confirm:'FREIGEBEN'}});
-    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setDiagnosis(null);setArtifacts(null);setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
+    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setDiagnosis(null);setArtifacts(null);setChecks(null);setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
   })}]);
   const loadChecks=()=>job('checks',async()=>setChecks(await request('/developer/checks'+qs({owner:multiPR.owner,repo:multiPR.repo,sha:multiPR.sha}))));
 
@@ -160,7 +169,7 @@ export default function GitHubScreen({ navigation }) {
         <ActionButton title="Plan und Änderungen vorbereiten" icon="sparkles-outline" disabled={!connected||!!busy||!multiPaths.trim()||!multiInstruction.trim()} onPress={prepareMulti}/>
       </Card>:null}
       {multi ? <Card style={{borderColor:'#C3A6FF'}}>
-        <Heading subtitle={multi.owner+'/'+multi.repo}>{multi.title}</Heading>
+        <Heading subtitle={multi.owner+'/'+multi.repo}>{multi.title}</Heading>{multi.repair?<Body>Reparaturbasis: {multi.baseBranch} · {multi.baseSha?.slice(0,8)}</Body>:null}
         <Body>{multi.plan}</Body>
         <Heading>Vorläufige KI-Qualitätsanalyse</Heading>
         <Body>{multi.review}</Body>
@@ -185,7 +194,7 @@ export default function GitHubScreen({ navigation }) {
         {buildNotice?<Body>{buildNotice}</Body>:null}
         <ActionButton title="Buildstatus aktualisieren" disabled={!!busy} onPress={loadRuns}/>
         {runs.map(run=><View key={run.id} style={{gap:6,marginVertical:8}}><Body>{run.name} · {run.conclusion||run.status}</Body><ActionButton title="Buildschritte prüfen" secondary disabled={!!busy} onPress={()=>loadJobs(run)}/>{run.status==='completed'&&['failure','timed_out','action_required','startup_failure'].includes(run.conclusion)?<ActionButton title="KI-Fehleranalyse" secondary disabled={!!busy} onPress={()=>diagnoseRun(run)}/>:null}{run.status==='completed'&&run.conclusion==='success'?<ActionButton title="Build-Dateien anzeigen" secondary disabled={!!busy} onPress={()=>loadArtifacts(run)}/>:null}<ActionButton title="GitHub-Build öffnen" secondary onPress={()=>{if(run.url?.startsWith('https://github.com/'))Linking.openURL(run.url);}}/></View>)}
-        {diagnosis?<View style={{gap:8,marginVertical:8}}><Heading>Fehleranalyse #{diagnosis.runId}</Heading><Body>{diagnosis.diagnosis}</Body><Muted>Nur Buildschritt-Metadaten, keine vollständigen Logs. Keine Reparatur ausgeführt. Für einen neuen Auftrag zuerst den korrekten Entwicklungsstand auswählen.</Muted></View>:null}
+        {diagnosis?<View style={{gap:8,marginVertical:8}}><Heading>Fehleranalyse #{diagnosis.runId}</Heading><Body>{diagnosis.diagnosis}</Body><Muted>Nur Buildschritt-Metadaten, keine vollständigen Logs. Keine Reparatur ausgeführt. Reparaturvorschläge verwenden den fehlgeschlagenen Commit.</Muted><ActionButton title={'Reparatur vorbereiten ('+repairCount+'/3)'} disabled={!!busy||repairCount>=3||!multiPaths.trim()||diagnosis.sha!==multiPR.sha} onPress={prepareRepair}/><Muted>Die oben gewählten Dateipfade werden verwendet. Jede Änderung und jeder neue Build brauchen eine Freigabe. Nach drei Vorschlägen ist ein neuer Auftrag erforderlich.</Muted></View>:null}
         {artifacts?<View style={{gap:8,marginVertical:8}}><Heading>Build-Dateien #{artifacts.runId}</Heading><Muted>Die App hat die APK-Signatur nicht selbst geprüft. Nur verifizierte Release-APKs installieren.</Muted>{artifacts.artifacts.length===0?<Body>Keine verfügbaren Artefakte.</Body>:null}{artifacts.artifacts.map(a=><ActionButton key={a.id} title={a.name} secondary onPress={()=>{if(a.url?.startsWith('https://github.com/'))Linking.openURL(a.url);}}/>)}</View>:null}
         {buildJobs?<View style={{gap:6}}><Heading>Buildschritte #{buildJobs.runId}</Heading>{buildJobs.jobs.map((j,i)=><View key={i} style={{gap:4}}><Body>{j.name}: {j.conclusion||j.status}</Body>{j.steps.map((step,k)=><Muted key={k}>{step.name}: {step.conclusion||step.status}</Muted>)}</View>)}</View>:null}
 
