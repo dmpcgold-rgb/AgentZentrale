@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { gatewayRequest, validateServerUrl } from '../api/client';
+import { gatewayRequest, validateServerUrl, normalizeToken } from '../api/client';
 
 const KEY_CONFIG = 'agentzentrale.gateway.config.v1';
 const Context = createContext(null);
@@ -19,7 +19,7 @@ export function RemoteProvider({ children }) {
   async function saveSettings(url, token) {
     const safeUrl = validateServerUrl(url);
     if (typeof token !== 'string' || token.trim().length < 24) throw new Error('Der Zugriffsschlüssel muss mindestens 24 Zeichen haben.');
-    const newConfig = { url: safeUrl, token: token.trim() };
+    const newConfig = { url: safeUrl, token: normalizeToken(token) };
     // Test connection before persisting. Failed setup never replaces existing configuration.
     const health = await gatewayRequest(newConfig, '/health');
     await SecureStore.setItemAsync(KEY_CONFIG, JSON.stringify(newConfig));
