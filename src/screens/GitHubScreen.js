@@ -30,6 +30,10 @@ export default function GitHubScreen({ navigation }) {
   const [pr, setPr] = useState(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [filter,setFilter] = useState('');
+  const [review,setReview] = useState(false);
+  const validRepo = /^[A-Za-z0-9_.-]+$/.test(owner) && /^[A-Za-z0-9_.-]+$/.test(repo);
+  const actionsUrl = validRepo ? `https://github.com/${owner}/${repo}/actions` : null;
 
   async function job(name, run) {
     if (busy || !connected) return;
@@ -52,7 +56,7 @@ export default function GitHubScreen({ navigation }) {
   });
   const propose = () => job('proposal', async () => {
     const x = await request('/github/proposals', { method: 'POST', body: { owner, repo, path: file?.path || path, instruction } });
-    setProposal(x); setShowOriginal(false); setPr(null);
+    setProposal(x); setReview(false); setShowOriginal(false); setPr(null);
     apply({ type: 'LOG_ACTIVITY', text: `GitHub-Änderungsvorschlag vorbereitet: ${owner}/${repo}/${x.path}` });
   });
   const createPR = () => Alert.alert('Entwurfs-Pull-Request erstellen?', `Repository: ${owner}/${repo}\nDatei: ${proposal?.path}\n\nDie Änderung wird auf einen NEUEN Branch geschrieben. Dein Hauptzweig bleibt unverändert. Vor einem Merge bitte den Code testen.`, [
@@ -66,7 +70,8 @@ export default function GitHubScreen({ navigation }) {
 
   return <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: T.bg }}>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.page}>
-      <Text style={styles.pageTitle}>GitHub-Agent</Text>
+      <Text style={styles.pageTitle}>Entwickler-Zentrale</Text>
+      <View style={{flexDirection:'row',gap:8,marginBottom:12}}>{[['code-slash-outline','Entwicklung','#64B5FF','#19344F'],['shield-checkmark-outline','Qualität','#C3A6FF','#36294E'],['cube-outline','Build','#F5C16B','#49391F']].map(([icon,label,color,bg])=><View key={label} style={{flex:1,backgroundColor:bg,borderRadius:12,padding:10,alignItems:'center',gap:6}}><Ionicons name={icon} color={color} size={24}/><Text style={{color,fontSize:12,fontWeight:'700'}}>{label}</Text></View>)}</View>
       <Muted style={{ marginBottom: 15 }}>Repositories lesen, Dateien prüfen und Änderungen als Entwurfs-PR vorschlagen – niemals automatisch mergen.</Muted>
       {!connected ? <Card>
         <Body>Verbinde zuerst deinen privaten AgentZentrale-Server.</Body>
@@ -78,13 +83,15 @@ export default function GitHubScreen({ navigation }) {
         <Heading>1. Repository wählen</Heading>
         <Field label="GitHub-Konto" value={owner} onChangeText={v => changeTarget(v, setOwner)} placeholder="Konto oder Organisation"/>
         <ActionButton title="Repositories anzeigen" onPress={browseRepos} disabled={!connected || !!busy || !owner.trim()} secondary icon="folder-open-outline"/>
-        {repos.length ? <View style={{ marginTop: 12, gap: 7 }}>{repos.map(r => <Pressable key={r.name} accessibilityRole="button" accessibilityLabel={`Repository ${r.name} öffnen`} onPress={() => browseDir(r.name)} style={{ backgroundColor: T.surface2, padding: 12, minHeight: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+        {repos.length ? <Field label="Projekte filtern" value={filter} onChangeText={setFilter} placeholder="Projektname suchen"/> : null}
+        {repos.length ? <View style={{ marginTop: 12, gap: 7 }}>{repos.filter(r=>r.name.toLowerCase().includes(filter.toLowerCase())).map(r => <Pressable key={r.name} accessibilityRole="button" accessibilityLabel={`Repository ${r.name} öffnen`} onPress={() => browseDir(r.name)} style={{ backgroundColor: T.surface2, padding: 12, minHeight: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
           <Ionicons name="folder-outline" color={T.accent} size={21}/><Text style={{ color: T.text, flex: 1 }}>{r.name}</Text><Ionicons name="chevron-forward-outline" color={T.muted} size={19}/>
         </Pressable>)}</View> : null}
         <Muted style={{ marginTop: 8 }}>Private Repositories erscheinen ggf. nicht in der öffentlichen Liste. Sie können direkt eingegeben werden, sofern der Server Zugriff hat.</Muted>
         <Field label="Repository (direkte Eingabe möglich)" value={repo} onChangeText={v => changeTarget(v, setRepo)} placeholder="z. B. Gym-Coach"/>
         <ActionButton title="Dateien öffnen" secondary onPress={() => browseDir(repo)} disabled={!connected || !!busy || !repo.trim()} icon="folder-outline" />
       </Card>
+      {actionsUrl ? <Card style={{borderColor:'#F5C16B'}}><Heading subtitle="Builds und Testergebnisse auf GitHub einsehen">Projektstatus &amp; Release</Heading><ActionButton title="GitHub Actions öffnen" icon="open-outline" secondary onPress={()=>Linking.openURL(actionsUrl)}/><ActionButton title="Veröffentlichte Releases öffnen" icon="cube-outline" secondary style={{marginTop:8}} onPress={()=>Linking.openURL(`https://github.com/${owner}/${repo}/releases`)}/><Muted style={{marginTop:8}}>Nur Navigation: kein Build wird automatisch gestartet. Signierung und Testergebnis müssen im Workflow geprüft werden.</Muted></Card>:null}
       {repo ? <Card>
         <Heading subtitle={`${owner}/${repo}${dir ? '/' + dir : ''}`}>2. Datei wählen</Heading>
         {dir ? <ActionButton title="Eine Ebene zurück" secondary onPress={() => browseDir(repo, dir.includes('/') ? dir.substring(0, dir.lastIndexOf('/')) : '')} disabled={!!busy} icon="arrow-up-outline" style={{ marginBottom: 9 }}/> : null}
@@ -112,7 +119,8 @@ export default function GitHubScreen({ navigation }) {
         <ScrollView nestedScrollEnabled style={{ maxHeight: 320, backgroundColor: T.surface2, padding: 10, borderRadius: 10 }}><Text selectable style={{ color: T.text, fontFamily: 'monospace', fontSize: 12, lineHeight: 18 }}>{showOriginal ? proposal.original : proposal.proposed}</Text></ScrollView>
         <Muted style={{ marginVertical: 14 }}>Prüfe den gesamten Vorschlag. Diese Version führt keine automatischen Tests des geänderten Repositories aus.</Muted>
         <ActionButton title="Vorschlag verwerfen" secondary onPress={() => setProposal(null)} disabled={!!busy} style={{ marginBottom: 9 }}/>
-        <ActionButton title="Entwurfs-PR nach Freigabe erstellen" icon="git-pull-request-outline" disabled={!proposal.githubWriteEnabled || !!busy} onPress={createPR}/>
+        <Pressable accessibilityRole="checkbox" accessibilityState={{checked:review}} onPress={()=>setReview(v=>!v)} style={{flexDirection:'row',alignItems:'center',gap:10,minHeight:48,marginBottom:8}}><Ionicons name={review?'checkbox':'square-outline'} color="#C3A6FF" size={25}/><Body style={{flex:1}}>Ich habe den vollständigen Änderungsvorschlag geprüft. Automatische Tests stehen noch aus.</Body></Pressable>
+        <ActionButton title="Entwurfs-PR nach Freigabe erstellen" icon="git-pull-request-outline" disabled={!proposal.githubWriteEnabled || !!busy || !review} onPress={createPR}/>
         {!proposal.githubWriteEnabled ? <Muted style={{ marginTop: 8 }}>GitHub-Schreibzugriff ist auf deinem Server deaktiviert. Ein Pull Request kann derzeit nicht erstellt werden.</Muted> : null}
       </Card> : null}
       {pr ? <Card style={{ borderColor: T.accent }}>
