@@ -8,7 +8,7 @@ import {T} from '../theme';
 
 const dateKey=d=>d.toISOString().slice(0,10);
 const monthLabel=d=>d.toLocaleDateString('de-AT',{month:'long',year:'numeric',timeZone:'UTC'});
-function BookingCalendar({report,horizon,progress}){
+function BookingCalendar({report,horizon,progress,saved}){
  const [offset,setOffset]=useState(0);
  const [selected,setSelected]=useState(null);
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
@@ -21,7 +21,7 @@ function BookingCalendar({report,horizon,progress}){
  const first=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+index,1));
  const count=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
  const leading=(first.getUTCDay()+6)%7;
- const booked=new Set([...(report?.bereits_gebucht||[]),...(report?.neu_gebucht||[]),...(progress?.confirmed||[]),...(progress?.newlyBooked||[])]);
+ const booked=new Set([...(report?.bereits_gebucht||[]),...(report?.neu_gebucht||[]),...(progress?.confirmed||[]),...(progress?.newlyBooked||[]),...(saved||[])]);
  const open=new Set(report?.offene_gepruefte_tage||[]);
  const status=d=>{
   const key=dateKey(d);
@@ -37,7 +37,7 @@ function BookingCalendar({report,horizon,progress}){
  });
  const rows=Array.from({length:entries.length/7},(_,i)=>entries.slice(i*7,i*7+7));
  return <Card>
-  <Heading subtitle="Abschlussbericht und aktueller Durchgang">Reservierungskalender</Heading>
+  <Heading subtitle="Serverspeicher, Bericht und aktueller Durchgang">Reservierungskalender</Heading>
   <Body>Zeitraum: {dateKey(today)} bis {dateKey(end)}</Body>
   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginVertical:12}}>
    <Pressable accessibilityRole="button" accessibilityLabel="Vorheriger Monat" disabled={index===0} onPress={()=>{setOffset(index-1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index===0?.35:1}}><Text style={{color:T.text,fontSize:24}}>‹</Text></Pressable>
@@ -90,6 +90,9 @@ export default function OracleStatusScreen(){
  useEffect(()=>{if(!pending)return;const timer=setInterval(checkResult,5000);return ()=>clearInterval(timer);},[pending,remote.request]);
  function confirm(action){Alert.alert('Automatik ändern',action==='book_now'?'Jetzt den bestehenden Buchungsdienst starten? Es gelten der gespeicherte Vorlauf und die bisherige Preisprüfung mit Restrisiko.':action==='horizon'?'Buchungsvorlauf auf '+months+' Monate setzen?':action==='pause'?'Zukünftige Läufe pausieren. Laufende Buchungen werden nicht abgebrochen.':action==='resume'?'Automatik fortsetzen. Ein verpasster Lauf kann nachgeholt werden.':'Montagszeit ändern auf '+time+' (Europe/Vienna).',[{text:'Abbrechen',style:'cancel'},{text:'Bestätigen',onPress:()=>control(action)}]);}
  const report=data?.report;
+ const saved=host?.savedReservations;
+ const savedSet=new Set(saved||[]);
+ const activityLabels={bulk:'Gmail-Sammelprüfung läuft',bulk_done:'Gmail-Sammelprüfung abgeschlossen',bulk_unclear:'Gmail-Sammelprüfung unvollständig',cache:'Reservierungsspeicher geladen',inventory:'Prüft WESTbahn-Ticketbestand',checkout:'Bestellvorgang gestartet',reconcile:'Prüft Bestellbestätigung',checking:'Prüft Reisetag',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail-Abfrage wiederholen',stopped:'Buchung gestoppt',skipped:'Prüfung unklar – übersprungen'};
  const stateLabel=s=>({active:'Aktiv',inactive:'Inaktiv',activating:'Läuft / startet',deactivating:'Wird beendet',failed:'Fehler'}[s]||s);
  const canStart=host&&Number.isInteger(host.monthsAhead)&&['inactive','failed'].includes(host.service.active)&&!busy&&!pending;
  return <ScrollView style={{flex:1,backgroundColor:T.bg}} contentContainerStyle={styles.page}
@@ -99,12 +102,16 @@ export default function OracleStatusScreen(){
  {(()=>{
   const running=['active','activating'].includes(host?.service?.active);
   const p=host?.progress;
-  const labels={checking:'Prüft Reservierung',confirmed:'Vorhandene Reservierung bestätigt',new:'Neue Reservierung bestätigt',retry:'Wiederholt Gmail-Abfrage',stopped:'Buchung gestoppt – Klärung erforderlich',skipped:'Tag übersprungen – Prüfung unklar'};
+  const labels={...activityLabels,checking:'Prüft Reservierung',confirmed:'Vorhandene Reservierung bestätigt',new:'Neue Reservierung bestätigt',retry:'Wiederholt Gmail-Abfrage',stopped:'Buchung gestoppt – Klärung erforderlich',skipped:'Tag übersprungen – Prüfung unklar'};
   const label=!host?'Serverstatus nicht verfügbar':running?(labels[p?.phase]||'Buchungsdienst läuft – aktueller Schritt noch nicht gemeldet'):pending?'Start- oder Steuerauftrag wartet auf Serverbestätigung':host.service.active==='failed'?'Letzter Buchungslauf mit Fehler beendet':host.service.active==='deactivating'?'Buchungsdienst wird beendet':'Bereit – wartet auf nächsten Auftrag';
   return <>
    <View style={{flexDirection:'row',alignItems:'center',gap:9,marginVertical:8}}><View style={{width:10,height:10,borderRadius:5,backgroundColor:!host||pending?T.orange:running?T.green:host.service.active==='failed'?T.red:T.muted}}/><Body style={{flex:1,fontWeight:'700'}}>{label}</Body></View>
+   <Body style={{color:T.green}}>Gespeicherte Reservierungen: {Array.isArray(saved)?saved.length:'Noch nicht verfügbar'}</Body>
+   {Array.isArray(saved)&&saved.length?<Muted>Letzter gespeicherter Reisetag: {[...saved].sort().at(-1)} (kein Nachweis für Lückenlosigkeit)</Muted>:null}
    {running&&p?.currentDay?<Body>Reisetag: {p.currentDay}</Body>:null}
    {running&&p?<><Body>Bestätigt: {p.confirmed.length} · Neu: {p.newlyBooked.length}</Body><Muted>Fortschrittsdaten abgerufen: {p.updatedAt?new Date(p.updatedAt).toLocaleString('de-AT'): 'Unbekannt'}</Muted></>:null}
+   <Heading>Aktivitätsprotokoll</Heading>
+   {p?.events?.length?p.events.slice(-12).reverse().map((e,i)=><View key={i} style={{borderBottomWidth:1,borderColor:T.line,paddingVertical:6}}><Body>{activityLabels[e.phase]||e.phase}{e.day?' · '+e.day:''}{e.count!=null?' · '+e.count:''}</Body></View>):<Muted>Noch keine Protokolleinträge vom Server verfügbar.</Muted>}
    {pending?<Muted>Auftrag noch nicht bestätigt. Nicht erneut starten.</Muted>:null}
    {!running&&!pending&&host?.timer?.next?<Muted>Nächster automatischer Lauf: {host.timer.next}</Muted>:null}
    <Muted>Serverstatus: {host?.timestamp?new Date(host.timestamp).toLocaleString('de-AT'):'Nicht verfügbar'} · Aktualisierung alle 20 Sekunden</Muted>
@@ -136,14 +143,14 @@ export default function OracleStatusScreen(){
  <Card><Heading subtitle="Aktueller Durchgang · Oracle">Live-Buchungsfortschritt</Heading>
  {host?.progress&&['active','activating'].includes(host.service.active)?<>
  <Body>Aktueller Reisetag: {host.progress.currentDay||'Noch nicht bekannt'}</Body>
- <Body>Verarbeitung: {({checking:'Reservierung prüfen',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail erneut prüfen',stopped:'Prüfung gestoppt',skipped:'Tag übersprungen'})[host.progress.phase]||'Unbekannt'}</Body>
+ <Body>Verarbeitung: {({...activityLabels,checking:'Reservierung prüfen',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail erneut prüfen',stopped:'Prüfung gestoppt',skipped:'Tag übersprungen'})[host.progress.phase]||'Unbekannt'}</Body>
  <Body style={{color:T.green}}>Bestätigte Tage: {host.progress.confirmed.length}</Body>
  <Body>Davon neu gebucht: {host.progress.newlyBooked.length}</Body>
  <Muted>Stand: {host.progress.updatedAt||'Unbekannt'}</Muted>
  </>:<Muted>{host&&['active','activating'].includes(host.service.active)?'Buchungslauf aktiv. Noch keine Live-Fortschrittsdaten verfügbar.':'Kein aktiver Buchungslauf.'}</Muted>}
  <Muted>Aktualisierung alle 20 Sekunden. Nur nachgewiesene Reservierungen werden gezählt.</Muted>
  </Card>
- <BookingCalendar report={report} horizon={host?.monthsAhead} progress={['active','activating'].includes(host?.service?.active)?host?.progress:null}/>
+ <BookingCalendar saved={saved} report={report} horizon={host?.monthsAhead} progress={['active','activating'].includes(host?.service?.active)?host?.progress:null}/>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
  <Body>Lückenlos bis: {report.lueckenlos_bis||'Nicht bestätigt'}</Body>
@@ -153,7 +160,7 @@ export default function OracleStatusScreen(){
  </Card><Card><Heading>Neue Reservierungen</Heading>
  {report.neu_gebucht.map(d=><Body key={d}>{d}</Body>)}
  <Heading>Offene geprüfte Tage</Heading>
- {report.offene_gepruefte_tage.length?report.offene_gepruefte_tage.map(d=><Body key={d}>{d}</Body>):<Muted>Keine im letzten Bericht.</Muted>}
+ {report.offene_gepruefte_tage.length?report.offene_gepruefte_tage.map(d=><Body key={d}>{d}{savedSet.has(d)?' · später im Speicher bestätigt':''}</Body>):<Muted>Keine im letzten Bericht.</Muted>}
  </Card></>:<Card><Muted>Noch kein Serverbericht verfügbar.</Muted></Card>}
  </ScrollView>;
 }
