@@ -7,11 +7,11 @@ import {T} from '../theme';
 
 export default function OracleStatusScreen(){
  const remote=useRemote();
- const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[host,setHost]=useState(null);
  const refresh=useCallback(async()=>{
   setBusy(true);setError('');
-  try{setData(await remote.request('/oracle/booking-report'));}
-  catch(e){setData(null);setError(e.message);}
+  try{const [report,status]=await Promise.allSettled([remote.request('/oracle/booking-report'),remote.request('/oracle/status')]);setData(report.status==='fulfilled'?report.value:null);setHost(status.status==='fulfilled'?status.value.status:null);if(report.status==='rejected')setError(report.reason.message);}
+  catch(e){setHost(null);setData(null);setError(e.message);}
   finally{setBusy(false);}
  },[remote.request]);
  useFocusEffect(useCallback(()=>{if(remote.connected)refresh();},[remote.connected,refresh]));
@@ -23,6 +23,9 @@ export default function OracleStatusScreen(){
  <Muted>Bericht vom Server, kein zweiter Buchungsdienst.</Muted>
  <ActionButton title="Aktualisieren" secondary disabled={busy||!remote.connected} onPress={refresh}/>
  {error?<Body>{error}</Body>:null}</Card>
+ <Card><Heading>Serverbetrieb</Heading>
+ {host?<><Body>Automatik: {host.timer.enabled&&host.timer.active==='active'?'Aktiv':host.timer.active}</Body><Body>Buchungsdienst: {host.service.active}</Body><Muted>Nächster Lauf: {host.timer.next||'Unbekannt'}</Muted><Muted>Stand: {host.timestamp}</Muted></>:<Muted>Kein aktueller Host-Status verfügbar.</Muted>}
+ </Card>
  {report?<><Card><Heading>Letzter Abschlussbericht</Heading>
  <Body>Bestätigt: {report.gesamt_bestaetigt}</Body>
  <Body>Lückenlos bis: {report.lueckenlos_bis||'Nicht bestätigt'}</Body>
