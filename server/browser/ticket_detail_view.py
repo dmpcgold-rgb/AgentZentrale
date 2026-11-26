@@ -262,7 +262,7 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         return {'detailStatus':'detail_unavailable','yearVerified':False}
 
 
-def inspect_existing_ticket_details(context, day, seat, max_pages=20, expected_booking_id=None):
+def inspect_existing_ticket_details(context, day, seat, max_pages=40, expected_booking_id=None):
     """Search read-only account pages; open at most one safe detail GET."""
     blocked={'status':'ticket_detail_check','bookingAuthorized':False,'confirmationVerified':False,
              'inventoryComplete':False,'safeToBook':False,'date':day,'seat':seat}
