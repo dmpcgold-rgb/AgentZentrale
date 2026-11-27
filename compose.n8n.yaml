@@ -1,0 +1,21 @@
+services:
+  n8n:
+    image: ${N8N_IMAGE:?Set a verified pinned n8n image tag}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set a private persistent encryption key}
+      GENERIC_TIMEZONE: Europe/Vienna
+      TZ: Europe/Vienna
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+      N8N_CONCURRENCY_PRODUCTION_LIMIT: "2"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  n8n-data:
