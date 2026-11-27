@@ -34,3 +34,11 @@ test('history contains only metadata and records failures once',async()=>{
  assert.equal(router.history()[1].status,'completed');
  assert.equal(JSON.stringify(router.history()).includes('secret'),false);
 });
+
+test('only transient GitHub reads retry once',async()=>{
+ let calls=0;
+ const router=createAutomationRouter({sleep:async()=>{},buildStatus:async()=>{if(++calls===1)throw Object.assign(Error('temporary'),{status:502});return {ok:true};},gmailStatus:async()=>{throw Object.assign(Error('temporary'),{status:502});}});
+ assert.equal((await router.dispatch({id:'retry_001',type:'github-build-status'})).result.ok,true);
+ assert.equal(calls,2);
+ await assert.rejects(router.dispatch({id:'retry_002',type:'gmail-connection-status'}));
+});
