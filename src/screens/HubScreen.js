@@ -13,14 +13,21 @@ export default function HubScreen({ navigation }) {
   const { data, submitCommand, apply, storageError } = useData();
   const { connected, request } = useRemote();
   const [automation, setAutomation] = useState(null);
+  const [automationHistory, setAutomationHistory] = useState(null);
+  const [historyError, setHistoryError] = useState('');
   const [automationBusy, setAutomationBusy] = useState(false);
   const [automationError, setAutomationError] = useState('');
   async function refreshAutomation() {
-    setAutomationBusy(true); setAutomationError(''); setAutomation(null);
+    setAutomationBusy(true); setAutomationError(''); setAutomation(null); setAutomationHistory(null); setHistoryError('');
     try {
       const result = await request('/automation/status', {timeoutMs:10000});
       if (result?.online !== true) throw new Error('Ungültiger Status.');
       setAutomation(result);
+      try {
+        const history = await request('/automation/history', {timeoutMs:10000});
+        if (!Array.isArray(history?.items)) throw new Error('Ungültiger Verlauf.');
+        setAutomationHistory(history);
+      } catch (error) { setHistoryError(error.message || 'Verlauf nicht verfügbar.'); }
     } catch (error) { setAutomationError(error.message || 'Status nicht verfügbar.'); }
     finally { setAutomationBusy(false); }
   }
@@ -102,6 +109,17 @@ export default function HubScreen({ navigation }) {
               ['WESTbahn-Lauf', automation.westbahnRunning ? 'Aktiv' : 'Inaktiv']
             ].map(([label,value]) => <View key={label} style={{flexDirection:'row',justifyContent:'space-between',gap:12}}><Muted>{label}</Muted><Body>{value}</Body></View>)}
             <Muted>n8n-Laufzeit und Workflow-Ausführungen sind noch nicht verifiziert.</Muted>
+            {historyError ? <Body style={{color:T.red}}>{historyError}</Body> : null}
+            {automationHistory ? <View style={{gap:8,marginTop:8}}>
+              <Text style={styles.itemTitle}>Auftragsverlauf</Text>
+              <Muted>{automationHistory.persistent ? 'Dauerhafter Serverspeicher konfiguriert' : 'Nur Arbeitsspeicher oder Speicherfehler'}</Muted>
+              {automationHistory.items.length===0 ? <Muted>Noch keine Aufträge protokolliert.</Muted> : automationHistory.items.slice(0,20).map((item,i)=><View key={item.id+'-'+i} style={{padding:8,borderRadius:8,backgroundColor:T.surface2}}>
+                <Body>{item.type}</Body>
+                <Text style={{color:item.status==='completed'?T.accent:T.red}}>{item.status==='completed'?'Ausgeführt':'Fehlgeschlagen'}</Text>
+                <Muted>{new Date(item.at).toLocaleString('de-AT')}</Muted>
+              </View>)}
+              <Muted>Die Anzeige zeigt bis zu 20 der letzten 100 Einträge. Ausgeführt bedeutet nicht automatisch, dass der geprüfte Dienst verfügbar ist.</Muted>
+            </View> : null}
           </View> : null}
         </Card>
       </Section>
