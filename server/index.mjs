@@ -1,5 +1,6 @@
 /** Self-hosted single-user gateway. No third-party API secret ever goes into the APK. */
 import { createServer } from 'node:http';
+import { createAutomationRouter } from './automation-router.mjs';
 import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createBrowser } from './browser.mjs';
@@ -25,6 +26,12 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
   const aiEnabled = () => Boolean(env.OPENAI_API_KEY);
   const githubWritable = () => Boolean(env.GITHUB_TOKEN && env.ENABLE_GITHUB_WRITE === 'true' && env.GITHUB_ALLOWED_OWNERS);
 
+  const automation = createAutomationRouter({
+    now,
+    status:()=>({online:true,aiEnabled:aiEnabled(),githubWriteEnabled:githubWritable()}),
+    readiness:()=>({providerConnected:Boolean(westbahn.status()?.providerConnected),running:Boolean(westbahn.status()?.running),bookingAuthorized:false}),
+    reviewStatus:()=>({enabled:Boolean(review?.status()?.enabled),running:Boolean(review?.status()?.running),bookingAuthorized:false})
+  });
   async function jsonFetch(url, options = {}, timeoutMs = 25_000) {
     let response;
     try { response = await fetchImpl(url, { ...options, signal: AbortSignal.timeout(timeoutMs) }); }
@@ -111,10 +118,19 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
           throw new ApiError(403, 'Workflow-Zugriff ist auf Statusabfragen beschränkt.');
         return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubWriteEnabled: githubWritable(), westbahnProviderConnected: Boolean(westbahn.status()?.providerConnected), westbahnRunning: Boolean(westbahn.status()?.running), bookingAuthorized: false });
       }
+      const taskToken=env.N8N_TASK_TOKEN || '';
+      if(taskToken.length>=32 && taskToken!==configuredToken && taskToken!==workflowToken && compareToken(access,taskToken)){
+        rateLimit();
+        if(req.url==='/automation/tasks' && req.method==='GET') return write(res,200,{types:automation.types(),readOnly:true});
+        if(req.url==='/automation/tasks' && req.method==='POST') return write(res,200,automation.dispatch(await readJson(req)));
+        throw new ApiError(403,'Auftragszugriff ist auf lesende Automatisierungsaufträge beschränkt.');
+      }
       if (!compareToken(access, configuredToken)) throw new ApiError(401, 'Nicht autorisiert.');
       rateLimit();
       const route = new URL(req.url, 'http://localhost');
       const is = (method, path) => req.method === method && route.pathname === path;
+      if (is('GET', '/automation/tasks')) return write(res,200,{types:automation.types(),readOnly:true});
+      if (is('POST', '/automation/tasks')) return write(res,200,automation.dispatch(await readJson(req)));
       if (is('GET', '/automation/status')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubWriteEnabled: githubWritable(), westbahnProviderConnected: Boolean(westbahn.status()?.providerConnected), westbahnRunning: Boolean(westbahn.status()?.running), bookingAuthorized: false, workflowAccessConfigured: Boolean(env.N8N_READ_TOKEN?.length >= 32 && env.N8N_READ_TOKEN !== configuredToken) });
       if (is('GET', '/health')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubReadEnabled: true, githubWriteEnabled: githubWritable(), version: '1.4' });
       if (is('GET', '/westbahn/browser/status')) return write(res, 200, browser.status());
