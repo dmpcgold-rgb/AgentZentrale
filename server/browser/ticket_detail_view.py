@@ -237,7 +237,12 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         diagnostic=categorize_detail_text(text,mime,dom.get('login') is True,dom.get('pdf') is True)
         exact=extract_explicit_trip_date(text)
         seats={f'{m.group(1)}{m.group(2).upper()}' for m in SEAT_LABEL.finditer(text)}
-        journey=all(x in text for x in ('Wien Meidling','Wiener Neustadt','18:22','18:49'))
+        arrival='18:50' if day >= '2026-12-13' else '18:49'
+        origin_matches='Wien Meidling' in text
+        destination_matches='Wiener Neustadt' in text
+        departure_matches='18:22' in text
+        arrival_matches=arrival in text
+        journey=all((origin_matches,destination_matches,departure_matches,arrival_matches))
         product='Reservierung Comfort Class' in text
         year_verified=exact==day and seats=={seat} and journey and product
         refs=reference_indicators(text)
@@ -245,6 +250,9 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         booking_id_matches=(year_verified and
             exact_reference_match(text,expected_booking_id)) if booking_id_checked else False
         return {'detailStatus':'detail_read','yearVerified':year_verified,
+                'dateMatches':exact==day,
+                'originMatches':origin_matches,'destinationMatches':destination_matches,
+                'departureMatches':departure_matches,'arrivalMatches':arrival_matches,
                 'bookingReferenceChecked':booking_id_checked,
                 'bookingReferenceMatched':booking_id_matches,
                 'seatMatched':seats=={seat},'tripMatched':journey and product,
@@ -254,7 +262,7 @@ def read_detail(page, url, day, seat, expected_booking_id=None):
         return {'detailStatus':'detail_unavailable','yearVerified':False}
 
 
-def inspect_existing_ticket_details(context, day, seat, max_pages=2, expected_booking_id=None):
+def inspect_existing_ticket_details(context, day, seat, max_pages=40, expected_booking_id=None):
     """Search read-only account pages; open at most one safe detail GET."""
     blocked={'status':'ticket_detail_check','bookingAuthorized':False,'confirmationVerified':False,
              'inventoryComplete':False,'safeToBook':False,'date':day,'seat':seat}
@@ -271,8 +279,8 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2, expected_bo
     rejection_reasons={}
     control_kinds={}
     route_templates={}
-    for host in ('westbahn.at','westbahn.de'):
-        for number in range(1,min(max_pages,5)+1):
+    for host in ('westbahn.at',):
+        for number in range(1,min(max_pages,40)+1):
             page=context.new_page()
             try:
                 home=f'https://{host}/ticketshop/dashboard/tickets?page={number}&mode=valid'
@@ -324,6 +332,9 @@ def inspect_existing_ticket_details(context, day, seat, max_pages=2, expected_bo
                             template=(kind,reason,fingerprint['route'],fingerprint['query'],fingerprint.get('ticketRouteShape','not_applicable'))
                             route_templates[template]=route_templates.get(template,0)+1
                 reports.append('account_read')
+                # Positive evidence only; a missing card never authorizes a purchase.
+                if matched == 1 and len(safe_links[host]) == 1:
+                    break
             except Exception:
                 reports.append('account_unavailable')
             finally:

@@ -1,4 +1,4 @@
-name: Build Android test APK
+name: Build Android Release APK
 on:
   workflow_dispatch:
   push:
@@ -95,23 +95,43 @@ jobs:
         run: npx expo export --platform android --output-dir /tmp/agentzentrale-export
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
-      - name: Build standalone test APK
-        working-directory: android
-        run: ./gradlew :app:assembleRelease --no-daemon
-      - name: Verify Android APK signature
+      - name: Fix React Native Java toolchain
         shell: bash
         run: |
           set -euo pipefail
-          APK=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)
+          FILE=node_modules/@react-native/gradle-plugin/settings.gradle.kts
+          test -f "$FILE"
+          sed -i '/org.gradle.toolchains.foojay-resolver-convention/d' "$FILE"
+          java -version
+      - name: Build standalone test APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+      - name: Sign production APK
+        shell: bash
+        env:
+          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$KS_BASE64"
+          test -n "$KS_PASS"
+          test -n "$KEY_PASS"
+          test -n "$KEY_ALIAS"
+          KS=$(mktemp)
+          trap 'rm -f "$KS"' EXIT
+          printf '%s' "$KS_BASE64" | base64 -d > "$KS"
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
           test -n "$APK"
-          SIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -n "$SIGNER"
-          "$SIGNER" verify --verbose "$APK"
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
           mkdir -p artifacts
-          cp "$APK" artifacts/AgentZentrale-test.apk
+          "$SIGNER" sign --ks "$KS" --ks-type PKCS12 --ks-key-alias "$KEY_ALIAS" --ks-pass env:KS_PASS --key-pass env:KEY_PASS --out artifacts/AgentZentrale-1.5.1-release.apk "$APK"
+          "$SIGNER" verify --verbose --print-certs artifacts/AgentZentrale-1.5.1-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: AgentZentrale-Android-test
-          path: artifacts/AgentZentrale-test.apk
+          name: AgentZentrale-Release-1.5.1
+          path: artifacts/AgentZentrale-1.5.1-release.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90

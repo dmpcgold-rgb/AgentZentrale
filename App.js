@@ -11,6 +11,7 @@ import ChatScreen from './src/screens/ChatScreen';
 import GitHubScreen from './src/screens/GitHubScreen';
 import { T } from './src/theme';
 import HubScreen from './src/screens/HubScreen';
+import OracleStatusScreen from './src/screens/OracleStatusScreen';
 import WestbahnScreen from './src/screens/WestbahnScreen';
 import TasksScreen from './src/screens/TasksScreen';
 import ApprovalsScreen from './src/screens/ApprovalsScreen';
@@ -50,7 +51,8 @@ export default function App() {
           <Stack.Screen name="Haupt" component={Tabs} options={{ headerShown: false }} />
           <Stack.Screen name="Einstellungen" component={SettingsScreen} />
           <Stack.Screen name="Verlauf" component={HistoryScreen} />
-          <Stack.Screen name="WESTbahn" component={WestbahnScreen} />
+          <Stack.Screen name="WESTbahn" component={OracleStatusScreen} />
+          <Stack.Screen name="WESTbahn Diagnose" component={WestbahnScreen} />
         </Stack.Navigator>
       </NavigationContainer>
       </RemoteProvider>

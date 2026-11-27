@@ -30,6 +30,68 @@ export default function GitHubScreen({ navigation }) {
   const [pr, setPr] = useState(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [filter,setFilter] = useState('');
+  const [review,setReview] = useState(false);
+  const [multiPaths,setMultiPaths]=useState('');
+  const [multiInstruction,setMultiInstruction]=useState('');
+  const [multi,setMulti]=useState(null);
+  const [multiApproved,setMultiApproved]=useState(false);
+  const [multiPR,setMultiPR]=useState(null);
+  const [checks,setChecks]=useState(null);
+  const [workflows,setWorkflows]=useState([]);
+  const [runs,setRuns]=useState([]);
+  const [buildJobs,setBuildJobs]=useState(null);
+  const [buildNotice,setBuildNotice]=useState('');
+  const [diagnosis,setDiagnosis]=useState(null);
+  const [artifacts,setArtifacts]=useState(null);
+  const [repairCount,setRepairCount]=useState(0);
+  const prepareRepair=()=>job('repair',async()=>{
+    if(!diagnosis||!multiPR||diagnosis.sha!==multiPR.sha||repairCount>=3)return;
+    const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
+    const instruction=('Buildfehler korrigieren. '+multiInstruction+'\nVorläufige Diagnose: '+diagnosis.diagnosis).slice(0,1800);
+    const result=await request('/developer/plan',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,paths,instruction,repair:{runId:diagnosis.runId,branch:multiPR.branch,sha:multiPR.sha}}});
+    setMulti({...result,owner:multiPR.owner,repo:multiPR.repo});setMultiApproved(false);setRepairCount(n=>n+1);
+  });
+
+  const diagnoseRun=run=>job('diagnose',async()=>{
+    setDiagnosis(null);
+    const x=await request('/developer/diagnose',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,runId:run.id}});
+    setDiagnosis({...x,runId:run.id});
+  });
+  const loadArtifacts=run=>job('artifacts',async()=>{
+    setArtifacts(null);
+    const x=await request('/developer/artifacts'+qs({owner:multiPR.owner,repo:multiPR.repo,runId:run.id}));
+    if(x.sha!==multiPR.sha)throw Error('Build gehört nicht zum geprüften Commit.');
+    setArtifacts({...x,runId:run.id});
+  });
+
+  const loadWorkflows=()=>job('workflows',async()=>{
+    const x=await request('/developer/workflows'+qs({owner:multiPR.owner,repo:multiPR.repo}));setWorkflows(x.workflows||[]);
+  });
+  const loadRuns=()=>job('runs',async()=>{
+    const x=await request('/developer/runs'+qs({owner:multiPR.owner,repo:multiPR.repo,branch:multiPR.branch}));setRuns((x.runs||[]).filter(r=>r.sha===multiPR.sha));setBuildJobs(null);
+  });
+  const launchWorkflow=w=>Alert.alert('Workflow starten?',w.name+' auf '+multiPR.branch+'. Nur freigegebene Workflows starten. Signierung und Veröffentlichung hängen vom Workflow ab.',[{text:'Abbrechen',style:'cancel'},{text:'Starten',onPress:()=>job('dispatch',async()=>{
+    setBuildNotice('');
+    const x=await request('/developer/dispatch',{method:'POST',body:{owner:multiPR.owner,repo:multiPR.repo,branch:multiPR.branch,sha:multiPR.sha,workflowId:w.id,confirm:'WORKFLOW-STARTEN'}});
+    setBuildNotice(x.message);
+  })}]);
+  const loadJobs=run=>job('jobs',async()=>{const x=await request('/developer/jobs'+qs({owner:multiPR.owner,repo:multiPR.repo,runId:run.id}));setBuildJobs({...x,runId:run.id});});
+
+  const prepareMulti=()=>job('multi',async()=>{
+    setRepairCount(0);setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);
+    const paths=multiPaths.split(/\r?\n/).map(p=>p.trim()).filter(Boolean);
+    const result=await request('/developer/plan',{method:'POST',body:{owner,repo,paths,instruction:multiInstruction}});
+    setMulti({...result,owner,repo});
+  });
+  const commitMulti=()=>Alert.alert('Entwurfs-PR erstellen?', 'Alle angezeigten Änderungen werden gemeinsam auf einen neuen Branch geschrieben. Keine automatische Zusammenführung.',[{text:'Abbrechen',style:'cancel'},{text:'Freigeben',onPress:()=>job('multi-pr',async()=>{
+    const result=await request('/developer/create-pr',{method:'POST',body:{id:multi.id,confirm:'FREIGEBEN'}});
+    setWorkflows([]);setRuns([]);setBuildJobs(null);setBuildNotice('');setDiagnosis(null);setArtifacts(null);setChecks(null);setMultiPR({...result,owner:multi.owner,repo:multi.repo});setMulti(null);setMultiApproved(false);
+  })}]);
+  const loadChecks=()=>job('checks',async()=>setChecks(await request('/developer/checks'+qs({owner:multiPR.owner,repo:multiPR.repo,sha:multiPR.sha}))));
+
+  const validRepo = /^[A-Za-z0-9_.-]+$/.test(owner) && /^[A-Za-z0-9_.-]+$/.test(repo);
+  const actionsUrl = validRepo ? `https://github.com/${owner}/${repo}/actions` : null;
 
   async function job(name, run) {
     if (busy || !connected) return;
@@ -37,14 +99,14 @@ export default function GitHubScreen({ navigation }) {
     try { await run(); } catch (e) { setError(String(e?.message || e)); }
     finally { setBusy(''); }
   }
-  function changeTarget(value, setter) { setter(value); setFile(null); setProposal(null); setPr(null); setEntries([]); }
+  function changeTarget(value, setter) { if(busy)return; setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);setter(value); setFile(null); setProposal(null); setPr(null); setEntries([]); }
   const browseRepos = () => job('repos', async () => {
     const x = await request('/github/repos' + qs({ owner }));
-    setRepos(x.repos || []); setRepo(''); setEntries([]); setFile(null); setProposal(null);
+    setRepos(x.repos || []); setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);setRepo(''); setEntries([]); setFile(null); setProposal(null);
   });
   const browseDir = (targetRepo = repo, targetDir = '') => job('folder', async () => {
     const x = await request('/github/entries' + qs({ owner, repo: targetRepo, path: targetDir }));
-    setRepo(targetRepo); setDir(targetDir); setEntries(x.items || []); setFile(null); setProposal(null); setPr(null);
+    if(targetRepo!==repo){setMulti(null);setMultiApproved(false);setMultiPR(null);setChecks(null);} setRepo(targetRepo); setDir(targetDir); setEntries(x.items || []); setFile(null); setProposal(null); setPr(null);
   });
   const openFile = (targetPath = path) => job('file', async () => {
     const x = await request('/github/file' + qs({ owner, repo, path: targetPath }));
@@ -52,7 +114,7 @@ export default function GitHubScreen({ navigation }) {
   });
   const propose = () => job('proposal', async () => {
     const x = await request('/github/proposals', { method: 'POST', body: { owner, repo, path: file?.path || path, instruction } });
-    setProposal(x); setShowOriginal(false); setPr(null);
+    setProposal(x); setReview(false); setShowOriginal(false); setPr(null);
     apply({ type: 'LOG_ACTIVITY', text: `GitHub-Änderungsvorschlag vorbereitet: ${owner}/${repo}/${x.path}` });
   });
   const createPR = () => Alert.alert('Entwurfs-Pull-Request erstellen?', `Repository: ${owner}/${repo}\nDatei: ${proposal?.path}\n\nDie Änderung wird auf einen NEUEN Branch geschrieben. Dein Hauptzweig bleibt unverändert. Vor einem Merge bitte den Code testen.`, [
@@ -66,7 +128,8 @@ export default function GitHubScreen({ navigation }) {
 
   return <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: T.bg }}>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.page}>
-      <Text style={styles.pageTitle}>GitHub-Agent</Text>
+      <Text style={styles.pageTitle}>Entwickler-Zentrale</Text>
+      <View style={{flexDirection:'row',gap:8,marginBottom:12}}>{[['code-slash-outline','Entwicklung','#64B5FF','#19344F'],['shield-checkmark-outline','Qualität','#C3A6FF','#36294E'],['cube-outline','Build','#F5C16B','#49391F']].map(([icon,label,color,bg])=><View key={label} style={{flex:1,backgroundColor:bg,borderRadius:12,padding:10,alignItems:'center',gap:6}}><Ionicons name={icon} color={color} size={24}/><Text style={{color,fontSize:12,fontWeight:'700'}}>{label}</Text></View>)}</View>
       <Muted style={{ marginBottom: 15 }}>Repositories lesen, Dateien prüfen und Änderungen als Entwurfs-PR vorschlagen – niemals automatisch mergen.</Muted>
       {!connected ? <Card>
         <Body>Verbinde zuerst deinen privaten AgentZentrale-Server.</Body>
@@ -78,13 +141,15 @@ export default function GitHubScreen({ navigation }) {
         <Heading>1. Repository wählen</Heading>
         <Field label="GitHub-Konto" value={owner} onChangeText={v => changeTarget(v, setOwner)} placeholder="Konto oder Organisation"/>
         <ActionButton title="Repositories anzeigen" onPress={browseRepos} disabled={!connected || !!busy || !owner.trim()} secondary icon="folder-open-outline"/>
-        {repos.length ? <View style={{ marginTop: 12, gap: 7 }}>{repos.map(r => <Pressable key={r.name} accessibilityRole="button" accessibilityLabel={`Repository ${r.name} öffnen`} onPress={() => browseDir(r.name)} style={{ backgroundColor: T.surface2, padding: 12, minHeight: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+        {repos.length ? <Field label="Projekte filtern" value={filter} onChangeText={setFilter} placeholder="Projektname suchen"/> : null}
+        {repos.length ? <View style={{ marginTop: 12, gap: 7 }}>{repos.filter(r=>r.name.toLowerCase().includes(filter.toLowerCase())).map(r => <Pressable key={r.name} accessibilityRole="button" accessibilityLabel={`Repository ${r.name} öffnen`} onPress={() => browseDir(r.name)} style={{ backgroundColor: T.surface2, padding: 12, minHeight: 48, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
           <Ionicons name="folder-outline" color={T.accent} size={21}/><Text style={{ color: T.text, flex: 1 }}>{r.name}</Text><Ionicons name="chevron-forward-outline" color={T.muted} size={19}/>
         </Pressable>)}</View> : null}
         <Muted style={{ marginTop: 8 }}>Private Repositories erscheinen ggf. nicht in der öffentlichen Liste. Sie können direkt eingegeben werden, sofern der Server Zugriff hat.</Muted>
         <Field label="Repository (direkte Eingabe möglich)" value={repo} onChangeText={v => changeTarget(v, setRepo)} placeholder="z. B. Gym-Coach"/>
         <ActionButton title="Dateien öffnen" secondary onPress={() => browseDir(repo)} disabled={!connected || !!busy || !repo.trim()} icon="folder-outline" />
       </Card>
+      {actionsUrl ? <Card style={{borderColor:'#F5C16B'}}><Heading subtitle="Builds und Testergebnisse auf GitHub einsehen">Projektstatus &amp; Release</Heading><ActionButton title="GitHub Actions öffnen" icon="open-outline" secondary onPress={()=>Linking.openURL(actionsUrl)}/><ActionButton title="Veröffentlichte Releases öffnen" icon="cube-outline" secondary style={{marginTop:8}} onPress={()=>Linking.openURL(`https://github.com/${owner}/${repo}/releases`)}/><Muted style={{marginTop:8}}>Nur Navigation: kein Build wird automatisch gestartet. Signierung und Testergebnis müssen im Workflow geprüft werden.</Muted></Card>:null}
       {repo ? <Card>
         <Heading subtitle={`${owner}/${repo}${dir ? '/' + dir : ''}`}>2. Datei wählen</Heading>
         {dir ? <ActionButton title="Eine Ebene zurück" secondary onPress={() => browseDir(repo, dir.includes('/') ? dir.substring(0, dir.lastIndexOf('/')) : '')} disabled={!!busy} icon="arrow-up-outline" style={{ marginBottom: 9 }}/> : null}
@@ -95,6 +160,46 @@ export default function GitHubScreen({ navigation }) {
         <Field label="Dateipfad (oder oben auswählen)" value={path} onChangeText={v => changeTarget(v, setPath)} placeholder="z. B. App.js" maxLength={300}/>
         <ActionButton title="Datei lesen" secondary icon="eye-outline" onPress={() => openFile(path)} disabled={!connected || !!busy || !path.trim()}/>
       </Card> : null}
+      {repo ? <Card style={{borderColor:'#64B5FF'}}>
+        <Heading subtitle={owner+'/'+repo}>Master-Agent · Mehrdatei-Auftrag</Heading>
+        <Muted>Wähle bis zu vier vorhandene Textdateien. Die Inhalte werden zur KI-Analyse übertragen.</Muted>
+        <Field label="Dateipfade (einer pro Zeile)" value={multiPaths} onChangeText={setMultiPaths} multiline maxLength={1200} placeholder="src/App.js"/>
+        <ActionButton title="Aktuelle Datei hinzufügen" secondary disabled={!file||!!busy} onPress={()=>setMultiPaths(v=>[...new Set([...v.split(/\r?\n/).filter(Boolean),file.path])].join('\n'))}/>
+        <Field label="Entwicklungsauftrag" value={multiInstruction} onChangeText={setMultiInstruction} multiline maxLength={1800} placeholder="Beschreibe die gewünschte Verbesserung"/>
+        <ActionButton title="Plan und Änderungen vorbereiten" icon="sparkles-outline" disabled={!connected||!!busy||!multiPaths.trim()||!multiInstruction.trim()} onPress={prepareMulti}/>
+      </Card>:null}
+      {multi ? <Card style={{borderColor:'#C3A6FF'}}>
+        <Heading subtitle={multi.owner+'/'+multi.repo}>{multi.title}</Heading>{multi.repair?<Body>Reparaturbasis: {multi.baseBranch} · {multi.baseSha?.slice(0,8)}</Body>:null}
+        <Body>{multi.plan}</Body>
+        <Heading>Vorläufige KI-Qualitätsanalyse</Heading>
+        <Body>{multi.review}</Body>
+        <Muted>Keine tatsächlichen Tests ausgeführt. Vollständige Dateiinhalte prüfen.</Muted>
+        {multi.changes.map(f=><View key={f.path} style={{gap:8,marginVertical:8}}>
+          <Body>{f.path}</Body>
+          <Muted>Original</Muted><ScrollView nestedScrollEnabled style={{maxHeight:150,backgroundColor:T.surface2,padding:8}}><Text selectable style={{color:T.text,fontFamily:'monospace'}}>{f.original}</Text></ScrollView>
+          <Muted>Vorschlag</Muted><ScrollView nestedScrollEnabled style={{maxHeight:220,backgroundColor:T.surface2,padding:8}}><Text selectable style={{color:T.text,fontFamily:'monospace'}}>{f.content}</Text></ScrollView>
+        </View>)}
+        <Pressable accessibilityRole="checkbox" accessibilityState={{checked:multiApproved}} onPress={()=>setMultiApproved(v=>!v)} style={{flexDirection:'row',gap:8,minHeight:48,alignItems:'center'}}><Ionicons name={multiApproved?'checkbox':'square-outline'} size={25} color="#C3A6FF"/><Body style={{flex:1}}>Alle Änderungen geprüft</Body></Pressable>
+        <ActionButton title="Gemeinsamen Entwurfs-PR erstellen" disabled={!multiApproved||!multi.githubWriteEnabled||!!busy} onPress={commitMulti}/>
+        <ActionButton title="Verwerfen" secondary disabled={!!busy} onPress={()=>setMulti(null)}/>
+      </Card>:null}
+      {multiPR ? <Card style={{borderColor:'#F5C16B'}}>
+        <Heading>Entwurfs-PR #{multiPR.number}</Heading>
+        <Body>Branch: {multiPR.branch}</Body>
+        <ActionButton title="PR öffnen" secondary onPress={()=>{if(multiPR.url?.startsWith('https://github.com/'))Linking.openURL(multiPR.url);}}/>
+        <ActionButton title="GitHub-Testergebnisse abrufen" disabled={!!busy} onPress={loadChecks}/>
+        <Heading subtitle="Nur freigegebene Workflows auf diesem Entwicklungsbranch">Build-Agent</Heading>
+        <ActionButton title="Workflows laden" secondary disabled={!!busy} onPress={loadWorkflows}/>
+        {workflows.map(w=><View key={w.id} style={{gap:4,marginVertical:5}}><Body>{w.name}</Body><Muted>{w.path}</Muted><ActionButton title={w.dispatchEnabled?'Workflow starten':'Nicht freigeschaltet'} secondary disabled={!!busy||!w.dispatchEnabled} onPress={()=>launchWorkflow(w)}/></View>)}
+        {buildNotice?<Body>{buildNotice}</Body>:null}
+        <ActionButton title="Buildstatus aktualisieren" disabled={!!busy} onPress={loadRuns}/>
+        {runs.map(run=><View key={run.id} style={{gap:6,marginVertical:8}}><Body>{run.name} · {run.conclusion||run.status}</Body><ActionButton title="Buildschritte prüfen" secondary disabled={!!busy} onPress={()=>loadJobs(run)}/>{run.status==='completed'&&['failure','timed_out','action_required','startup_failure'].includes(run.conclusion)?<ActionButton title="KI-Fehleranalyse" secondary disabled={!!busy} onPress={()=>diagnoseRun(run)}/>:null}{run.status==='completed'&&run.conclusion==='success'?<ActionButton title="Build-Dateien anzeigen" secondary disabled={!!busy} onPress={()=>loadArtifacts(run)}/>:null}<ActionButton title="GitHub-Build öffnen" secondary onPress={()=>{if(run.url?.startsWith('https://github.com/'))Linking.openURL(run.url);}}/></View>)}
+        {diagnosis?<View style={{gap:8,marginVertical:8}}><Heading>Fehleranalyse #{diagnosis.runId}</Heading><Body>{diagnosis.diagnosis}</Body><Muted>Nur Buildschritt-Metadaten, keine vollständigen Logs. Keine Reparatur ausgeführt. Reparaturvorschläge verwenden den fehlgeschlagenen Commit.</Muted><ActionButton title={'Reparatur vorbereiten ('+repairCount+'/3)'} disabled={!!busy||repairCount>=3||!multiPaths.trim()||diagnosis.sha!==multiPR.sha} onPress={prepareRepair}/><Muted>Die oben gewählten Dateipfade werden verwendet. Jede Änderung und jeder neue Build brauchen eine Freigabe. Nach drei Vorschlägen ist ein neuer Auftrag erforderlich.</Muted></View>:null}
+        {artifacts?<View style={{gap:8,marginVertical:8}}><Heading>Build-Dateien #{artifacts.runId}</Heading><Muted>Die App hat die APK-Signatur nicht selbst geprüft. Nur verifizierte Release-APKs installieren.</Muted>{artifacts.artifacts.length===0?<Body>Keine verfügbaren Artefakte.</Body>:null}{artifacts.artifacts.map(a=><ActionButton key={a.id} title={a.name} secondary onPress={()=>{if(a.url?.startsWith('https://github.com/'))Linking.openURL(a.url);}}/>)}</View>:null}
+        {buildJobs?<View style={{gap:6}}><Heading>Buildschritte #{buildJobs.runId}</Heading>{buildJobs.jobs.map((j,i)=><View key={i} style={{gap:4}}><Body>{j.name}: {j.conclusion||j.status}</Body>{j.steps.map((step,k)=><Muted key={k}>{step.name}: {step.conclusion||step.status}</Muted>)}</View>)}</View>:null}
+
+        {checks ? <View style={{gap:8}}><Body>{checks.allReportedPassed?'Alle gemeldeten Checks erfolgreich':'Keine vollständige erfolgreiche Prüfliste'}</Body>{checks.checks.map((c,i)=><Body key={i} style={{color:c.conclusion==='success'?T.accent:T.orange}}>{c.name}: {c.conclusion||c.status}</Body>)}<Muted>Gemeldete Checks sind kein Nachweis vollständiger Testabdeckung oder einer signierten APK.</Muted></View>:null}
+      </Card>:null}
       {file ? <Card>
         <Heading subtitle={file.path}>3. Datei prüfen</Heading>
         <ScrollView nestedScrollEnabled style={{ maxHeight: 260, borderRadius: 12, backgroundColor: T.surface2, padding: 11 }}><Text selectable style={{ color: T.text, fontFamily: 'monospace', fontSize: 12, lineHeight: 18 }}>{file.content}</Text></ScrollView>
@@ -112,7 +217,8 @@ export default function GitHubScreen({ navigation }) {
         <ScrollView nestedScrollEnabled style={{ maxHeight: 320, backgroundColor: T.surface2, padding: 10, borderRadius: 10 }}><Text selectable style={{ color: T.text, fontFamily: 'monospace', fontSize: 12, lineHeight: 18 }}>{showOriginal ? proposal.original : proposal.proposed}</Text></ScrollView>
         <Muted style={{ marginVertical: 14 }}>Prüfe den gesamten Vorschlag. Diese Version führt keine automatischen Tests des geänderten Repositories aus.</Muted>
         <ActionButton title="Vorschlag verwerfen" secondary onPress={() => setProposal(null)} disabled={!!busy} style={{ marginBottom: 9 }}/>
-        <ActionButton title="Entwurfs-PR nach Freigabe erstellen" icon="git-pull-request-outline" disabled={!proposal.githubWriteEnabled || !!busy} onPress={createPR}/>
+        <Pressable accessibilityRole="checkbox" accessibilityState={{checked:review}} onPress={()=>setReview(v=>!v)} style={{flexDirection:'row',alignItems:'center',gap:10,minHeight:48,marginBottom:8}}><Ionicons name={review?'checkbox':'square-outline'} color="#C3A6FF" size={25}/><Body style={{flex:1}}>Ich habe den vollständigen Änderungsvorschlag geprüft. Automatische Tests stehen noch aus.</Body></Pressable>
+        <ActionButton title="Entwurfs-PR nach Freigabe erstellen" icon="git-pull-request-outline" disabled={!proposal.githubWriteEnabled || !!busy || !review} onPress={createPR}/>
         {!proposal.githubWriteEnabled ? <Muted style={{ marginTop: 8 }}>GitHub-Schreibzugriff ist auf deinem Server deaktiviert. Ein Pull Request kann derzeit nicht erstellt werden.</Muted> : null}
       </Card> : null}
       {pr ? <Card style={{ borderColor: T.accent }}>

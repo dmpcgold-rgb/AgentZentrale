@@ -3,19 +3,24 @@
     "name": "AgentZentrale",
     "slug": "agentzentrale",
     "scheme": "agentzentrale",
-    "version": "1.4.7",
+    "version": "1.5.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "at.agentzentrale.mobile",
-      "versionCode": 11,
-      "permissions": []
+      "versionCode": 20,
+      "permissions": [],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/agentzentrale-adaptive.png",
+        "backgroundColor": "#101A2B"
+      }
     },
     "plugins": [
       "expo-secure-store"
     ],
     "extra": {
       "mode": "local-agents-plus-server"
-    }
+    },
+    "icon": "./assets/agentzentrale-icon.png"
   }
 }
