@@ -115,6 +115,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       rateLimit();
       const route = new URL(req.url, 'http://localhost');
       const is = (method, path) => req.method === method && route.pathname === path;
+      if (is('GET', '/automation/status')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubWriteEnabled: githubWritable(), westbahnProviderConnected: Boolean(westbahn.status()?.providerConnected), westbahnRunning: Boolean(westbahn.status()?.running), bookingAuthorized: false, workflowAccessConfigured: Boolean(env.N8N_READ_TOKEN?.length >= 32 && env.N8N_READ_TOKEN !== configuredToken) });
       if (is('GET', '/health')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubReadEnabled: true, githubWriteEnabled: githubWritable(), version: '1.4' });
       if (is('GET', '/westbahn/browser/status')) return write(res, 200, browser.status());
       if (is('POST', '/westbahn/browser/probe') || is('POST', '/westbahn/browser/prepare')) {
