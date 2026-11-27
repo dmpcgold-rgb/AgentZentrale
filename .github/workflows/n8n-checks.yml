@@ -1,0 +1,29 @@
+name: n8n integration checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [integration/n8n]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run existing and new tests
+        run: npm test
+      - name: Validate workflow JSON
+        run: node --test server/tests/n8n-workflows.test.mjs
+      - name: Validate Compose without deployment
+        env:
+          N8N_IMAGE: docker.n8n.io/n8nio/n8n:ci-placeholder
+          N8N_ENCRYPTION_KEY: ci-placeholder-not-a-production-secret
+        run: |
+          cp server/.env.example server/.env
+          docker compose -f compose.yaml -f compose.n8n.yaml config --quiet
