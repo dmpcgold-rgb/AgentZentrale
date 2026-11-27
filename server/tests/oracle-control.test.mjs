@@ -26,3 +26,14 @@ test('stale host status is rejected',()=>{
  const now=Date.now(),v={timestamp:new Date(now-180000).toISOString(),timer:{ActiveState:'active'},service:{ActiveState:'inactive'}};
  assert.throws(()=>normalizeHostStatus(v,now));
 });
+
+test('weekly horizon accepts only one to three weeks and preserves month compatibility',()=>{
+ const base={action:'horizon',confirm:'WESTBAHN-STEUERUNG'};
+ for(const weeks of [1,2,3])assert.deepEqual(validateControl({...base,weeks}),{action:'horizon',weeks});
+ for(const months of [1,2,3,4,5,6])assert.deepEqual(validateControl({...base,months}),{action:'horizon',months});
+ for(const weeks of [0,4,-1,1.5,'2',true])assert.throws(()=>validateControl({...base,weeks}));
+ assert.throws(()=>validateControl({...base,weeks:2,months:1}));
+ const now=Date.now(),v={timestamp:new Date(now).toISOString(),timer:{ActiveState:'active'},service:{ActiveState:'inactive'},monthsAhead:6,weeksAhead:2};
+ assert.equal(normalizeHostStatus(v,now).weeksAhead,2);
+ assert.equal(normalizeHostStatus({...v,weeksAhead:4},now).weeksAhead,null);
+});
