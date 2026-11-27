@@ -5,6 +5,10 @@ export function validateControl(body){
  if(!body||body.confirm!=='WESTBAHN-STEUERUNG'||!['pause','resume','schedule','horizon','book_now','stop_booking'].includes(body.action))throw new Error('Ungültige Steuerungsfreigabe.');
  if(body.action==='schedule'&&(typeof body.time!=='string'||!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(body.time)))throw new Error('Uhrzeit muss HH:MM sein.');
  if(body.action==='horizon'){
+  if(body.weeks!=null){
+   if(body.months!=null||!Number.isInteger(body.weeks)||body.weeks<1||body.weeks>3)throw new Error('Buchungsvorlauf muss 1 bis 3 Wochen betragen.');
+   return {action:'horizon',weeks:body.weeks};
+  }
   if(!Number.isInteger(body.months)||body.months<1||body.months>6)throw new Error('Buchungsvorlauf muss 1 bis 6 Monate betragen.');
   return {action:'horizon',months:body.months};
  }
