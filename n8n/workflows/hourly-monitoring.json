@@ -29,7 +29,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({id:'monitor_'+$execution.id,type:'quality-status'}) }}",
+        "jsonBody": "={{ JSON.stringify({id:'monitor_'+$now.toMillis()+'_'+$execution.id,type:'quality-status'}) }}",
         "options": {
           "timeout": 10000
         }

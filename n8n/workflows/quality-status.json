@@ -20,7 +20,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({id:'n8n_'+$execution.id,type:'quality-status'}) }}",
+        "jsonBody": "={{ JSON.stringify({id:'n8n_'+$now.toMillis()+'_'+$execution.id,type:'quality-status'}) }}",
         "options": {
           "timeout": 35000
         }
