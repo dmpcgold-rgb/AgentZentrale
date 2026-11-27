@@ -4,12 +4,26 @@ import { Alert, Keyboard, ScrollView, Text, TextInput, View, Pressable } from 'r
 import { Ionicons } from '@expo/vector-icons';
 import { AGENTS } from '../core/engine';
 import { useData } from '../store/DataContext';
+import { useRemote } from '../store/RemoteContext';
 import { T } from '../theme';
 import { ActionButton, Body, Card, Heading, Muted, Section, styles } from '../components/Kit';
 
 const examples = ['Aufgabe Rechnungen prüfen', 'Notiz Ideen für mein Projekt', 'Recherchiere Android Sicherheit', 'E-Mail Anfrage zum Angebot', 'Termin Besprechung am Freitag'];
 export default function HubScreen({ navigation }) {
   const { data, submitCommand, apply, storageError } = useData();
+  const { connected, request } = useRemote();
+  const [automation, setAutomation] = useState(null);
+  const [automationBusy, setAutomationBusy] = useState(false);
+  const [automationError, setAutomationError] = useState('');
+  async function refreshAutomation() {
+    setAutomationBusy(true); setAutomationError(''); setAutomation(null);
+    try {
+      const result = await request('/automation/status', {timeoutMs:10000});
+      if (result?.online !== true) throw new Error('Ungültiger Status.');
+      setAutomation(result);
+    } catch (error) { setAutomationError(error.message || 'Status nicht verfügbar.'); }
+    finally { setAutomationBusy(false); }
+  }
   const [command, setCommand] = useState('');
   const [feedback, setFeedback] = useState(null);
   const openCount = data.tasks.filter(t => !t.done).length;
@@ -70,6 +84,26 @@ export default function HubScreen({ navigation }) {
           <ActionButton title="WESTbahn-Agent öffnen" secondary icon="train-outline" onPress={() => navigation.getParent()?.navigate('WESTbahn')} />
           <ActionButton title="Aktionsverlauf" secondary icon="time-outline" onPress={() => navigation.getParent()?.navigate('Verlauf')} />
         </View>
+      </Section>
+      <Section>
+        <Heading subtitle="Lesender Zugriff auf die Server-Automatisierung">Automatisierungen · n8n</Heading>
+        <Card>
+          <Muted>Die Abfrage startet keine Workflows, Buchungen oder Schreibaktionen.</Muted>
+          <ActionButton title={automationBusy ? 'Status wird geprüft …' : 'Status aktualisieren'} icon="refresh-outline" onPress={refreshAutomation} disabled={!connected || automationBusy} />
+          {!connected ? <Muted>Bitte zuerst den Server verbinden.</Muted> : null}
+          {automationError ? <Body style={{color:T.red}}>{automationError}</Body> : null}
+          {connected && automation ? <View accessibilityLiveRegion="polite" style={{gap:8,marginTop:10}}>
+            {[
+              ['AgentZentrale', automation.online ? 'Online' : 'Nicht erreichbar'],
+              ['n8n-Zugriffsschlüssel', automation.workflowAccessConfigured ? 'Konfiguriert' : 'Nicht eingerichtet'],
+              ['KI', automation.aiEnabled ? 'Konfiguriert' : 'Nicht eingerichtet'],
+              ['GitHub-Schreibfunktion', automation.githubWriteEnabled ? 'Freigegeben' : 'Gesperrt'],
+              ['WESTbahn-Adapter', automation.westbahnProviderConnected ? 'Verbunden' : 'Nicht verbunden'],
+              ['WESTbahn-Lauf', automation.westbahnRunning ? 'Aktiv' : 'Inaktiv']
+            ].map(([label,value]) => <View key={label} style={{flexDirection:'row',justifyContent:'space-between',gap:12}}><Muted>{label}</Muted><Body>{value}</Body></View>)}
+            <Muted>n8n-Laufzeit und Workflow-Ausführungen sind noch nicht verifiziert.</Muted>
+          </View> : null}
+        </Card>
       </Section>
       <Section>
         <Heading subtitle="Antippen, um einen Beispielbefehl einzusetzen">Schnellbefehle</Heading>
