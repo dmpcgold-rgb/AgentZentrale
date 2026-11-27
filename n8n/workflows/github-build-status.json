@@ -22,7 +22,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({id:'n8n_'+$execution.id,type:'github-build-status'}) }}",
         "options": {
-          "timeout": 35000
+          "timeout": 65000
         }
       },
       "id": "59c139ea-954b-42f0-a74b-2c92fd59a82c",
