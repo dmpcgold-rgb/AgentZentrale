@@ -15,6 +15,7 @@ services:
       PORT: "8787"
       WESTBAHN_PYTHON: /opt/agent-venv/bin/python
       WESTBAHN_BROWSER_PROFILE: /app/server/data/westbahn-browser
+      AUTOMATION_HISTORY_FILE: /app/server/data/automation-history.json
       WESTBAHN_LEDGER: /app/server/data/westbahn.json
     ports:
       - "127.0.0.1:8787:8787"
