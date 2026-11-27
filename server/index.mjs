@@ -103,6 +103,14 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
   return async (req, res) => {
     try {
       const access = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+      // Dedicated read-only credential: never grants access to the main API.
+      const workflowToken = env.N8N_READ_TOKEN || '';
+      if (workflowToken.length >= 32 && workflowToken !== configuredToken && compareToken(access, workflowToken)) {
+        rateLimit();
+        if (req.method !== 'GET' || req.url !== '/automation/status')
+          throw new ApiError(403, 'Workflow-Zugriff ist auf Statusabfragen beschränkt.');
+        return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubWriteEnabled: githubWritable(), westbahnProviderConnected: Boolean(westbahn.status()?.providerConnected), westbahnRunning: Boolean(westbahn.status()?.running), bookingAuthorized: false });
+      }
       if (!compareToken(access, configuredToken)) throw new ApiError(401, 'Nicht autorisiert.');
       rateLimit();
       const route = new URL(req.url, 'http://localhost');
