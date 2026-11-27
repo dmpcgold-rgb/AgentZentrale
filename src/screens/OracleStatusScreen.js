@@ -8,7 +8,7 @@ import {T} from '../theme';
 
 const dateKey=d=>d.toISOString().slice(0,10);
 const monthLabel=d=>d.toLocaleDateString('de-AT',{month:'long',year:'numeric',timeZone:'UTC'});
-function BookingCalendar({report,horizon,progress,saved,pendingDates,reservations}){
+function BookingCalendar({report,horizon,weeks,progress,saved,pendingDates,reservations}){
  const [offset,setOffset]=useState(0);
  const [selected,setSelected]=useState(null);
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Vienna',year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date());
@@ -16,8 +16,9 @@ function BookingCalendar({report,horizon,progress,saved,pendingDates,reservation
  const today=new Date(Date.UTC(part('year'),part('month')-1,part('day')));
  const months=Number.isInteger(horizon)&&horizon>=1&&horizon<=6?horizon:6;
  const lastMonth=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+months,1));
- const end=new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth(),Math.min(today.getUTCDate(),new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth()+1,0)).getUTCDate())));
- const index=Math.min(offset,months);
+ const end=weeks?new Date(today.getTime()+weeks*7*86400000):new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth(),Math.min(today.getUTCDate(),new Date(Date.UTC(lastMonth.getUTCFullYear(),lastMonth.getUTCMonth()+1,0)).getUTCDate())));
+ const maxOffset=weeks?(end.getUTCFullYear()-today.getUTCFullYear())*12+end.getUTCMonth()-today.getUTCMonth():months;
+ const index=Math.min(offset,maxOffset);
  const first=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()+index,1));
  const count=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
  const leading=(first.getUTCDay()+6)%7;
@@ -43,7 +44,7 @@ function BookingCalendar({report,horizon,progress,saved,pendingDates,reservation
   <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginVertical:12}}>
    <Pressable accessibilityRole="button" accessibilityLabel="Vorheriger Monat" disabled={index===0} onPress={()=>{setOffset(index-1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index===0?.35:1}}><Text style={{color:T.text,fontSize:24}}>‹</Text></Pressable>
    <Body style={{fontWeight:'800'}}>{monthLabel(first)}</Body>
-   <Pressable accessibilityRole="button" accessibilityLabel="Nächster Monat" disabled={index>=months} onPress={()=>{setOffset(index+1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index>=months?.35:1}}><Text style={{color:T.text,fontSize:24}}>›</Text></Pressable>
+   <Pressable accessibilityRole="button" accessibilityLabel="Nächster Monat" disabled={index>=maxOffset} onPress={()=>{setOffset(index+1);setSelected(null);}} style={{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',opacity:index>=maxOffset?.35:1}}><Text style={{color:T.text,fontSize:24}}>›</Text></Pressable>
   </View>
   <View style={{flexDirection:'row'}}>{['Mo','Di','Mi','Do','Fr','Sa','So'].map(day=><Text key={day} style={{flex:1,textAlign:'center',color:T.muted,fontSize:12}}>{day}</Text>)}</View>
   {rows.map((row,i)=><View key={i} style={{flexDirection:'row',marginTop:3}}>{row.map((d,j)=>{
@@ -68,6 +69,8 @@ export default function OracleStatusScreen(){
  const remote=useRemote();
  const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[host,setHost]=useState(null),[time,setTime]=useState('07:00'),[pending,setPending]=useState(null),[notice,setNotice]=useState('');
  const [months,setMonths]=useState('6');
+ const [weeks,setWeeks]=useState(null);
+ useEffect(()=>{if(host?.weeksAhead){setWeeks(host.weeksAhead);}else if(host?.monthsAhead){setWeeks(null);setMonths(String(host.monthsAhead));}},[host?.weeksAhead,host?.monthsAhead]);
  const pendingAction=useRef(null), sending=useRef(false), refreshing=useRef(false), checking=useRef(false);
  const refresh=useCallback(async()=>{
   if(refreshing.current||sending.current)return;
@@ -80,7 +83,7 @@ export default function OracleStatusScreen(){
  async function control(action){
   if(sending.current||pending)return;
   sending.current=true;pendingAction.current=action;setBusy(true);setError('');setNotice('');
-  try{const r=await remote.request('/oracle/control',{method:'POST',body:{action,time,months:Number(months),confirm:'WESTBAHN-STEUERUNG'}});setPending(r.id);setNotice('Auftrag angenommen, Ausführung noch nicht bestätigt.');}
+  try{const r=await remote.request('/oracle/control',{method:'POST',body:{action,time,...(weeks?{weeks}:{months:Number(months)}),confirm:'WESTBAHN-STEUERUNG'}});setPending(r.id);setNotice('Auftrag angenommen, Ausführung noch nicht bestätigt.');}
   catch(e){setError('Auftrag unklar: '+e.message+' — Serverstatus prüfen, nicht blind wiederholen.');}finally{sending.current=false;setBusy(false);}
  }
  async function checkResult(){
@@ -90,7 +93,7 @@ export default function OracleStatusScreen(){
   catch(e){setError(e.message);}finally{checking.current=false;}
  }
  useEffect(()=>{if(!pending)return;const timer=setInterval(checkResult,5000);return ()=>clearInterval(timer);},[pending,remote.request]);
- function confirm(action){Alert.alert('Automatik ändern',action==='stop_booking'?'Buchungslauf kontrolliert beenden? Eine bereits begonnene Bestellung wird noch abgeglichen. Bestehende Tickets und Wochenautomatik bleiben unverändert.':action==='book_now'?'Jetzt den bestehenden Buchungsdienst starten? Es gelten der gespeicherte Vorlauf und die bisherige Preisprüfung mit Restrisiko.':action==='horizon'?'Buchungsvorlauf auf '+months+' Monate setzen?':action==='pause'?'Zukünftige Läufe pausieren. Laufende Buchungen werden nicht abgebrochen.':action==='resume'?'Automatik fortsetzen. Ein verpasster Lauf kann nachgeholt werden.':'Montagszeit ändern auf '+time+' (Europe/Vienna).',[{text:'Abbrechen',style:'cancel'},{text:'Bestätigen',onPress:()=>control(action)}]);}
+ function confirm(action){Alert.alert('Automatik ändern',action==='stop_booking'?'Buchungslauf kontrolliert beenden? Eine bereits begonnene Bestellung wird noch abgeglichen. Bestehende Tickets und Wochenautomatik bleiben unverändert.':action==='book_now'?'Jetzt den bestehenden Buchungsdienst starten? Es gelten der gespeicherte Vorlauf und die bisherige Preisprüfung mit Restrisiko.':action==='horizon'?'Buchungsvorlauf auf '+(weeks?weeks+(weeks===1?' Woche':' Wochen'):months+' Monate')+' setzen?':action==='pause'?'Zukünftige Läufe pausieren. Laufende Buchungen werden nicht abgebrochen.':action==='resume'?'Automatik fortsetzen. Ein verpasster Lauf kann nachgeholt werden.':'Montagszeit ändern auf '+time+' (Europe/Vienna).',[{text:'Abbrechen',style:'cancel'},{text:'Bestätigen',onPress:()=>control(action)}]);}
  const report=data?.report;
  const saved=host?.savedReservations;
  const savedSet=new Set(saved||[]);
@@ -100,7 +103,7 @@ export default function OracleStatusScreen(){
  const start=new Date(Date.UTC(getPart('year'),getPart('month')-1,getPart('day')));
  const horizon=host?.monthsAhead;
  const endMonth=Number.isInteger(horizon)?new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+horizon,1)):null;
- const end=endMonth?new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth(),Math.min(start.getUTCDate(),new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth()+1,0)).getUTCDate()))):null;
+ const end=host?.weeksAhead?new Date(start.getTime()+host.weeksAhead*7*86400000):endMonth?new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth(),Math.min(start.getUTCDate(),new Date(Date.UTC(endMonth.getUTCFullYear(),endMonth.getUTCMonth()+1,0)).getUTCDate()))):null;
  const targets=[];
  if(end)for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){if(d.getUTCDay()>0&&d.getUTCDay()<6)targets.push(dateKey(d));}
  const pendingDates=host?.pendingReservations;
@@ -109,7 +112,7 @@ export default function OracleStatusScreen(){
  const percent=targets.length&&Array.isArray(saved)?Math.round(covered/targets.length*100):null;
  const activityLabels={timetable:'Verbindung nicht eindeutig gefunden – Tag übersprungen',pending_order:'Bestellung ungeklärt – keine Wiederholung',cancelled:'Abbruch angefordert',conflict:'Widersprüchliche Buchungsnachweise',bulk:'Gmail-Sammelprüfung läuft',bulk_done:'Gmail-Sammelprüfung abgeschlossen',bulk_unclear:'Gmail-Sammelprüfung unvollständig',cache:'Reservierungsspeicher geladen',inventory:'Prüft WESTbahn-Ticketbestand',checkout:'Bestellvorgang gestartet',reconcile:'Prüft Bestellbestätigung',checking:'Prüft Reisetag',confirmed:'Bereits gebucht',new:'Neue Buchung bestätigt',retry:'Gmail-Abfrage wiederholen',stopped:'Buchung gestoppt – Bestätigung oder Prüfung unklar',skipped:'Prüfung unklar – übersprungen'};
  const stateLabel=s=>({active:'Aktiv',inactive:'Inaktiv',activating:'Läuft / startet',deactivating:'Wird beendet',failed:'Fehler'}[s]||s);
- const canStart=host&&Number.isInteger(host.monthsAhead)&&['inactive','failed'].includes(host.service.active)&&!busy&&!pending;
+ const canStart=host&&(Number.isInteger(host.monthsAhead)||Number.isInteger(host.weeksAhead))&&['inactive','failed'].includes(host.service.active)&&!busy&&!pending;
  const running=['active','activating'].includes(host?.service?.active);
  const p=host?.progress;
  const fmt=d=>d?new Date(d+'T00:00:00Z').toLocaleDateString('de-AT',{timeZone:'UTC',day:'2-digit',month:'2-digit',year:'numeric'}):'—';
@@ -157,7 +160,7 @@ export default function OracleStatusScreen(){
  <ActionButton secondary title="Reservierungskalender öffnen" onPress={()=>setTab('tickets')}/>
  </>:null}
  {tab==='tickets'?<>
- <BookingCalendar pendingDates={pendingDates} reservations={host?.reservations} saved={saved} report={report} horizon={host?.monthsAhead} progress={running?p:null}/>
+ <BookingCalendar pendingDates={pendingDates} reservations={host?.reservations} saved={saved} report={report} horizon={host?.monthsAhead} weeks={host?.weeksAhead} progress={running?p:null}/>
  <Card><Heading subtitle="Nur nachgewiesene Sitzplätze">Meine Reservierungen</Heading>
  {Array.isArray(saved)?[...saved].sort().map(d=>{const r=host?.reservations?.find(x=>x.date===d);return <View key={d} style={{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:12,borderBottomWidth:1,borderColor:T.line}}><View style={{flex:1}}><Body>{fmt(d)}</Body><Muted>{pendingDates?.includes(d)?'Ungeklärt':r?.source==='manual_westbahn_verification'?'Manuell bestätigt':r?.source==='official_email'?'Gmail-Nachweis':r?.source==='official_account'?'WESTbahn-Konto':'Gespeicherter Nachweis'}</Muted></View><View style={{padding:10,borderRadius:12,backgroundColor:'#193D35'}}><Text style={{color:'#69DDB0',fontWeight:'800'}}>{r?.seat||'—'}</Text><Text style={{color:T.muted,fontSize:10}}>Sitzplatz</Text></View></View>}):<Muted>Serverspeicher nicht verfügbar.</Muted>}
  </Card></>:null}
@@ -169,7 +172,7 @@ export default function OracleStatusScreen(){
  {tab==='settings'?<>
  <Card><View style={{borderLeftWidth:4,borderLeftColor:sectionColors.settings,paddingLeft:10}}><Heading subtitle="Wann der Agent automatisch reserviert">Wochenautomatik</Heading></View><Body>{host?.timer?.enabled?'Aktiv':host?'Pausiert':'Unbekannt'}</Body><ActionButton title={host?.timer?.enabled?'Automatik pausieren':'Automatik fortsetzen'} secondary disabled={!host||busy||!!pending} onPress={()=>confirm(host.timer.enabled?'pause':'resume')}/>
  <Muted>Montagszeit (Wien)</Muted><TextInput accessibilityLabel="Montagszeit" value={time} onChangeText={setTime} style={styles.input} maxLength={5}/><ActionButton title="Zeitplan ändern" secondary disabled={!host?.timer.enabled||busy||!!pending||!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(time)} onPress={()=>confirm('schedule')}/></Card>
- <Card><Heading>Buchungsvorlauf</Heading><Body>Gespeichert: {host?.monthsAhead??'—'} Monate</Body><View style={{flexDirection:'row',gap:5}}>{[1,2,3,4,5,6].map(n=><Pressable key={n} accessibilityRole="button" accessibilityState={{selected:months===String(n)}} onPress={()=>setMonths(String(n))} style={{flex:1,minHeight:44,borderRadius:10,backgroundColor:months===String(n)?T.accent:T.surface2,alignItems:'center',justifyContent:'center'}}><Text style={{fontWeight:'800',color:months===String(n)?'#101820':T.text}}>{n}</Text></Pressable>)}</View><ActionButton title="Vorlauf speichern" secondary disabled={!host||busy||!!pending} onPress={()=>confirm('horizon')}/></Card>
+ <Card><Heading>Buchungsvorlauf</Heading><Body>Gespeichert: {host?.weeksAhead?host.weeksAhead+(host.weeksAhead===1?' Woche':' Wochen'):(host?.monthsAhead??'—')+' Monate'}</Body><Muted>Wochen</Muted><View style={{flexDirection:'row',gap:5}}>{[1,2,3].map(n=><Pressable key={n} accessibilityRole="button" accessibilityState={{selected:weeks===n}} onPress={()=>setWeeks(n)} style={{flex:1,minHeight:44,borderRadius:10,backgroundColor:weeks===n?T.accent:T.surface2,alignItems:'center',justifyContent:'center'}}><Text style={{fontWeight:'800',color:weeks===n?'#101820':T.text}}>{n} {n===1?'Woche':'Wochen'}</Text></Pressable>)}</View><Muted>Monate</Muted><View style={{flexDirection:'row',gap:5}}>{[1,2,3,4,5,6].map(n=><Pressable key={n} accessibilityRole="button" accessibilityState={{selected:!weeks&&months===String(n)}} onPress={()=>{setWeeks(null);setMonths(String(n));}} style={{flex:1,minHeight:44,borderRadius:10,backgroundColor:!weeks&&months===String(n)?T.accent:T.surface2,alignItems:'center',justifyContent:'center'}}><Text style={{fontWeight:'800',color:!weeks&&months===String(n)?'#101820':T.text}}>{n}</Text></Pressable>)}</View><ActionButton title="Vorlauf speichern" secondary disabled={!host||busy||!!pending} onPress={()=>confirm('horizon')}/></Card>
  <Card><Heading>Server & Sicherheit</Heading><Body>Telegram: {host?.telegramConfigured?'Konfiguriert':'Nicht bestätigt'}</Body><Body>Dienst: {stateLabel(host?.service?.active)||'Unbekannt'}</Body><Muted>Bestehende Preisprüfung und Doppelbuchungsschutz unverändert. Abbruch storniert keine Tickets.</Muted></Card>
  </>:null}
  <Muted>Serverstand: {host?.timestamp?new Date(host.timestamp).toLocaleString('de-AT'):'Nicht verfügbar'} · Aktualisierung alle 20 Sekunden</Muted>
