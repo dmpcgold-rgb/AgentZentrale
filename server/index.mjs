@@ -29,6 +29,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
 
   const automation = createAutomationRouter({
     now,
+    historyFile:env.AUTOMATION_HISTORY_FILE,
     gmailStatus:()=>gmailConnectionStatus({env,fetchImpl}),
     buildStatus:async()=>{
       const repo='dmpcgold-rgb/AgentZentrale';
@@ -144,7 +145,7 @@ export function createAgentHandler({ env = process.env, fetchImpl = fetch, now =
       rateLimit();
       const route = new URL(req.url, 'http://localhost');
       const is = (method, path) => req.method === method && route.pathname === path;
-      if (is('GET', '/automation/history')) return write(res,200,{items:automation.history(),persistent:false});
+      if (is('GET', '/automation/history')) return write(res,200,{items:automation.history(),persistent:automation.persistent()});
       if (is('GET', '/automation/tasks')) return write(res,200,{types:automation.types(),readOnly:true});
       if (is('POST', '/automation/tasks')) return write(res,200,await automation.dispatch(await readJson(req)));
       if (is('GET', '/automation/status')) return write(res, 200, { online: true, aiEnabled: aiEnabled(), githubWriteEnabled: githubWritable(), westbahnProviderConnected: Boolean(westbahn.status()?.providerConnected), westbahnRunning: Boolean(westbahn.status()?.running), bookingAuthorized: false, workflowAccessConfigured: Boolean(env.N8N_READ_TOKEN?.length >= 32 && env.N8N_READ_TOKEN !== configuredToken) });
