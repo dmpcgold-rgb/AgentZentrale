@@ -23,3 +23,14 @@ test('concurrent identical requests share one execution',async()=>{
  assert.equal(count,1);
  assert.deepEqual(results[0],results[1]);
 });
+
+test('history contains only metadata and records failures once',async()=>{
+ const router=createAutomationRouter({status:()=>({secret:'not logged'}),gmailStatus:async()=>{throw Error('private error');}});
+ await router.dispatch({id:'history_01',type:'system-status'});
+ const job={id:'history_02',type:'gmail-connection-status'};
+ await assert.rejects(router.dispatch(job));await assert.rejects(router.dispatch(job));
+ assert.equal(router.history().length,2);
+ assert.equal(router.history()[0].status,'failed');
+ assert.equal(router.history()[1].status,'completed');
+ assert.equal(JSON.stringify(router.history()).includes('secret'),false);
+});
